@@ -1,0 +1,6 @@
+{
+	"db": {
+		"tsconfig": "./tsconfig.json",
+		"migration-filename-format": "utc"
+	}
+}

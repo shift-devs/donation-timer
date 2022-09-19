@@ -1,0 +1,45 @@
+version: "3.0"
+services:
+  postgres:
+    image: postgres:14.5-alpine
+    environment:
+      - POSTGRES_PASSWORD=postgres
+    networks:
+      - web
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U postgres"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+  front:
+    network_mode: "host"
+    restart: always
+    build:
+      context: .
+      dockerfile: prod/Dockerfile_front
+  node:
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - CLIENT_ID=${CLIENT_ID}
+      - DATABASE_URL=${DATABASE_URL}
+    build:
+      context: .
+      dockerfile: prod/Dockerfile_back
+    ports:
+      - "3003:3003"
+    networks:
+      - web
+    volumes:
+      - ./back/src:/home/node/app/src
+networks:
+  web:
+    driver: bridge
+volumes:
+  pgdata:

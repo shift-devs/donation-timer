@@ -1,0 +1,30 @@
+{
+	"name": "subathon-timer",
+	"version": "1.0.0",
+	"description": "",
+	"main": "src/index.ts",
+	"author": "lobomfz",
+	"scripts": {
+		"dev": "npx nodemon -e ts  --exec \"npx tsc && node build/index.js\"",
+		"start": "npx tsc && node build/index.js",
+		"migrate": "npx node-pg-migrate up"
+	},
+	"dependencies": {
+		"axios": "^0.27.2",
+		"config": "^3.3.8",
+		"node-pg-migrate": "^6.2.2",
+		"pg": "^8.8.0",
+		"sequelize": "^6.21.6",
+		"socket.io-client": "^2.5.0",
+		"tmi.js": "^1.8.5",
+		"ts-node": "^10.9.1",
+		"ws": "^8.8.1"
+	},
+	"devDependencies": {
+		"@types/socket.io-client": "^1.4.36",
+		"@types/tmi.js": "^1.8.1",
+		"@types/ws": "^8.5.3",
+		"tsc-watch": "^5.0.3",
+		"typescript": "^4.8.3"
+	}
+}

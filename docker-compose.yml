@@ -1,0 +1,54 @@
+version: "3.0"
+services:
+  postgres:
+    image: postgres:14.5
+    environment:
+      - POSTGRES_PASSWORD=postgres
+    networks:
+      - web
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  node:
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - CLIENT_ID=${CLIENT_ID}
+      - DATABASE_URL=${DATABASE_URL}
+    build:
+      context: .
+      dockerfile: Dockerfile_back
+    ports:
+      - "3003:3003"
+    networks:
+      - web
+    volumes:
+      - ./back/src:/home/node/app/src
+  react:
+    network_mode: "host"
+    restart: always
+    environment:
+      - VITE_WEBSOCKET_URL=${VITE_WEBSOCKET_URL}
+      - VITE_CLIENT_ID=${VITE_CLIENT_ID}
+      - VITE_REDIRECT_URI=${VITE_REDIRECT_URI}
+      - VITE_BASE_URL=${VITE_BASE_URL}
+    build:
+      context: .
+      dockerfile: Dockerfile_front
+    volumes:
+      - ./front/src:/home/node/app/src
+networks:
+  web:
+    driver: bridge
+volumes:
+  pgdata:
