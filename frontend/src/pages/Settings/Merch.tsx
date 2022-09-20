@@ -43,8 +43,6 @@ const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 }) => {
 	const [fetched, setFetched] = useState(false);
 
-	console.log("shit", ws.dollarTime);
-
 	useEffect(() => {
 		if (typeof settings.subTime == "number") setFetched(true);
 	}, [settings]);
@@ -62,7 +60,7 @@ const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 				<Center>
 					<Grid templateColumns='repeat(4, 1fr)' gap={8}>
 						{Object.entries(merchValues).map((key, k) => (
-							<GridItem colSpan={1}>
+							<GridItem key={k} colSpan={1}>
 								<Button
 									onClick={() => {
 										addTime(ws, endTime, key[1] * settings.dollarTime);

@@ -30,4 +30,7 @@ export interface wsType extends WebSocket {
 	currentHype: number;
 	hypeLevel: number;
 	bonusTime: number;
+	shouldLogin: boolean;
+	currentTimeTier: number;
+	shouldCap: boolean;
 }

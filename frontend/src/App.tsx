@@ -4,8 +4,8 @@ import Login from "./pages/Login";
 import Home from "./pages/Home";
 import Settings from "./pages/Settings";
 import HypeTimer from "./pages/HypeTimer";
-import TimePerSub from "./pages/TimePerSub";
-import SubsUntil from "./pages/SubsUntil";
+import CurrentTimeBonus from "./pages/CurrentTimeBonus";
+import CurrentDollarBonus from "./pages/DollarBonuses";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { ChakraProvider } from "@chakra-ui/react";
 
@@ -19,8 +19,8 @@ const App: React.FC = () => {
 					<Route path='/login' element={<Login />} />
 					<Route path='/settings' element={<Settings />} />
 					<Route path='/hypetimer' element={<HypeTimer />} />
-					<Route path='/timepersub' element={<TimePerSub />} />
-					<Route path='/subsuntil' element={<SubsUntil />} />
+					<Route path='/timetiers' element={<CurrentTimeBonus />} />
+					<Route path='/dollartime' element={<CurrentDollarBonus />} />
 				</Routes>
 			</ChakraProvider>
 		</Router>
