@@ -15,6 +15,7 @@ import {
 	Button,
 	Center,
 } from "@chakra-ui/react";
+import { setCap } from "../Api";
 
 const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
@@ -27,6 +28,15 @@ const Settings: React.FC = () => {
 	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
+	const [capStatus, setCapStatus] = useState("Enable 30h cap");
+
+	const toggleCap = () => {
+		if (capStatus === "Enable 30h cap") {
+			setCap(ws, true);
+		} else {
+			setCap(ws, false);
+		}
+	};
 
 	const token = new URLSearchParams(window.location.search).get("token");
 
@@ -50,6 +60,8 @@ const Settings: React.FC = () => {
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
+				if (response.cap) setCapStatus("Disable 30h cap");
+				else setCapStatus("Enable 30h cap");
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -155,29 +167,38 @@ const Settings: React.FC = () => {
 							);
 						}}
 					>
-						Copy hype timer URL
+						Copy hype URL
 					</Button>
 					&nbsp;
 					<Button
 						colorScheme='purple'
 						onClick={() => {
 							navigator.clipboard.writeText(
-								`${BASE_URL}/timepersub?token=${token}`
+								`${BASE_URL}/timetiers?token=${token}`
 							);
 						}}
 					>
-						Copy time per sub URL
+						Copy timer tiers URL
 					</Button>
 					&nbsp;
 					<Button
 						colorScheme='purple'
 						onClick={() => {
 							navigator.clipboard.writeText(
-								`${BASE_URL}/subsuntil?token=${token}`
+								`${BASE_URL}/dollartime?token=${token}`
 							);
 						}}
 					>
-						Copy subs until URL
+						Copy dollar time URL
+					</Button>
+					&nbsp;
+					<Button
+						colorScheme='purple'
+						onClick={() => {
+							toggleCap();
+						}}
+					>
+						{capStatus}
 					</Button>
 				</Center>
 			</div>

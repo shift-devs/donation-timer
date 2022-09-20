@@ -4,7 +4,7 @@ import * as consts from "../Consts";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
-let forceSync: any;
+let timer_color: string = "white";
 
 const Widget: React.FC = () => {
 	const [seconds, setSeconds] = useState(0);
@@ -12,10 +12,11 @@ const Widget: React.FC = () => {
 
 	const updateSeconds = (endTime: number) => {
 		console.log(
-			`Force syncing endtime to ${endTime} and seconds to ${
+			`Syncing endtime to ${endTime} and seconds to ${
 				endTime - new Date().getTime() / 1000
 			} `
 		);
+
 		setSeconds(Math.round(endTime - new Date().getTime() / 1000));
 	};
 
@@ -28,18 +29,7 @@ const Widget: React.FC = () => {
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
-				if (!forceSync)
-					forceSync = setInterval(
-						() => updateSeconds(response.endTime),
-						10 * 1000
-					);
-				else {
-					clearInterval(forceSync);
-					forceSync = setInterval(
-						() => updateSeconds(response.endTime),
-						10 * 1000
-					);
-				}
+
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -81,7 +71,7 @@ const Widget: React.FC = () => {
 	if (token)
 		return (
 			<div>
-				<Timer input_seconds={seconds} textAlign='start' color='white' />
+				<Timer input_seconds={seconds} textAlign='start' color={timer_color} />
 			</div>
 		);
 	else return <div>Invalid URL</div>;

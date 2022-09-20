@@ -1,31 +1,29 @@
-import Timer from "../Timer";
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
-let forceSync: any;
-let forceUpdateTimer = 5;
-let timer: string;
 
-const TimePerSub: React.FC = () => {
-	const [seconds, setSeconds] = useState(0);
+const CurrentTimeBonus: React.FC = () => {
+	const [nextTimeTier, setNextTimeTier] = useState(3600);
 	const [fetched, setFetched] = useState(false);
 
 	const connectWs = () => {
-		ws = new WebSocket(`${WS_URL}?token=${token}&page=hype`);
+		ws = new WebSocket(`${WS_URL}?token=${token}&page=timebonus`);
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
 			console.log(`received ${event.data}`);
 
-			if ("subTime" in response) {
-				setSeconds(response.subTime + response.bonusTime);
+			if ("error" in response) {
+				console.log(`error: ${response.error}`);
+			}
+
+			if ("hypeEndTime" in response) {
+				setNextTimeTier(response.nextTimeTier);
 				if (!fetched) {
 					setFetched(true);
 				}
-			} else if ("error" in response) {
-				console.log(`error: ${response.data}`);
 			}
 		};
 
@@ -47,29 +45,39 @@ const TimePerSub: React.FC = () => {
 		return () => ws.close();
 	}, []);
 
-	if (seconds > 0)
-		timer = `${Math.floor(seconds / 60) % 60}:${("0" + (seconds % 60)).slice(
-			-2
-		)}`;
-	else timer = "0:00";
-
 	const token = new URLSearchParams(window.location.search).get("token");
-	if (token)
+	if (fetched && nextTimeTier < 21)
 		return (
 			<div
 				className='Timer'
 				style={{
-					color: "white",
+					color: "#00ffff",
 					fontFamily: "Roboto, sans-serif",
 					fontSize: "128px",
-					fontWeight: 400,
+					fontWeight: 600,
 					textAlign: "left",
 				}}
 			>
-				{timer}
+				Reach <span style={{ color: "white" }}>{nextTimeTier}:00:00</span> for
+				sub !value increase!
 			</div>
 		);
-	else return <div>Invalid URL</div>;
+	else if (fetched && nextTimeTier > 20)
+		return (
+			<div
+				className='Timer'
+				style={{
+					color: "#00ffff",
+					fontFamily: "Roboto, sans-serif",
+					fontSize: "128px",
+					fontWeight: 600,
+					textAlign: "left",
+				}}
+			>
+				HOLD THE LINE!
+			</div>
+		);
+	else return <div>Loading</div>;
 };
 
-export default TimePerSub;
+export default CurrentTimeBonus;

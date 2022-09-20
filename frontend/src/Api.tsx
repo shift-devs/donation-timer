@@ -6,6 +6,7 @@ export function sync(ws: WebSocket) {
 	);
 	return 1;
 }
+
 export function setSetting(ws: WebSocket, setting: string, value: number) {
 	ws.send(
 		JSON.stringify({
@@ -52,5 +53,16 @@ export function setEndTime(ws: WebSocket, endTime: number) {
 		})
 	);
 	sync(ws);
+	return 1;
+}
+
+export function setCap(ws: WebSocket, value: boolean) {
+	console.log(`setting cap to ${value}`);
+	ws.send(
+		JSON.stringify({
+			event: "setCap",
+			value: value,
+		})
+	);
 	return 1;
 }
