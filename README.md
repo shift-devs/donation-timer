@@ -1,3 +1,3 @@
-# subathon-timer
+# Donation Timer
 
-world's first non-heroku working timer (crazy)
+Timer/Stopwatch controlled by various Twitch donation types.
