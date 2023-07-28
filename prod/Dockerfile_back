@@ -1,9 +1,18 @@
 FROM node:18-alpine
 
+ARG HOME_DIR
+ENV HOME_DIR "/home/node/app"
+
 USER root
-COPY back/ /home/node/app
-WORKDIR /home/node/app
-RUN rm -rf node_modules package-lock.json build && chown -R node:node /home/node/app
+
+COPY back/ $HOME_DIR
+COPY .env/ $HOME_DIR
+
+WORKDIR $HOME_DIR
+
+RUN chown -R node:node $HOME_DIR
+RUN chmod -R 700 $HOME_DIR
+
 USER node
 
 RUN npm install --save-dev
