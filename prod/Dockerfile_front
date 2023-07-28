@@ -1,19 +1,27 @@
 FROM node:18-alpine as build-stage
 
 USER root
-COPY front/ /home/node/app
-COPY .env /home/node/app/.env
-WORKDIR /home/node/app
-RUN rm -rf node_modules package-lock.json && chown -R node:node /home/node/app
-USER node
 
-RUN npm install && npm run build
+ARG HOME_DIR
+ENV HOME_DIR "/home/node/app"
+
+COPY front/ $HOME_DIR
+COPY .env/ $HOME_DIR
+
+RUN chown -R node:node $HOME_DIR
+RUN chmod -R 700 $HOME_DIR
+
+USER node
+WORKDIR $HOME_DIR
+
+RUN npm install
+RUN npm run build
 
 FROM nginx:1.15
 
 COPY --from=build-stage /home/node/app/dist/ /usr/share/nginx/html
 COPY ./prod/nginx.conf /etc/nginx/nginx.conf
-COPY ./prod/timer.crt /etc/ssl/timer.crt
-COPY ./prod/timer.key /etc/ssl/private/timer.key
+# COPY ./prod/timer.crt /etc/ssl/timer.crt
+# COPY ./prod/timer.key /etc/ssl/private/timer.key
 
 RUN rm /etc/nginx/conf.d/default.conf
