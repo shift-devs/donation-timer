@@ -14,11 +14,11 @@ const pages: Array<string> = ["settings", "widget", "hype", "timebonus"];
 
 var now = Math.trunc(Date.now() / 1000);
 
-const allowedUsers = ["shift", "lobomfz"];
+const allowedUsers = ["shift", "lobomfz", "yoman47"];
 
 export const defaultValues = {
-	sub: 70,
-	dollar: 13,
+	sub: 85,
+	dollar: 21,
 	pushFrequency: 1,
 	timeoutTime: 30,
 	widgetSyncFrequency: 1,
@@ -97,6 +97,7 @@ const hypeSettings = {
 };
 
 function addHype(ws: wsType) {
+	return 0;
 	if (ws.type !== "settings") return 0;
 	ws.currentHype += 1;
 
@@ -128,9 +129,10 @@ function addToEndTime(ws: wsType, seconds: number, tier: number = 1) {
 		var timeToAdd = seconds + ws.bonusTime;
 		ws.endTime += Math.floor(timeToAdd);
 		console.log(`adding ${timeToAdd} to ${ws.name}`);
-		for (var i = 0; i < tier; i++) {
-			addHype(ws);
-		}
+		// ! Disabled hype addition. -yoman
+		//for (var i = 0; i < tier; i++) {
+			//addHype(ws);
+		//}
 	}
 	syncTimer(ws);
 }
