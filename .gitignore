@@ -7,7 +7,6 @@ yarn-error.log*
 lerna-debug.log*
 settings.json
 package-lock.json
-nginx.conf
 timer.crt
 timer.key
 build
