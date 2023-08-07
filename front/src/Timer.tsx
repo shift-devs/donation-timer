@@ -35,7 +35,7 @@ const Timer: React.FC<{
 			shortBeep.currentTime=0;
 			shortBeep.play();
 		}
-		else if (input_seconds >= 3) {
+		else if (input_seconds <= 3) {
 			shorterBeep.pause();
 			shorterBeep.currentTime=0;
 			shorterBeep.play();
