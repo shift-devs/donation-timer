@@ -56,7 +56,7 @@ const Timer: React.FC<{
 				background:"#1A1416",
 				color: "white",
 
-				fontFamily: "'Martian Mono', monospace",
+				fontFamily: "'Staatliches', cursive",
 				textShadow: "#ff0000 1px 0 10px",
 				fontSize: "128px",
 				fontWeight: 400,
