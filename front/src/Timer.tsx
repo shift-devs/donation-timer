@@ -53,7 +53,7 @@ const Timer: React.FC<{
 			className='Timer'
 			style={{
 				// ! We're just forcing this to white on black now.
-				background:"#1A1416",
+				background:"#16F60A",
 				color: "white",
 
 				fontFamily: "'Staatliches', cursive",
