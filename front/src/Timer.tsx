@@ -52,8 +52,12 @@ const Timer: React.FC<{
 		<div
 			className='Timer'
 			style={{
-				color: timer_color,
-				fontFamily: "Roboto, sans-serif",
+				// ! We're just forcing this to white on black now.
+				background:"#1A1416",
+				color: "white",
+
+				fontFamily: "'Martian Mono', monospace",
+				textShadow: "#ff0000 1px 0 10px",
 				fontSize: "128px",
 				fontWeight: 400,
 				textAlign: textAlign,
