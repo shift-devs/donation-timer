@@ -8,9 +8,9 @@ const Timer: React.FC<{
 	color?: any;
 }> = ({ input_seconds, textAlign = "center", color = "black" }) => {
 
-	const [beep] = useState(new Audio('/public/beep.wav'))
-	const [shortBeep] = useState(new Audio('/public/2beeps1second.wav'))
-	const [shorterBeep] = useState(new Audio('/public/under3seconds.wav'))
+	const [beep] = useState(new Audio('/beep.wav'))
+	const [shortBeep] = useState(new Audio('/2beeps1second.wav'))
+	const [shorterBeep] = useState(new Audio('/under3seconds.wav'))
 
 	if (input_seconds > 0) {
 		timer = `${Math.floor(input_seconds / 3600)}:${(

@@ -1,0 +1,16 @@
+FROM node:18-alpine
+
+USER root
+
+ENV HOME_DIR "/home/node/app"
+WORKDIR $HOME_DIR
+COPY back/ .
+
+RUN chown -R node:node $HOME_DIR
+RUN chmod -R 700 $HOME_DIR
+
+USER node
+
+RUN npm install
+
+CMD npm run migrate && npm start

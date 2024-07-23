@@ -7,9 +7,16 @@ yarn-error.log*
 lerna-debug.log*
 settings.json
 package-lock.json
+
+# Lobo's Domain Certificate and Key
 timer.crt
 timer.key
+
+# Typescript Build Directory
 build
+
+# Vite Temp Compiled Config
+vite.config.*.timestamp-*
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

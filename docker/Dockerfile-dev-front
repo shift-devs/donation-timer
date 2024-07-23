@@ -1,0 +1,11 @@
+FROM node:18-alpine
+
+USER root
+
+ENV HOME_DIR "/home/node/app"
+VOLUME $HOME_DIR
+WORKDIR $HOME_DIR
+
+COPY front/ .
+
+CMD npm install && npm run dev

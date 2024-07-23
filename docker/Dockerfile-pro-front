@@ -1,0 +1,24 @@
+FROM node:18-alpine as build-stage
+
+USER root
+
+ENV HOME_DIR "/home/node/app"
+WORKDIR $HOME_DIR
+COPY front/ .
+# Required in Production Compiled Vite
+COPY docker/.env .
+
+RUN chown -R node:node .
+RUN chmod -R 700 .
+
+USER node
+
+RUN npm install
+RUN npm run build
+
+FROM nginx:1.27
+
+COPY --from=build-stage --chown=nginx /home/node/app/dist/ /usr/share/nginx/html
+COPY ./docker/nginx.conf /etc/nginx/nginx.conf
+
+RUN rm /etc/nginx/conf.d/default.conf

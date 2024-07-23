@@ -1,0 +1,57 @@
+name: donation-timer
+services:
+  dev-front:
+    restart: always
+    environment:
+      - CLIENT_ID=${CLIENT_ID}
+      - VITE_CLIENT_ID=${VITE_CLIENT_ID}
+      - VITE_WEBSOCKET_URL=${VITE_WEBSOCKET_URL}
+      - VITE_REDIRECT_URL=${VITE_REDIRECT_URL}
+      - VITE_BASE_URL=${VITE_BASE_URL}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-dev-front
+    ports:
+      - "3080:5173"
+    volumes:
+      - ../front/:/home/node/app/
+  dev-back:
+    restart: always
+    environment:
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - CLIENT_ID=${CLIENT_ID}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-dev-back
+    ports:
+      - "3003:3003"
+    networks:
+      - backnet
+    volumes:
+      - ../back/:/home/node/app/
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:14.5-alpine
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    ports:
+      - 5432:5432
+    networks:
+      - backnet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U postgres"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+networks:
+  backnet:
+    driver: bridge
+volumes:
+  pgdata:

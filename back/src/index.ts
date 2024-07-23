@@ -14,7 +14,7 @@ const pages: Array<string> = ["settings", "widget", "hype", "timebonus"];
 
 var now = Math.trunc(Date.now() / 1000);
 
-const allowedUsers = ["shift", "lobomfz", "yoman47", "darkrta", "the_ivo_robotnic"];
+const allowedUsers = ["shift", "lobomfz", "yoman47", "darkrta", "the_ivo_robotnic", "aaronrules5"];
 
 export const defaultValues = {
 	sub: 85,
