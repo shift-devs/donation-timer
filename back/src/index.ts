@@ -202,7 +202,7 @@ function startTMI(ws: wsType) {
 			if (tags.mod || tags.username.toLowerCase() == ws.name)
 				switch (mSplit[0]) {
 					case "!addsub":
-						if (mSplit[1] || parseInt(mSplit[1]) < 200)
+						if (mSplit[1] && parseInt(mSplit[1]) < 200)
 							for (var i = 0; i < parseInt(mSplit[1]); i++) {
 								console.log(`adding: ${ws.subTime}`);
 								addToEndTime(ws, ws.subTime, 1);
@@ -210,10 +210,12 @@ function startTMI(ws: wsType) {
 						else addToEndTime(ws, ws.subTime, 1);
 						break;
 					case "!addtime":
-						addToEndTime(ws, parseInt(mSplit[1]), 0);
+						let timeToAdd = parseInt(mSplit[1]);
+						if (timeToAdd)
+							addToEndTime(ws, parseInt(mSplit[1]), 0);
 						break;
 					case "!addcombo":
-						if (mSplit[1] || parseInt(mSplit[1]) < 200)
+						if (mSplit[1] && parseInt(mSplit[1]) < 200)
 							for (var i = 0; i < parseInt(mSplit[1]); i++) {
 								addHype(ws);
 							}
