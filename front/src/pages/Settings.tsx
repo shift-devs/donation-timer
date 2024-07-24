@@ -19,6 +19,7 @@ import { setCap } from "../Api";
 
 const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
+const token = new URLSearchParams(window.location.search).get("token");
 
 let ws: WebSocket;
 let forceSync: any;
@@ -38,16 +39,17 @@ const Settings: React.FC = () => {
 		}
 	};
 
-	const token = new URLSearchParams(window.location.search).get("token");
-
 	const updateSeconds = (endTime: number) => {
+		let tempSeconds = Math.round(endTime - new Date().getTime() / 1000);
+		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
 		console.log(
 			`Force syncing endtime to ${endTime} and seconds to ${
-				endTime - new Date().getTime() / 1000
+				tempSeconds
 			} `
 		);
 		setEndTime(endTime);
-		setSeconds(Math.round(endTime - new Date().getTime() / 1000));
+		if (seconds != tempSeconds)
+			setSeconds(tempSeconds);
 	};
 
 	const connectWs = () => {
@@ -101,15 +103,15 @@ const Settings: React.FC = () => {
 	}, []);
 
 	useEffect(() => {
-		const interval = setInterval(() => {
+		const interval = setTimeout(() => {
 			if (seconds > 0) {
 				setSeconds((prev) => prev - 1);
 			}
 		}, 1000);
 		return () => {
-			clearInterval(interval);
-		};
-	}, [fetched, seconds]);
+			clearTimeout(interval);
+		}
+	},[seconds]);
 
 	if (fetched)
 		return (
