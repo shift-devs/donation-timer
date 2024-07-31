@@ -36,5 +36,15 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
 			notNull: true,
 			default: pgm.func("current_timestamp"),
 		},
+		shouldCap: {
+			type: "boolean",
+			notNull: true,
+			default: false,
+		},
+		ignoreAnon: {
+			type: "boolean",
+			notNull: true,
+			default: false,
+		},
 	});
 }

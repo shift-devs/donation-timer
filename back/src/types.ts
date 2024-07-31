@@ -10,6 +10,8 @@ export type user = {
 	currentHype: number;
 	hypeLevel: number;
 	bonusTime: number;
+	shouldCap: boolean;
+	ignoreAnon: boolean;
 };
 
 export interface wsType extends WebSocket {

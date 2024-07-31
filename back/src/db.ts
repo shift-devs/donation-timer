@@ -59,6 +59,12 @@ export const Users = sequelize.define("User", {
 	currentHype: {
 		type: DataTypes.INTEGER,
 	},
+	shouldCap: {
+		type: DataTypes.BOOLEAN,
+	},
+	ignoreAnon: {
+		type: DataTypes.BOOLEAN,
+	},
 });
 
 export async function createUser(user: user) {
@@ -75,6 +81,8 @@ export async function createUser(user: user) {
 		bonusTime: user.bonusTime,
 		hypeLevel: user.hypeLevel,
 		currentHype: user.currentHype,
+		shouldCap: false,
+		ignoreAnon: false,
 	});
 }
 

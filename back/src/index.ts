@@ -431,6 +431,8 @@ async function login(ws: wsType, accessToken: string) {
 						bonusTime: 0,
 						hypeLevel: 0,
 						currentHype: 0,
+						shouldCap: false,
+						ignoreAnon: false,
 					};
 					Object.assign(ws, newUser);
 					createUser(newUser);
@@ -464,6 +466,8 @@ async function pushToDb(ws: wsType) {
 				bonusTime: ws.bonusTime,
 				hypeLevel: ws.hypeLevel,
 				currentHype: ws.currentHype,
+				shouldCap: ws.shouldCap,
+				ignoreAnon: ws.ignoreAnon,
 			},
 			{
 				where: {
