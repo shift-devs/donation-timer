@@ -282,9 +282,9 @@ function installStreamlabsMerch(ws: wsType){
 		.get(`https://streamlabs.com/api/v6/${httpRes.data.token}/merchandise/products`, {
 		})
 		.then(httpRes2 => {
-			let merchProducts = httpRes2.data.products;
 			if (Math.floor(httpRes2.status / 100)!=2)
 				return;
+			let merchProducts = httpRes2.data.products;
 			merchProducts.map((x: any)=>{
 				ws.merchValues[x.name] = x.variants[0].price / 100;
 			})
