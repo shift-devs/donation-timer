@@ -15,7 +15,7 @@ import {
 	Button,
 	Center,
 } from "@chakra-ui/react";
-import { setCap } from "../Api";
+import { setCap, setAnon } from "../Api";
 
 const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
@@ -30,6 +30,7 @@ const Settings: React.FC = () => {
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
 	const [capStatus, setCapStatus] = useState("Enable 30h cap");
+	const [anonStatus, setAnonStatus] = useState("Ignore Anonymous Giftsubs");
 
 	const toggleCap = () => {
 		if (capStatus === "Enable 30h cap") {
@@ -39,6 +40,14 @@ const Settings: React.FC = () => {
 		}
 	};
 
+	const toggleAnon = () => {
+		if (anonStatus === "Ignore Anonymous Giftsubs") {
+			setAnon(ws, true);
+		} else {
+			setAnon(ws, false);
+		}
+	};
+	
 	const updateSeconds = (endTime: number) => {
 		let tempSeconds = Math.round(endTime - new Date().getTime() / 1000);
 		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
@@ -64,6 +73,8 @@ const Settings: React.FC = () => {
 				updateSeconds(response.endTime);
 				if (response.cap) setCapStatus("Disable 30h cap");
 				else setCapStatus("Enable 30h cap");
+				if (response.anon) setAnonStatus("Unignore Anonymous Giftsubs")
+				else setAnonStatus("Ignore Anonymous Giftsubs");
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -85,6 +96,7 @@ const Settings: React.FC = () => {
 		};
 
 		ws.onclose = (event) => {
+			setFetched(false);
 			console.log(
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
@@ -201,6 +213,15 @@ const Settings: React.FC = () => {
 						}}
 					>
 						{capStatus}
+					</Button>
+					&nbsp;
+					<Button
+						colorScheme='purple'
+						onClick={() => {
+							toggleAnon();
+						}}
+					>
+						{anonStatus}
 					</Button>
 				</Center>
 			</div>

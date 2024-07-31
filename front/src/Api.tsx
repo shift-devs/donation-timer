@@ -66,3 +66,15 @@ export function setCap(ws: WebSocket, value: boolean) {
 	);
 	return 1;
 }
+
+
+export function setAnon(ws: WebSocket, value: boolean) {
+	console.log(`setting ignoreAnon to ${value}`);
+	ws.send(
+		JSON.stringify({
+			event: "setAnon",
+			value: value,
+		})
+	);
+	return 1;
+}

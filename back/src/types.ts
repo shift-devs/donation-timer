@@ -33,4 +33,6 @@ export interface wsType extends WebSocket {
 	shouldLogin: boolean;
 	currentTimeTier: number;
 	shouldCap: boolean;
+	ignoreAnon: boolean;
+	merchValues: Object;
 }

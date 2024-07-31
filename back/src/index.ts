@@ -224,7 +224,7 @@ function startTMI(ws: wsType) {
 				}
 		}
 	});
-
+	/*
 	client.on(
 		"subgift",
 		(channel, username, streakMonths, recipient, methods, userstate) => {
@@ -266,6 +266,30 @@ function startTMI(ws: wsType) {
 			addToEndTime(ws, tier * ws.subTime, tier);
 		}
 	);
+	*/
+}
+
+function installStreamlabsMerch(ws: wsType){
+	console.log(`Getting streamlabs merch`)
+	ws.merchValues = {};
+	axios
+	.get(`https://streamlabs.com/api/v6/user/${ws.name}`, {
+	})
+	.then((httpRes) => {
+		if (Math.floor(httpRes.status / 100)!=2)
+			return;
+		axios
+		.get(`https://streamlabs.com/api/v6/${httpRes.data.token}/merchandise/products`, {
+		})
+		.then(httpRes2 => {
+			let merchProducts = httpRes2.data.products;
+			if (Math.floor(httpRes2.status / 100)!=2)
+				return;
+			merchProducts.map((x: any)=>{
+				ws.merchValues[x.name] = x.variants[0].price / 100;
+			})
+		})
+	})
 }
 
 function connectStreamlabs(ws: wsType) {
@@ -289,6 +313,7 @@ function connectStreamlabs(ws: wsType) {
 
 	ws.socket.on("connect", () => {
 		console.log(`connected to ${ws.name} sl`);
+		installStreamlabsMerch(ws);
 		ws.slStatus = true;
 		syncTimer(ws);
 	});
@@ -299,8 +324,41 @@ function connectStreamlabs(ws: wsType) {
 
 	ws.socket.on("event", (e: any) => {
 		console.log(`slevent: ${JSON.stringify(e)}`);
-		if (e.type == "donation") {
-			addDollarToEndTime(ws, e.message[0].amount);
+		switch (e.type){
+			case "donation":
+				addDollarToEndTime(ws, e.message[0].amount);
+				break;
+			case "merch":
+				if (!ws.merchValues[e.message[0].product]){
+					console.log(`WARNING! ${e.message[0].product} NOT IN MERCHVALUES!`);
+					return;
+				}
+				addDollarToEndTime(ws, ws.merchValues[e.message[0].product]);
+				break;
+			case "subscription":
+			case "subMysteryGift":
+			case "resub":
+				if (ws.ignoreAnon){
+					switch (e.message[0].condition){
+						case "ANON_SUBSCRIPTION_GIFT":
+						case "MIN_ANON_SUBMYSTERYGIFT":
+							return;
+					}
+					if (e.message[0].sub_type == 'subgift'){
+						if (!e.message[0].gifter || e.message[0].gifter == '')
+							return;
+					}
+				}
+				var plan: string = e.message[0].sub_plan || "";
+				var tier: number = plan.toUpperCase().includes("PRIME") ? 1 : parseInt(plan) / 1000;
+				var numOfSubs: number = e.message[0].amount;
+				numOfSubs = numOfSubs ? numOfSubs : 1;
+				if (tier == 3) tier = 5;
+				addToEndTime(ws, tier * ws.subTime * numOfSubs, tier);
+				break;
+			case "bits":
+				addDollarToEndTime(ws, e.message[0].amount / 100);
+				break;
 		}
 	});
 }
@@ -332,6 +390,8 @@ async function syncTimer(ws: wsType) {
 			timeTier: ws.currentTimeTier,
 			nextTimeTier: hypeTiersTime[ws.currentTimeTier + 1] / 3600,
 			cap: ws.shouldCap,
+			anon: ws.ignoreAnon,
+			merchValues: ws.merchValues,
 			currentTimeTier: ws.currentTimeTier,
 		})
 	);
@@ -339,7 +399,6 @@ async function syncTimer(ws: wsType) {
 
 async function login(ws: wsType, accessToken: string) {
 	ws.slStatus = false;
-	console.log(`loggin in ${ws.name} on ${ws.type}`);
 	axios
 		.get(`https://api.twitch.tv/helix/users`, {
 			headers: {
@@ -559,6 +618,8 @@ function main() {
 		ws.currentTimeTier = 0;
 		ws.shouldCap = false;
 		ws.isAlive = true;
+		ws.ignoreAnon = false;
+		ws.merchValues = {};
 		ws.on("pong", () => heartbeat(ws));
 		var urlParams = url.parse(req.url, true).query;
 		if (
@@ -598,7 +659,7 @@ function main() {
 					syncTimer(ws);
 					break;
 				case "connectStreamlabs":
-					if (data.slToken.length < 300) ws.slToken = data.slToken;
+					if (data.slToken.length < 1000) ws.slToken = data.slToken;
 					connectStreamlabs(ws);
 					break;
 				case "setSetting":
@@ -610,6 +671,10 @@ function main() {
 					break;
 				case "setCap":
 					ws.shouldCap = Boolean(data.value) || false;
+					syncTimer(ws);
+					break;
+				case "setAnon":
+					ws.ignoreAnon = Boolean(data.value) || false;
 					syncTimer(ws);
 					break;
 			}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Button, Grid, GridItem, Center, Spinner } from "@chakra-ui/react";
 import { addTime, setEndTime } from "../../Api";
-
+/*
 const merchValues = {
 	"SHiFT-A-Thon 2023 Cap": 22.90,
 	"Matte Poster": 14.95,
@@ -38,6 +38,9 @@ const merchValues = {
 	"SHiFT Knit Cap": 22.95,
 	"SHiFT Grustler Apron": 22.9,
 };
+*/
+
+let merchValues: Object = {"Please Connect Streamlabs / Please Wait":0};
 
 const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 	ws,
@@ -49,6 +52,13 @@ const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 	useEffect(() => {
 		if (typeof settings.subTime == "number") setFetched(true);
 	}, [settings]);
+
+	if (Object.keys(settings.merchValues).length != 0){
+		merchValues = {};
+		Object.entries(settings.merchValues).map((pair)=>{
+			merchValues[pair[0] as keyof typeof merchValues] = pair[1] as any;
+		});	
+	}
 
 	if (fetched)
 		return (
@@ -66,7 +76,7 @@ const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 							<GridItem key={k} colSpan={1}>
 								<Button
 									onClick={() => {
-										addTime(ws, endTime, key[1] * settings.dollarTime);
+										addTime(ws, endTime, key[1] as number * settings.dollarTime);
 									}}
 									colorScheme='purple'
 									width='100%'

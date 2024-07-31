@@ -15,7 +15,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
 		},
 		name: { type: "varchar(32)", notNull: true },
 		accessToken: { type: "varchar(100)", notNull: true },
-		slToken: { type: "varchar(300)", notNull: false },
+		slToken: { type: "varchar(1000)", notNull: false },
 		subTime: {
 			type: "integer",
 			notNull: true,
