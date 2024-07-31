@@ -5,7 +5,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 ## Preparations
 
 1. Install [Git](https://git-scm.com/) and [Docker](https://www.docker.com/products/docker-desktop/)
-2. Clone / Download the repository
+2. Clone the repository
 3. Inside of the `docker` directory, create a copy of `.env_template`, and rename it to `.env`
 4. Create a [Twitch Application](https://dev.twitch.tv/console/)
 5. Edit the `.env` file to use your new Twitch Application's Client ID
@@ -13,7 +13,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 7. Add your username to the `allowedUsers` array in `back/src/index.ts:17`
 
 > [!NOTE]
-> If you're using this in production, you might be changing the URLs in `.env` to point to an internet accessible domain.\
+> If you're using this in production, you might be changing the URLs in `.env` to point to an internet accessible domain.
 > If this is indeed the case, change them to use the HTTPS / WSS protocols.
 
 ## Updating
@@ -25,7 +25,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 - **Windows:** `docker/wscripts/pro-start.bat`
 - **Linux:** `docker/lscripts/pro-start.sh`
-- If internet accessible, set up a reverse proxy on your domain to the `:3080` (frontend) and `:3003` (backend) ports
+- If internet accessible, reverse proxy on your domain to the `3080` (frontend) and `3003` (backend) ports
 
 ## Starting in Development Environments
 
@@ -38,5 +38,5 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 ## Using the Timer
 - You can access the timer at: http://localhost:3080
-- You can access the WebSocket backend at: http://localhost:3003
-- You can access the PostgreSQL database at: http://localhost:5432 (Development Environment Only)
+- You can access the WebSocket backend on port `3003`
+- You can access the PostgreSQL database on port `5432` (Development Environment Only)
