@@ -336,13 +336,10 @@ function connectStreamlabs(ws: wsType) {
 				addDollarToEndTime(ws, ws.merchValues[e.message[0].product]);
 				break;
 			case "subscription":
-			case "subMysteryGift":
 			case "resub":
 				if (ws.ignoreAnon){
-					if (e.message[0].sub_type == 'subgift' || e.message[0].sub_type == 'subMysteryGift'){
-						if (!e.message[0].gifter || e.message[0].gifter.toUpperCase() == 'ANONYMOUS')
-							return;
-					}
+					if (e.message[0].gifter && e.message[0].gifter.toUpperCase() == 'ANONYMOUS')
+						return;
 				}
 				var plan: string = e.message[0].sub_plan || "";
 				var tier: number = plan.toUpperCase().includes("PRIME") ? 1 : parseInt(plan) / 1000;
