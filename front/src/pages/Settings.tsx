@@ -57,8 +57,7 @@ const Settings: React.FC = () => {
 			} `
 		);
 		setEndTime(endTime);
-		if (seconds != tempSeconds)
-			setSeconds(tempSeconds);
+		setSeconds(tempSeconds);
 	};
 
 	const connectWs = () => {

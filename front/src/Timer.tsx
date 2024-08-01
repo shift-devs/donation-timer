@@ -63,14 +63,22 @@ const Timer: React.FC<{
 }> = ({ input_seconds, textAlign = "center", color = "black" }) => {
 
 	if (input_seconds > 0) {
-		timer_text = `${Math.floor(input_seconds / 3600)}:${(
-			"0" +
-			(Math.floor(input_seconds / 60) % 60)
-		).slice(-2)}:${("0" + (input_seconds % 60)).slice(-2)}`;
+		let hour = Math.floor(input_seconds / 3600);
+		let min = Math.floor(input_seconds / 60) % 60;
+		let sec = input_seconds % 60;
+		let strBuf = "";
+
+		if (hour >= 1)
+			strBuf += `${hour}:${("0"+min).slice(-2)}:`
+		else
+			strBuf += `${min}:`
+
+		strBuf += `${("0"+sec).slice(-2)}`
+		timer_text = strBuf;
 		//if (input_seconds > 107998) timer_color = "green";
 		//else ;
 		timer_color = color;
-	} else timer_text = "0:00:00";
+	} else timer_text = "0:00";
 
 	/**
 	 * @description Triggers whenever the input seconds changes, plays a beep according to the threshold.
