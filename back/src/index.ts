@@ -345,7 +345,7 @@ function connectStreamlabs(ws: wsType) {
 							return;
 					}
 					if (e.message[0].sub_type == 'subgift'){
-						if (!e.message[0].gifter || e.message[0].gifter == '')
+						if (!e.message[0].gifter || e.message[0].gifter == 'Anonymous')
 							return;
 					}
 				}
