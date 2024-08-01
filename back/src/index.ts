@@ -339,13 +339,8 @@ function connectStreamlabs(ws: wsType) {
 			case "subMysteryGift":
 			case "resub":
 				if (ws.ignoreAnon){
-					switch (e.message[0].condition){
-						case "ANON_SUBSCRIPTION_GIFT":
-						case "MIN_ANON_SUBMYSTERYGIFT":
-							return;
-					}
-					if (e.message[0].sub_type == 'subgift'){
-						if (!e.message[0].gifter || e.message[0].gifter == 'Anonymous')
+					if (e.message[0].sub_type == 'subgift' || e.message[0].sub_type == 'subMysteryGift'){
+						if (!e.message[0].gifter || e.message[0].gifter.toUpperCase() == 'ANONYMOUS')
 							return;
 					}
 				}
