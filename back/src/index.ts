@@ -399,6 +399,51 @@ async function syncTimer(ws: wsType) {
 
 async function login(ws: wsType, accessToken: string) {
 	ws.slStatus = false;
+	if (client_id == ""){
+		ws.userId = 1; // Assume there's just one user if this is the case
+		ws.name = accessToken;
+		if (!allowedUsers.includes(ws.name)) {
+			ws.send(
+				JSON.stringify({
+					success: false,
+					error: "not allowed",
+				})
+			);
+			ws.close();
+		}
+		Users.findByPk(ws.userId).then((res: any) => {
+			if (!res) {
+				var newUser: user = {
+					userId: ws.userId,
+					name: ws.name,
+					accessToken: accessToken,
+					subTime: defaultValues.sub,
+					dollarTime: defaultValues.dollar,
+					endTime: 0,
+					hypeEndTime: 0,
+					bonusTime: 0,
+					hypeLevel: 0,
+					currentHype: 0,
+					shouldCap: false,
+					ignoreAnon: false,
+				};
+				Object.assign(ws, newUser);
+				createUser(newUser);
+				ws.initialized = true;
+				startTMI(ws);
+			} else {
+				Object.assign(ws, res.dataValues);
+				if (res.dataValues.name != accessToken){
+					ws.name = accessToken;
+					ws.accessToken = accessToken;
+				}
+				if (ws.slToken && ws.type !== "hype") connectStreamlabs(ws);
+				else syncTimer(ws);
+				startTMI(ws);
+			}
+		});
+		return 0;
+	}
 	axios
 		.get(`https://api.twitch.tv/helix/users`, {
 			headers: {

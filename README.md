@@ -16,6 +16,10 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 > If you're using this in production, you might be changing the URLs in `.env` to point to an internet accessible domain.
 > If this is indeed the case, change them to use the HTTPS / WSS protocols.
 
+> [!NOTE]
+> If you're accessing this locally, but not on the same computer, skip steps 4-6, and leave CLIENT_ID and VITE_CLIENT_ID empty.
+> This must be done because Twitch Applications only allow OAuth HTTP redirects to localhost. 
+
 ## Updating
 
 - **Windows:** `docker/wscripts/update.bat`
