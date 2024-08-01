@@ -337,6 +337,9 @@ function connectStreamlabs(ws: wsType) {
 				break;
 			case "subscription":
 			case "resub":
+				if (e.message[0].gifter) // Handled in subMysteryGift
+					return;	
+			case "subMysteryGift":
 				if (ws.ignoreAnon){
 					if (e.message[0].gifter && e.message[0].gifter.toUpperCase() == 'ANONYMOUS')
 						return;
