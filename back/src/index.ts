@@ -224,18 +224,32 @@ function startTMI(ws: wsType) {
 				}
 		}
 	});
-	/*
+	
 	client.on(
 		"subgift",
 		(channel, username, streakMonths, recipient, methods, userstate) => {
+			console.log(`TMI - subgift from ${username} to ${recipient}`)
 			var plan: string = userstate["msg-param-sub-plan"] || "";
 			var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
 			if (tier == 3) tier = 5;
+			if (ws.ignoreAnon){
+				if (username == "" || username.toUpperCase() == "ANONYMOUS" || username.toUpperCase() == "ANANONYMOUSGIFTER")
+					return;
+			}
 			addToEndTime(ws, tier * ws.subTime, tier);
 		}
 	);
 
 	client.on("anongiftpaidupgrade", (_channel, _username, userstate) => {
+		console.log(`TMI - anongiftpaidupgrade from ${_username}`)
+		var plan: string = userstate["msg-param-sub-plan"] || "";
+		var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
+		if (tier == 3) tier = 5;
+		addToEndTime(ws, tier * ws.subTime, tier);
+	});
+
+	client.on("giftpaidupgrade", (_channel, _username, sender, userstate) => {
+		console.log(`TMI - giftpaidupgrade from ${_username}`)
 		var plan: string = userstate["msg-param-sub-plan"] || "";
 		var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
 		if (tier == 3) tier = 5;
@@ -244,12 +258,14 @@ function startTMI(ws: wsType) {
 
 	client.on("cheer", (_channel, userstate, _message) => {
 		var bits: string = userstate["bits"] || "";
+		console.log(`TMI - cheer of ${bits} bits from ${userstate["display-name"]}`)
 		addDollarToEndTime(ws, parseInt(bits) / 100);
 	});
 
 	client.on(
 		"resub",
 		(_channel, _username, _months, _message, userstate, _methods) => {
+			console.log(`TMI - ${_username} has resubscribed`)
 			var plan: string = userstate["msg-param-sub-plan"] || "";
 			var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
 			if (tier == 3) tier = 5;
@@ -260,13 +276,14 @@ function startTMI(ws: wsType) {
 	client.on(
 		"subscription",
 		(_channel, _username, _method, _message, userstate) => {
+			console.log(`TMI - ${_username} has subscribed`)
 			var plan: string = userstate["msg-param-sub-plan"] || "";
 			var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
 			if (tier == 3) tier = 5;
 			addToEndTime(ws, tier * ws.subTime, tier);
 		}
 	);
-	*/
+	
 }
 
 function installStreamlabsMerch(ws: wsType){
@@ -335,10 +352,12 @@ function connectStreamlabs(ws: wsType) {
 				}
 				addDollarToEndTime(ws, ws.merchValues[e.message[0].product]);
 				break;
+			/*
 			case "subscription":
 			case "resub":
-				if (e.message[0].gifter) // Handled in subMysteryGift
+				if (e.message[0].gifter) // Handled in subgift / subMysteryGift
 					return;	
+			case "subgift":
 			case "subMysteryGift":
 				if (ws.ignoreAnon){
 					if (e.message[0].gifter && e.message[0].gifter.toUpperCase() == 'ANONYMOUS')
@@ -354,6 +373,7 @@ function connectStreamlabs(ws: wsType) {
 			case "bits":
 				addDollarToEndTime(ws, e.message[0].amount / 100);
 				break;
+			*/
 		}
 	});
 }
