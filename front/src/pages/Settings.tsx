@@ -153,7 +153,7 @@ const Settings: React.FC = () => {
 							<ConnectivitySettings ws={ws} status={settings.slStatus} />
 						</TabPanel>
 						<TabPanel>
-							<ChangeTime ws={ws} endTime={endTime} />
+							<ChangeTime ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<Merch ws={ws} endTime={endTime} settings={settings} />
@@ -170,39 +170,6 @@ const Settings: React.FC = () => {
 						}}
 					>
 						Copy widget URL
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							navigator.clipboard.writeText(
-								`${BASE_URL}/hypetimer?token=${token}`
-							);
-						}}
-					>
-						Copy hype URL
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							navigator.clipboard.writeText(
-								`${BASE_URL}/timetiers?token=${token}`
-							);
-						}}
-					>
-						Copy timer tiers URL
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							navigator.clipboard.writeText(
-								`${BASE_URL}/dollartime?token=${token}`
-							);
-						}}
-					>
-						Copy dollar time URL
 					</Button>
 					&nbsp;
 					<Button

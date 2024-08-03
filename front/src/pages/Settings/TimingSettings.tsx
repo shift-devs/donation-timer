@@ -10,6 +10,7 @@ import {
 	Spinner,
 	Button,
 	SimpleGrid,
+	Center,
 } from "@chakra-ui/react";
 import { setSetting } from "../../Api";
 
@@ -40,34 +41,36 @@ const TimingSettings: React.FC<{ ws: any; input_settings: any }> = ({
 					width: "80%",
 				}}
 			>
-				<SimpleGrid columns={2} spacing={10}>
-					<InputGroup>
-						<InputLeftAddon children='Seconds per sub' />
-						<NumberInput
-							defaultValue={input_settings.subTime}
-							onChange={(value) => setSubTime(parseInt(value))}
-						>
-							<NumberInputField />
-							<NumberInputStepper>
-								<NumberIncrementStepper />
-								<NumberDecrementStepper />
-							</NumberInputStepper>
-						</NumberInput>
-					</InputGroup>
-					<InputGroup>
-						<InputLeftAddon children='Seconds per $1' />
-						<NumberInput
-							defaultValue={input_settings.dollarTime}
-							onChange={(value) => setDollarTime(parseInt(value))}
-						>
-							<NumberInputField />
-							<NumberInputStepper>
-								<NumberIncrementStepper />
-								<NumberDecrementStepper />
-							</NumberInputStepper>
-						</NumberInput>
-					</InputGroup>
-				</SimpleGrid>
+				<Center>
+					<SimpleGrid columns={2} spacing="10px">
+						<InputGroup>
+							<InputLeftAddon children='Seconds per sub' />
+							<NumberInput
+								defaultValue={input_settings.subTime}
+								onChange={(value) => setSubTime(parseInt(value))}
+							>
+								<NumberInputField />
+								<NumberInputStepper>
+									<NumberIncrementStepper />
+									<NumberDecrementStepper />
+								</NumberInputStepper>
+							</NumberInput>
+						</InputGroup>
+						<InputGroup>
+							<InputLeftAddon children='Seconds per $1' />
+							<NumberInput
+								defaultValue={input_settings.dollarTime}
+								onChange={(value) => setDollarTime(parseInt(value))}
+							>
+								<NumberInputField />
+								<NumberInputStepper>
+									<NumberIncrementStepper />
+									<NumberDecrementStepper />
+								</NumberInputStepper>
+							</NumberInput>
+						</InputGroup>
+					</SimpleGrid>
+				</Center>
 				<br />
 				<br />
 				<br />

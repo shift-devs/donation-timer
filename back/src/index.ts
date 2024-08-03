@@ -5,165 +5,59 @@ import tmi from "tmi.js";
 import WebSocket from "ws";
 import io from "socket.io-client";
 import { user, wsType } from "./types.js";
-import { hypeTiersTime, processTimerTiers, capTime } from "./hypeTimeTiers.js";
 
 const portWss = 3003;
 const wss = new WebSocket.Server({ port: portWss });
 const client_id: string = process.env.CLIENT_ID || "";
-const pages: Array<string> = ["settings", "widget", "hype", "timebonus"];
+const pages: Array<string> = ["settings", "widget"];
 
 var now = Math.trunc(Date.now() / 1000);
 
-const allowedUsers = ["shift", "lobomfz", "yoman47", "darkrta", "the_ivo_robotnic", "aaronrules5"];
+const allowedUsers = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnic", "yoman47", "lobomfz"];
 
 export const defaultValues = {
-	sub: 85,
-	dollar: 21,
+	sub: 70,
+	dollar: 14,
 	pushFrequency: 1,
 	timeoutTime: 30,
 	widgetSyncFrequency: 1,
 	forceSync: 5,
-	hypeMinutes: 5,
 	maxHours: 30,
 };
 
-const hypeSettings = {
-	0: {
-		0: {
-			subs: 0,
-			seconds: 0,
-		},
-		1: {
-			subs: 10,
-			seconds: 10,
-		},
-		2: {
-			subs: 15,
-			seconds: 20,
-		},
-		3: {
-			subs: 30,
-			seconds: 50,
-		},
-		4: {
-			subs: 10,
-			seconds: 60,
-		},
-	},
-	1: {
-		0: {
-			subs: 0,
-			seconds: 10,
-		},
-		1: {
-			subs: 10,
-			seconds: 20,
-		},
-		2: {
-			subs: 15,
-			seconds: 30,
-		},
-		3: {
-			subs: 30,
-			seconds: 50,
-		},
-		4: {
-			subs: 10,
-			seconds: 60,
-		},
-	},
-	2: {
-		0: {
-			subs: 0,
-			seconds: 20,
-		},
-		1: {
-			subs: 10,
-			seconds: 30,
-		},
-		2: {
-			subs: 15,
-			seconds: 40,
-		},
-		3: {
-			subs: 30,
-			seconds: 50,
-		},
-		4: {
-			subs: 10,
-			seconds: 60,
-		},
-	},
-};
-
-function addHype(ws: wsType) {
-	return 0;
-	if (ws.type !== "settings") return 0;
-	ws.currentHype += 1;
-
-	if (ws.hypeEndTime < now) {
-		ws.hypeEndTime =
-			Math.trunc(Date.now() / 1000) + defaultValues.hypeMinutes * 60;
-	}
-
-	if (
-		ws.hypeLevel < 3 &&
-		ws.currentHype >= hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1].subs
-	) {
-		ws.hypeEndTime =
-			Math.trunc(Date.now() / 1000) + defaultValues.hypeMinutes * 60;
-		ws.hypeLevel += 1;
-		ws.currentHype = 0;
-	}
-
-	console.log(
-		`adding hype, hype level: ${ws.hypeLevel}, current hype: ${ws.currentHype},hype endtime: ${ws.hypeEndTime}, page: ${ws.type}`
-	);
-	hypeCleanup(ws);
+function capTime(ws: wsType) {
+	let maxEndtime = Math.trunc(Date.now() / 1000) + defaultValues.maxHours * 3600;
+	if (ws.shouldCap && ws.endTime > maxEndtime)
+		ws.endTime = maxEndtime
 }
 
-function addToEndTime(ws: wsType, seconds: number, tier: number = 1) {
+function addToEndTime(ws: wsType, seconds: number) {
 	if (ws.endTime < now) ws.endTime = now;
 
 	if (ws.type == "settings") {
-		var timeToAdd = seconds + ws.bonusTime;
-		ws.endTime += Math.floor(timeToAdd);
-		console.log(`adding ${timeToAdd} to ${ws.name}`);
-		// ! Disabled hype addition. -yoman
-		//for (var i = 0; i < tier; i++) {
-			//addHype(ws);
-		//}
+		ws.endTime += Math.floor(seconds);
+		console.log(`Adding ${seconds} seconds to ${ws.name}'s endTime!`);
 	}
+	capTime(ws);
 	syncTimer(ws);
 }
 
 function addDollarToEndTime(ws: wsType, dollar: number) {
 	if (ws.endTime < now) ws.endTime = now;
-	var tierModifier: number = 0;
-	switch (ws.currentTimeTier) {
-		case 0:
-			tierModifier = 14;
-			break;
-		case 1:
-			tierModifier = 16;
-			break;
-		case 2:
-			tierModifier = 18;
-			break;
-	}
 
 	if (ws.type == "settings") {
-		ws.endTime += Math.floor(tierModifier * dollar);
-		console.log(`adding ${tierModifier * dollar} to ${ws.name}`);
+		const addSecs = Math.floor(ws.dollarTime * dollar);
+		ws.endTime += addSecs;
+		console.log(`Adding ${addSecs} seconds to ${ws.name}'s endTime!`);
 	}
-
+	capTime(ws);
 	syncTimer(ws);
 }
 
 function startTMI(ws: wsType) {
 	var tries = 0;
 	if (ws.type !== "settings") return 0;
-	console.log(`Connecting to ${ws.name} tmi`);
+
 	const client = new tmi.Client({
 		connection: {
 			reconnect: true,
@@ -177,7 +71,7 @@ function startTMI(ws: wsType) {
 		else tries = 0;
 		if (tries > 5) {
 			client.disconnect();
-			console.log(`TMI IS NOT ALIVE, disconnecting from ${ws.name} tmi`);
+			console.log(`TMI is no longer alive. Disconnecting from ${ws.name} TMI.`);
 			clearInterval(aliveCheck);
 			return 0;
 		}
@@ -185,75 +79,90 @@ function startTMI(ws: wsType) {
 
 	client.connect();
 
-	client.on("connecting", l("connecting"));
-	client.on("connected", l("connected"));
+	client.on("connecting", l("Connecting to TMI..."));
+	client.on("connected", l("Connected to TMI!"));
 
 	function l(event) {
-		return function () {
-			console.log(new Date().toISOString(), " EVENT 123: " + event, arguments);
-		};
+		return function(){
+			console.log(event, arguments);
+		}
 	}
 
 	client.on("message", (channel, tags, message, self) => {
 		var mSplit = message.toLowerCase().split(" ");
-		console.log(`message: ${message}`);
+		console.log(`TWITCH MESSAGE - ${tags.username}: ${message}`);
 
 		if (tags.username) {
-			if (tags.mod || tags.username.toLowerCase() == ws.name)
+			if (tags.mod || tags.username.toLowerCase() == ws.name){
 				switch (mSplit[0]) {
 					case "!addsub":
 						if (mSplit[1] && parseInt(mSplit[1]) < 200)
 							for (var i = 0; i < parseInt(mSplit[1]); i++) {
-								console.log(`adding: ${ws.subTime}`);
-								addToEndTime(ws, ws.subTime, 1);
+								addToEndTime(ws, ws.subTime);
 							}
-						else addToEndTime(ws, ws.subTime, 1);
+						else addToEndTime(ws, ws.subTime);
 						break;
 					case "!addtime":
 						let timeToAdd = parseInt(mSplit[1]);
 						if (timeToAdd)
-							addToEndTime(ws, parseInt(mSplit[1]), 0);
-						break;
-					case "!addcombo":
-						if (mSplit[1] && parseInt(mSplit[1]) < 200)
-							for (var i = 0; i < parseInt(mSplit[1]); i++) {
-								addHype(ws);
-							}
-						else addHype(ws);
+							addToEndTime(ws, parseInt(mSplit[1]));
 						break;
 				}
+			}
 		}
 	});
-	
-	client.on(
-		"subgift",
-		(channel, username, streakMonths, recipient, methods, userstate) => {
-			console.log(`TMI - subgift from ${username} to ${recipient}`)
-			var plan: string = userstate["msg-param-sub-plan"] || "";
-			var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
-			if (tier == 3) tier = 5;
-			if (ws.ignoreAnon){
-				if (username == "" || username.toUpperCase() == "ANONYMOUS" || username.toUpperCase() == "ANANONYMOUSGIFTER")
-					return;
-			}
-			addToEndTime(ws, tier * ws.subTime, tier);
-		}
-	);
+
+	const isAnon = (uname: any) => {
+		const upUname = uname.toUpperCase();
+		return upUname == "ANANONYMOUSGIFTER";
+	}
+
+	const calcTier = (ustate: any) => {
+		const plan = ustate["msg-param-sub-plan"] || "";
+		const tempTier = plan == "Prime" ? 1 : parseInt(plan) / 1000;
+		return tempTier == 3 ? 5 : tempTier;
+	}
+
+	client.on("submysterygift",(channel, username, numbOfSubs, methods, userstate) => {
+		if (ws.ignoreAnon && isAnon(username))
+			return;
+		console.log(`TMI - ${username} is gifting ${numbOfSubs} subs!`);
+		const tier = calcTier(userstate);
+		addToEndTime(ws, tier * ws.subTime * numbOfSubs);
+	});
+
+	client.on("subgift",(channel, username, streakMonths, recipient, methods, userstate) => {
+		if (userstate.hasOwnProperty("msg-param-community-gift-id")) // Mass subgifts are handled in submysterygift
+			return;
+		if (ws.ignoreAnon && isAnon(username))
+			return;
+		console.log(`TMI - subgift from ${username} to ${recipient}`)
+		const tier = calcTier(userstate);
+		addToEndTime(ws, tier * ws.subTime);
+	});
 
 	client.on("anongiftpaidupgrade", (_channel, _username, userstate) => {
 		console.log(`TMI - anongiftpaidupgrade from ${_username}`)
-		var plan: string = userstate["msg-param-sub-plan"] || "";
-		var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
-		if (tier == 3) tier = 5;
-		addToEndTime(ws, tier * ws.subTime, tier);
+		const tier = calcTier(userstate);
+		addToEndTime(ws, tier * ws.subTime);
 	});
 
 	client.on("giftpaidupgrade", (_channel, _username, sender, userstate) => {
 		console.log(`TMI - giftpaidupgrade from ${_username}`)
-		var plan: string = userstate["msg-param-sub-plan"] || "";
-		var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
-		if (tier == 3) tier = 5;
-		addToEndTime(ws, tier * ws.subTime, tier);
+		const tier = calcTier(userstate);
+		addToEndTime(ws, tier * ws.subTime);
+	});
+
+	client.on("resub",(_channel, _username, _months, _message, userstate, _methods) => {
+		console.log(`TMI - ${_username} has resubscribed`)
+		const tier = calcTier(userstate);
+		addToEndTime(ws, tier * ws.subTime);
+	});
+
+	client.on("subscription",(_channel, _username, _method, _message, userstate) => {
+		console.log(`TMI - ${_username} has subscribed`)
+		const tier = calcTier(userstate);
+		addToEndTime(ws, tier * ws.subTime);
 	});
 
 	client.on("cheer", (_channel, userstate, _message) => {
@@ -261,33 +170,10 @@ function startTMI(ws: wsType) {
 		console.log(`TMI - cheer of ${bits} bits from ${userstate["display-name"]}`)
 		addDollarToEndTime(ws, parseInt(bits) / 100);
 	});
-
-	client.on(
-		"resub",
-		(_channel, _username, _months, _message, userstate, _methods) => {
-			console.log(`TMI - ${_username} has resubscribed`)
-			var plan: string = userstate["msg-param-sub-plan"] || "";
-			var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
-			if (tier == 3) tier = 5;
-			addToEndTime(ws, tier * ws.subTime, tier);
-		}
-	);
-
-	client.on(
-		"subscription",
-		(_channel, _username, _method, _message, userstate) => {
-			console.log(`TMI - ${_username} has subscribed`)
-			var plan: string = userstate["msg-param-sub-plan"] || "";
-			var tier: number = plan == "Prime" ? 1 : parseInt(plan) / 1000;
-			if (tier == 3) tier = 5;
-			addToEndTime(ws, tier * ws.subTime, tier);
-		}
-	);
-	
 }
 
 function installStreamlabsMerch(ws: wsType){
-	console.log(`Getting streamlabs merch`)
+	console.log(`Getting Streamlabs Merch...`);
 	ws.merchValues = {};
 	axios
 	.get(`https://streamlabs.com/api/v6/user/${ws.name}`, {
@@ -305,6 +191,7 @@ function installStreamlabsMerch(ws: wsType){
 			merchProducts.map((x: any)=>{
 				ws.merchValues[x.name] = x.variants[0].price / 100;
 			})
+			console.log("Done getting Streamlabs Merch!");
 		})
 	})
 }
@@ -314,7 +201,7 @@ function connectStreamlabs(ws: wsType) {
 
 	if (ws.socket) ws.socket.disconnect();
 
-	console.log(`connecting to ${ws.name} sl`);
+	console.log(`Connecting to ${ws.name}'s Streamlabs...`);
 
 	var aliveCheck = setInterval(() => {
 		if (ws.readyState == 3) {
@@ -329,7 +216,7 @@ function connectStreamlabs(ws: wsType) {
 	});
 
 	ws.socket.on("connect", () => {
-		console.log(`connected to ${ws.name} sl`);
+		console.log(`Connected to ${ws.name}'s Streamlabs!`);
 		installStreamlabsMerch(ws);
 		ws.slStatus = true;
 		syncTimer(ws);
@@ -340,74 +227,34 @@ function connectStreamlabs(ws: wsType) {
 	});
 
 	ws.socket.on("event", (e: any) => {
-		console.log(`slevent: ${JSON.stringify(e)}`);
+		console.log(`Streamlabs Event: ${JSON.stringify(e)}`);
 		switch (e.type){
 			case "donation":
 				addDollarToEndTime(ws, e.message[0].amount);
 				break;
 			case "merch":
 				if (!ws.merchValues[e.message[0].product]){
-					console.log(`WARNING! ${e.message[0].product} NOT IN MERCHVALUES!`);
+					console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!!`);
 					return;
 				}
 				addDollarToEndTime(ws, ws.merchValues[e.message[0].product]);
 				break;
-			/*
-			case "subscription":
-			case "resub":
-				if (e.message[0].gifter) // Handled in subgift / subMysteryGift
-					return;	
-			case "subgift":
-			case "subMysteryGift":
-				if (ws.ignoreAnon){
-					if (e.message[0].gifter && e.message[0].gifter.toUpperCase() == 'ANONYMOUS')
-						return;
-				}
-				var plan: string = e.message[0].sub_plan || "";
-				var tier: number = plan.toUpperCase().includes("PRIME") ? 1 : parseInt(plan) / 1000;
-				var numOfSubs: number = e.message[0].amount;
-				numOfSubs = numOfSubs ? numOfSubs : 1;
-				if (tier == 3) tier = 5;
-				addToEndTime(ws, tier * ws.subTime * numOfSubs, tier);
-				break;
-			case "bits":
-				addDollarToEndTime(ws, e.message[0].amount / 100);
-				break;
-			*/
 		}
 	});
 }
 
 async function syncTimer(ws: wsType) {
-	var nbonus: any = null;
-
-	if (typeof ws.hypeLevel === "undefined") {
-		ws.hypeLevel = 0;
-	} else if (hypeSettings[ws.currentTimeTier][ws.hypeLevel])
-		if ("seconds" in hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1]) {
-			nbonus = hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1].seconds;
-		}
-
 	ws.send(
 		JSON.stringify({
 			success: true,
-			hypeTimer: ws.hypeEndTime - Math.trunc(Date.now() / 1000),
 			endTime: ws.endTime,
-			hypeEndTime: ws.hypeEndTime,
 			subTime: ws.subTime,
 			dollarTime: ws.dollarTime,
 			slStatus: ws.slStatus,
-			hypeLevel: ws.hypeLevel,
-			currentHype: ws.currentHype,
-			bonusTime: ws.bonusTime,
-			nextLevel: hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1].subs,
-			nextBonus: nbonus,
-			timeTier: ws.currentTimeTier,
-			nextTimeTier: hypeTiersTime[ws.currentTimeTier + 1] / 3600,
 			cap: ws.shouldCap,
 			anon: ws.ignoreAnon,
 			merchValues: ws.merchValues,
-			currentTimeTier: ws.currentTimeTier,
+			currentTimeTier: 0,
 		})
 	);
 }
@@ -421,7 +268,7 @@ async function login(ws: wsType, accessToken: string) {
 			ws.send(
 				JSON.stringify({
 					success: false,
-					error: "not allowed",
+					error: "Username is not in allowedUsers array. Not allowed.",
 				})
 			);
 			ws.close();
@@ -452,7 +299,8 @@ async function login(ws: wsType, accessToken: string) {
 					ws.name = accessToken;
 					ws.accessToken = accessToken;
 				}
-				if (ws.slToken && ws.type !== "hype") connectStreamlabs(ws);
+				if (ws.slToken)
+					connectStreamlabs(ws);
 				else syncTimer(ws);
 				startTMI(ws);
 			}
@@ -473,7 +321,7 @@ async function login(ws: wsType, accessToken: string) {
 				ws.send(
 					JSON.stringify({
 						success: false,
-						error: "not allowed",
+						error: "User was unable to be authorized by Twitch.",
 					})
 				);
 				ws.close();
@@ -500,14 +348,15 @@ async function login(ws: wsType, accessToken: string) {
 					startTMI(ws);
 				} else {
 					Object.assign(ws, res.dataValues);
-					if (ws.slToken && ws.type !== "hype") connectStreamlabs(ws);
+					if (ws.slToken)
+						connectStreamlabs(ws);
 					else syncTimer(ws);
 					startTMI(ws);
 				}
 			});
 		})
 		.catch(function (error) {
-			sendError(ws, "failed to login" + error);
+			sendError(ws, "Failed to login" + error);
 			return 0;
 		});
 }
@@ -562,93 +411,37 @@ function updateSetting(ws: wsType, data: any) {
 }
 
 function syncWidget(ws: wsType) {
-	if (ws.type !== "settings")
+	if (ws.type !== "settings"){
 		Users.findByPk(ws.userId).then((res: any) => {
 			if (res) {
 				if (
-					ws.hypeEndTime !== res.dataValues.hypeEndTime ||
 					ws.subTime !== res.dataValues.subTime ||
-					ws.bonusTime !== res.dataValues.bonusTime ||
-					ws.hypeLevel !== res.dataValues.hypeLevel ||
-					ws.currentHype !== res.dataValues.currentHype ||
 					ws.endTime !== res.dataValues.endTime
 				) {
-					ws.hypeEndTime = res.dataValues.hypeEndTime;
 					ws.subTime = res.dataValues.subTime;
-					ws.bonusTime = res.dataValues.bonusTime;
-					ws.hypeLevel = res.dataValues.hypeLevel;
-					ws.currentHype = res.dataValues.currentHype;
 					ws.endTime = res.dataValues.endTime;
+					capTime(ws);
 					syncTimer(ws);
 				}
 			}
 		});
-}
-
-function syncEndTime(ws: wsType) {
-	if (ws.type !== "settings")
-		Users.findByPk(ws.userId).then((res: any) => {
-			if (res) {
-				if (ws.endTime !== res.dataValues.endTime) {
-					ws.endTime = res.dataValues.endTime;
-
-					syncTimer(ws);
-				}
-			}
-		});
-}
-
-function hypeCleanup(ws: wsType) {
-	if (
-		ws.hypeLevel == 3 &&
-		ws.currentHype >= hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1].subs
-	) {
-		ws.hypeEndTime =
-			ws.hypeEndTime +
-			hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1].seconds;
-		ws.currentHype =
-			ws.currentHype - hypeSettings[ws.currentTimeTier][ws.hypeLevel + 1].subs;
-		syncTimer(ws);
 	}
-
-	ws.bonusTime = hypeSettings[ws.currentTimeTier][ws.hypeLevel].seconds;
-
-	if (ws.hypeEndTime < now)
-		if (ws.currentHype > 0 || ws.hypeLevel > 0) {
-			ws.hypeLevel = 0;
-			ws.currentHype = 0;
-			ws.bonusTime = 0;
-			syncTimer(ws);
-		}
 }
 
 async function initialize(ws: wsType, intervals: any) {
 	ws.currentTimeTier = 0;
-	intervals.syncProcessTimerTiersInterval = setInterval(
-		() => processTimerTiers(ws),
-		1000
-	);
 
-	intervals.forceSync = setInterval(
-		() => syncTimer(ws),
-		defaultValues.forceSync * 1000
-	);
+	intervals.forceSync = setInterval(() => syncTimer(ws), defaultValues.forceSync * 1000);
 
 	switch (ws.type) {
-		case "timebonus":
-			intervals.syncEndTime = setInterval(() => syncEndTime(ws), 1000);
-			break;
-		case "hype":
 		case "widget":
 			syncWidget(ws);
 			intervals.syncWidgetInterval = setInterval(() => syncWidget(ws), 1000);
 			break;
 		case "settings":
-			hypeCleanup(ws);
 			ws.shouldLogin = true;
 			intervals.tryToCap = setInterval(() => capTime(ws), 1000);
 			intervals.forceSyncDb = setInterval(() => pushToDb(ws), 1000);
-			intervals.syncHypeInterval = setInterval(() => hypeCleanup(ws), 1000);
 			break;
 	}
 	syncTimer(ws);
@@ -656,18 +449,12 @@ async function initialize(ws: wsType, intervals: any) {
 
 async function closeStuff(ws: wsType, intervals: any) {
 	clearInterval(intervals.forceSync);
-	clearInterval(intervals.syncProcessTimerTiersInterval);
 
 	switch (ws.type) {
-		case "timebonus":
-			clearInterval(intervals.syncEndTime);
-			break;
-		case "hype":
 		case "widget":
 			clearInterval(intervals.syncWidgetInterval);
 			break;
 		case "settings":
-			clearInterval(intervals.syncHypeInterval);
 			clearInterval(intervals.forceSyncDb);
 			break;
 	}
@@ -696,7 +483,7 @@ function main() {
 
 		if (urlParams.token) {
 			try {
-				console.log(urlParams.token);
+				console.log(`Backend received ${urlParams.token} as token!`);
 				login(ws, urlParams.token as string);
 			} catch (error) {
 				sendError(ws, "invalid token.");
@@ -717,7 +504,6 @@ function main() {
 				sendError(ws, "json error");
 				return 0;
 			}
-
 			switch (data.event) {
 				case "getTime":
 					syncTimer(ws);
@@ -731,6 +517,7 @@ function main() {
 					break;
 				case "setEndTime":
 					ws.endTime = Math.floor(parseInt(data.value) || 0);
+					capTime(ws);
 					syncTimer(ws);
 					break;
 				case "setCap":
@@ -747,7 +534,7 @@ function main() {
 
 	const timeout = setInterval(function ping() {
 		wss.clients.forEach(function each(ws: any) {
-			console.log(`pinging ${ws.name} on page ${ws.type}`);
+			console.log(`Pinging ${ws.name} on page ${ws.type}`);
 			if (ws.isAlive === false) return ws.terminate();
 			ws.isAlive = false;
 			ws.ping();

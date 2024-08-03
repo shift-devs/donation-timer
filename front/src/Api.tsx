@@ -37,15 +37,16 @@ export function addTime(
 ) {
 	const now = Math.trunc(new Date().getTime() / 1000);
 	if (currentEndTime < now) currentEndTime = now;
+	seconds = Math.floor(seconds);
 	console.log(
-		`trying to add ${seconds} seconds with endtime ${currentEndTime}`
+		`Trying to add ${seconds} seconds with endTime: ${currentEndTime}`
 	);
 	setEndTime(ws, currentEndTime + seconds);
 	return 1;
 }
 
 export function setEndTime(ws: WebSocket, endTime: number) {
-	console.log("trying to set end time to", endTime);
+	console.log("Trying to set endTime to: ", endTime);
 	ws.send(
 		JSON.stringify({
 			event: "setEndTime",
@@ -57,7 +58,7 @@ export function setEndTime(ws: WebSocket, endTime: number) {
 }
 
 export function setCap(ws: WebSocket, value: boolean) {
-	console.log(`setting cap to ${value}`);
+	console.log(`Setting shouldCap to: ${value}`);
 	ws.send(
 		JSON.stringify({
 			event: "setCap",
@@ -69,7 +70,7 @@ export function setCap(ws: WebSocket, value: boolean) {
 
 
 export function setAnon(ws: WebSocket, value: boolean) {
-	console.log(`setting ignoreAnon to ${value}`);
+	console.log(`Setting ignoreAnon to: ${value}`);
 	ws.send(
 		JSON.stringify({
 			event: "setAnon",
