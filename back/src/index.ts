@@ -14,7 +14,7 @@ const pages: Array<string> = ["settings", "widget"];
 var now = Math.trunc(Date.now() / 1000);
 
 const allowedUsers = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnic", "yoman47", "lobomfz"];
-
+const chatCmdMaxTime = 10*3600;
 export const defaultValues = {
 	sub: 70,
 	dollar: 14,
@@ -87,27 +87,79 @@ function startTMI(ws: wsType) {
 			console.log(event, arguments);
 		}
 	}
-
 	client.on("message", (channel, tags, message, self) => {
-		var mSplit = message.toLowerCase().split(" ");
+		let filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
+		var mSplit = filterMessage.split(" ");
 		console.log(`TWITCH MESSAGE - ${tags.username}: ${message}`);
-
 		if (tags.username) {
 			if (tags.mod || tags.username.toLowerCase() == ws.name){
+				let timeToAdd = 0;
 				switch (mSplit[0]) {
+					case "!nop":
+						console.log("No operation!");
+						break;
 					case "!addsub":
-						if (mSplit[1] && parseInt(mSplit[1]) < 200)
-							for (var i = 0; i < parseInt(mSplit[1]); i++) {
-								addToEndTime(ws, ws.subTime);
+						var subs = 1, tier = 1, ptr = 1;
+						while (ptr < mSplit.length){
+							if (mSplit[ptr].charAt(0) == "t"){
+								tier = parseInt(mSplit[ptr].slice(1),10);
+								if (!(tier >= 1 && tier <= 3)){
+									console.log("Invalid Tier!");
+									return;
+								}
+								tier = tier == 3 ? 5 : tier;
+								ptr++;
+								continue;
 							}
-						else addToEndTime(ws, ws.subTime);
+							if (mSplit[ptr] == ""){
+								ptr++;
+								continue;
+							}
+							subs = parseInt(mSplit[ptr],10);
+							if (!Number.isFinite(subs)){
+								console.log("Invalid Number of Subs!");
+								return;
+							}
+							ptr++;
+						}
+						timeToAdd = tier * ws.subTime * subs;
+						break;
+					case "!addmoney":
+						let dollars = 0;
+						if (mSplit.length < 2){
+							console.log("Not Enough Parameters!");
+							return;
+						}
+						let dollarString = mSplit[1];
+						dollarString = dollarString.replaceAll("$","");
+						dollars = parseFloat(dollarString);
+						if (!Number.isFinite(dollars)){
+							console.log("Invalid Money Amount!");
+							return;
+						}
+						timeToAdd = dollars * ws.dollarTime;
 						break;
 					case "!addtime":
-						let timeToAdd = parseInt(mSplit[1]);
-						if (timeToAdd)
-							addToEndTime(ws, parseInt(mSplit[1]));
+						let seconds = 0;
+						if (mSplit.length < 2){
+							console.log("Not Enough Parameters!");
+							return;
+						}
+						seconds = parseInt(mSplit[1],10);
+						if (!Number.isFinite(seconds)){
+							console.log("Invalid Time Amount!");
+							return;
+						}
+						timeToAdd = seconds;
 						break;
 				}
+				if (timeToAdd == 0)
+					return;
+				if (Math.abs(timeToAdd) > chatCmdMaxTime){
+					console.log(`Time change would be greater than ${chatCmdMaxTime} seconds!`);
+					return;
+				}
+				addToEndTime(ws, timeToAdd);
 			}
 		}
 	});
