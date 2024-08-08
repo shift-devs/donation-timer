@@ -305,8 +305,7 @@ async function syncTimer(ws: wsType) {
 			slStatus: ws.slStatus,
 			cap: ws.shouldCap,
 			anon: ws.ignoreAnon,
-			merchValues: ws.merchValues,
-			currentTimeTier: 0,
+			merchValues: ws.merchValues
 		})
 	);
 }
@@ -334,10 +333,6 @@ async function login(ws: wsType, accessToken: string) {
 					subTime: defaultValues.sub,
 					dollarTime: defaultValues.dollar,
 					endTime: 0,
-					hypeEndTime: 0,
-					bonusTime: 0,
-					hypeLevel: 0,
-					currentHype: 0,
 					shouldCap: false,
 					ignoreAnon: false,
 				};
@@ -387,10 +382,6 @@ async function login(ws: wsType, accessToken: string) {
 						subTime: defaultValues.sub,
 						dollarTime: defaultValues.dollar,
 						endTime: 0,
-						hypeEndTime: 0,
-						bonusTime: 0,
-						hypeLevel: 0,
-						currentHype: 0,
 						shouldCap: false,
 						ignoreAnon: false,
 					};
@@ -423,10 +414,6 @@ async function pushToDb(ws: wsType) {
 				dollarTime: ws.dollarTime,
 				slToken: ws.slToken,
 				endTime: Math.floor(ws.endTime),
-				hypeEndTime: Math.floor(ws.hypeEndTime),
-				bonusTime: ws.bonusTime,
-				hypeLevel: ws.hypeLevel,
-				currentHype: ws.currentHype,
 				shouldCap: ws.shouldCap,
 				ignoreAnon: ws.ignoreAnon,
 			},
@@ -481,8 +468,6 @@ function syncWidget(ws: wsType) {
 }
 
 async function initialize(ws: wsType, intervals: any) {
-	ws.currentTimeTier = 0;
-
 	intervals.forceSync = setInterval(() => syncTimer(ws), defaultValues.forceSync * 1000);
 
 	switch (ws.type) {
@@ -517,8 +502,6 @@ function main() {
 
 	wss.on("connection", (ws: wsType, req: any) => {
 		var intervals: any = {};
-		ws.hypeLevel = 0;
-		ws.currentTimeTier = 0;
 		ws.shouldCap = false;
 		ws.isAlive = true;
 		ws.ignoreAnon = false;

@@ -47,18 +47,6 @@ export const Users = sequelize.define("User", {
 		type: DataTypes.INTEGER,
 		allowNull: false,
 	},
-	hypeEndTime: {
-		type: DataTypes.INTEGER,
-	},
-	bonusTime: {
-		type: DataTypes.INTEGER,
-	},
-	hypeLevel: {
-		type: DataTypes.INTEGER,
-	},
-	currentHype: {
-		type: DataTypes.INTEGER,
-	},
 	shouldCap: {
 		type: DataTypes.BOOLEAN,
 	},
@@ -77,10 +65,6 @@ export async function createUser(user: user) {
 		dollarTime: user.dollarTime,
 		slToken: user.slToken,
 		endTime: user.endTime,
-		hypeEndTime: user.hypeEndTime,
-		bonusTime: user.bonusTime,
-		hypeLevel: user.hypeLevel,
-		currentHype: user.currentHype,
 		shouldCap: false,
 		ignoreAnon: false,
 	});

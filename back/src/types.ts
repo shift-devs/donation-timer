@@ -6,10 +6,6 @@ export type user = {
 	dollarTime: number;
 	slToken?: string;
 	endTime: number;
-	hypeEndTime: number;
-	currentHype: number;
-	hypeLevel: number;
-	bonusTime: number;
 	shouldCap: boolean;
 	ignoreAnon: boolean;
 };
@@ -28,12 +24,7 @@ export interface wsType extends WebSocket {
 	accessToken: string;
 	on: (event: string, listener: (data: any) => void) => void;
 	type: string;
-	hypeEndTime: number;
-	currentHype: number;
-	hypeLevel: number;
-	bonusTime: number;
 	shouldLogin: boolean;
-	currentTimeTier: number;
 	shouldCap: boolean;
 	ignoreAnon: boolean;
 	merchValues: Object;
