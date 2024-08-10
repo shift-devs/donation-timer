@@ -592,6 +592,15 @@ async function main(){
 
     const users: Model[] = await ts.usersModel.findAll();
 
+    try {
+        await ts.sequelize.authenticate();
+        await ts.usersModel.sync();
+        console.log("Connected has been established successfully to the database!");
+    } catch (error) {
+        console.error("Unable to connect to the database:", error);
+        return;
+    }
+
     users.forEach(async (user) => {
         if ((CLIENT_ID == "" && user.dataValues.userId != 1) || (CLIENT_ID != "" && user.dataValues.userId == 1)){
             console.log(`Removing bad user with userId ${user.dataValues.userId} from the DB!`)
