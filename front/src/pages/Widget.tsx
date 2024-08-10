@@ -42,6 +42,7 @@ const Widget: React.FC = () => {
 			console.log(
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
+			setFetched(false);
 			setTimeout(connectWs, 5000);
 		};
 
@@ -68,13 +69,26 @@ const Widget: React.FC = () => {
 	}, [seconds]);
 
 	const token = new URLSearchParams(window.location.search).get("token");
-	if (token)
+	
+	if (!fetched || !token)
 		return (
-			<div>
-				<Timer input_seconds={seconds} textAlign='start' color={timer_color} />
+			<div style={{
+				background:"#000000",
+				color: "white",
+				fontFamily: "'Staatliches', cursive",
+				fontSize: "128px",
+				fontWeight: 400,
+				textAlign: "start",
+			}}>
+				?:??
 			</div>
 		);
-	else return <div>Invalid URL</div>;
+
+	return (
+		<div>
+			<Timer input_seconds={seconds} textAlign='start' color={timer_color} />
+		</div>
+	);
 };
 
 export default Widget;

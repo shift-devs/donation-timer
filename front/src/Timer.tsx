@@ -22,11 +22,6 @@ class AAudio {
 	}
 
 	async play(doLoop: boolean = false, loopStart = 0, loopEnd = 0){
-		// Try asking again!
-		if (audioContext.state === "suspended") {
-			audioContext.resume();
-			return; 
-		}
 		// If sourceNode is set, it's probably already playing
 		if (!this.sourceNode){
 			this.sourceNode = audioContext.createBufferSource();
@@ -47,12 +42,10 @@ class AAudio {
 	}
 }
 
-//const beep = new AAudio('/under60seconds.wav')
-//const shortBeep = new AAudio('/under10seconds.wav')
-//const shorterBeep = new AAudio('/under3seconds.wav')
 const beep = new AAudio('/beep.wav')
 const longBeep = new AAudio('/dead.wav')
 
+let suspendTimeout = 0;
 let postBeepClarity = 0;
 let obsDumbFix = true;
 
@@ -75,8 +68,6 @@ const Timer: React.FC<{
 
 		strBuf += `${("0"+sec).slice(-2)}`
 		timer_text = strBuf;
-		//if (input_seconds > 107998) timer_color = "green";
-		//else ;
 		timer_color = color;
 	} else timer_text = "0:00";
 
@@ -84,31 +75,28 @@ const Timer: React.FC<{
 	 * @description Triggers whenever the input seconds changes, plays a beep according to the threshold.
 	 */
 	useEffect(() => {
+		if (suspendTimeout){
+			clearTimeout(suspendTimeout);
+			suspendTimeout = 0;
+		}
+		audioContext.resume();
 		if (postBeepClarity > Date.now()){
 			return;
 		}
 		if(input_seconds <= 60 && input_seconds > 10 ) {
 			beep.play(true);
-			//shortBeep.stop();
-			//shorterBeep.stop();
 		} else if (input_seconds <= 10 && input_seconds > 3) {
 			beep.play(true, 0, 0.2);
-			//shortBeep.play(true);
-			//shorterBeep.stop();
 		}
 		else if (input_seconds <= 3 && input_seconds > 0) {
 			beep.play(true, 0, 0.1);
-			//shortBeep.stop();
-			//shorterBeep.play(true);
 		}
 		else if(input_seconds <= 0) {
 			beep.stop();
-			//shortBeep.stop();
-			//shorterBeep.stop();
 			// Game over man...
 			if (!obsDumbFix){
 				longBeep.stop();
-				longBeep.play(false);
+				longBeep.play(false); // One shot
 				obsDumbFix = true;
 				// Dont beep again for a bit.
 				postBeepClarity = Date.now() + 3000;
@@ -117,11 +105,15 @@ const Timer: React.FC<{
 		}
 		else {
 			beep.stop();
-			//shortBeep.stop();
-			//shorterBeep.stop();
 			// Keep longBeep ringing on even if the timer goes back up again.
 		}
 		obsDumbFix = false;
+		
+		return ()=>{
+			// Used to stop beeping if the timer disconnects while beeping
+			suspendTimeout = window.setTimeout(()=>{audioContext.suspend()},2000);
+		}
+
 	},[input_seconds])
 
 
