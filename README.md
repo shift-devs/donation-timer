@@ -10,7 +10,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 4. Create a [Twitch Application](https://dev.twitch.tv/console/)
 5. Edit the `.env` file to use your new Twitch Application's Client ID
 6. Add an "OAuth Redirect URL" to your Twitch Application. Set it to the value that's in `VITE_REDIRECT_URL`
-7. Add your username to the `allowedUsers` array in `back/src/index.ts:17`
+7. Add your username to the `ALLOWED_USERS` array in `back/src/index.ts:17`
 
 > [!NOTE]
 > If you're using this in production, you might be changing the URLs in `.env` to point to an internet accessible domain.
