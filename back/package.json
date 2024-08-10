@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "type": "commonjs",
     "scripts": {
-        "dev": "npx nodemon -e ts --exec \"npx tsc && node build/index.js\"",
+        "dev": "npx tsc && node build/index.js",
         "start": "npx tsc && node build/index.js",
         "migrate": "npx node-pg-migrate up"
     },
