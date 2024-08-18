@@ -596,8 +596,6 @@ async function main(){
 
     ts.usersModel = ts.sequelize.define("User", USER_TABLE);
 
-    const users: Model[] = await ts.usersModel.findAll();
-
     try {
         await ts.sequelize.authenticate();
         await ts.usersModel.sync();
@@ -606,6 +604,8 @@ async function main(){
         console.error("Unable to connect to the database:", error);
         return;
     }
+
+    const users: Model[] = await ts.usersModel.findAll();
 
     users.forEach(async (user) => {
         if ((CLIENT_ID == "" && user.dataValues.userId != 1) || (CLIENT_ID != "" && user.dataValues.userId == 1)){
