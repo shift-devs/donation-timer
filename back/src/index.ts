@@ -168,162 +168,162 @@ function logoutUser(ts: TimerState, id: number){
 
 function tmiLogin(ts: TimerState, id: number){
     const curSession = getUserSession(ts, id);
-    
+
     const client = new tmi.Client({
-		connection: {
-			reconnect: true,
-			reconnectInterval: 5000,
-		},
-		channels: [curSession.name]
-	});
+        connection: {
+            reconnect: true,
+            reconnectInterval: 5000,
+        },
+        channels: [curSession.name]
+    });
 
     client.connect().catch((err)=>{
         console.log(`TMI - Unable to connect: ${curSession.name} and ${curSession.accessToken}`);
     });
 
-	function l(event) {
-		return function(){
-			console.log(event, arguments);
-		}
-	}
+    function l(event) {
+        return function(){
+            console.log(event, arguments);
+        }
+    }
 
-	client.on("connecting", l(`Connecting to ${curSession.name}'s Twitch Chat...`));
-	client.on("connected", l(`Connected to ${curSession.name}'s Twitch Chat!`));
+    client.on("connecting", l(`Connecting to ${curSession.name}'s Twitch Chat...`));
+    client.on("connected", l(`Connected to ${curSession.name}'s Twitch Chat!`));
     client.on("disconnected", l(`Disconnected from ${curSession.name}'s Twitch Chat!`));
 
-	client.on("message", (channel, tags, message, self) => {
-		let filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
-		var mSplit = filterMessage.split(" ");
-		console.log(`(${curSession.name}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
-		if (tags.username) {
-			if (tags.mod || tags.username.toLowerCase() == curSession.name){
-				let timeToAdd = 0;
-				switch (mSplit[0]) {
-					case "!nop":
-						console.log("No operation!");
-						break;
-					case "!addsub":
-						var subs = 1, tier = 1, ptr = 1;
-						while (ptr < mSplit.length){
-							if (mSplit[ptr].charAt(0) == "t"){
-								tier = parseInt(mSplit[ptr].slice(1),10);
-								if (!(tier >= 1 && tier <= 3)){
-									console.log("Invalid Tier!");
-									return;
-								}
-								tier = tier == 3 ? 5 : tier;
-								ptr++;
-								continue;
-							}
-							if (mSplit[ptr] == ""){
-								ptr++;
-								continue;
-							}
-							subs = parseInt(mSplit[ptr],10);
-							if (!Number.isFinite(subs)){
-								console.log("Invalid Number of Subs!");
-								return;
-							}
-							ptr++;
-						}
-						timeToAdd = tier * curSession.subTime * subs;
-						break;
-					case "!addmoney":
-						let dollars = 0;
-						if (mSplit.length < 2){
-							console.log("Not Enough Parameters!");
-							return;
-						}
-						let dollarString = mSplit[1];
-						dollarString = dollarString.replaceAll("$","");
-						dollars = parseFloat(dollarString);
-						if (!Number.isFinite(dollars)){
-							console.log("Invalid Money Amount!");
-							return;
-						}
-						timeToAdd = dollars * curSession.dollarTime;
-						break;
-					case "!addtime":
-						let seconds = 0;
-						if (mSplit.length < 2){
-							console.log("Not Enough Parameters!");
-							return;
-						}
-						seconds = parseInt(mSplit[1],10);
-						if (!Number.isFinite(seconds)){
-							console.log("Invalid Time Amount!");
-							return;
-						}
-						timeToAdd = seconds;
-						break;
-				}
-				if (timeToAdd == 0)
-					return;
-				if (Math.abs(timeToAdd) > CHAT_CMD_MAX_TIME){
-					console.log(`Time change would be greater than ${CHAT_CMD_MAX_TIME} seconds!`);
-					return;
-				}
+    client.on("message", (channel, tags, message, self) => {
+        let filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
+        var mSplit = filterMessage.split(" ");
+        console.log(`(${curSession.name}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
+        if (tags.username) {
+            if (tags.mod || tags.username.toLowerCase() == curSession.name){
+                let timeToAdd = 0;
+                switch (mSplit[0]) {
+                    case "!nop":
+                        console.log("No operation!");
+                        break;
+                    case "!addsub":
+                        var subs = 1, tier = 1, ptr = 1;
+                        while (ptr < mSplit.length){
+                            if (mSplit[ptr].charAt(0) == "t"){
+                                tier = parseInt(mSplit[ptr].slice(1),10);
+                                if (!(tier >= 1 && tier <= 3)){
+                                    console.log("Invalid Tier!");
+                                    return;
+                                }
+                                tier = tier == 3 ? 5 : tier;
+                                ptr++;
+                                continue;
+                            }
+                            if (mSplit[ptr] == ""){
+                                ptr++;
+                                continue;
+                            }
+                            subs = parseInt(mSplit[ptr],10);
+                            if (!Number.isFinite(subs)){
+                                console.log("Invalid Number of Subs!");
+                                return;
+                            }
+                            ptr++;
+                        }
+                        timeToAdd = tier * curSession.subTime * subs;
+                        break;
+                    case "!addmoney":
+                        let dollars = 0;
+                        if (mSplit.length < 2){
+                            console.log("Not Enough Parameters!");
+                            return;
+                        }
+                        let dollarString = mSplit[1];
+                        dollarString = dollarString.replaceAll("$","");
+                        dollars = parseFloat(dollarString);
+                        if (!Number.isFinite(dollars)){
+                            console.log("Invalid Money Amount!");
+                            return;
+                        }
+                        timeToAdd = dollars * curSession.dollarTime;
+                        break;
+                    case "!addtime":
+                        let seconds = 0;
+                        if (mSplit.length < 2){
+                            console.log("Not Enough Parameters!");
+                            return;
+                        }
+                        seconds = parseInt(mSplit[1],10);
+                        if (!Number.isFinite(seconds)){
+                            console.log("Invalid Time Amount!");
+                            return;
+                        }
+                        timeToAdd = seconds;
+                        break;
+                }
+                if (timeToAdd == 0)
+                    return;
+                if (Math.abs(timeToAdd) > CHAT_CMD_MAX_TIME){
+                    console.log(`Time change would be greater than ${CHAT_CMD_MAX_TIME} seconds!`);
+                    return;
+                }
                 addToEndTime(ts, id, timeToAdd);
-			}
-		}
-	});
+            }
+        }
+    });
 
-	const isAnon = (uname: any) => {
-		const upUname = uname.toUpperCase();
-		return upUname == "ANANONYMOUSGIFTER";
-	}
+    const isAnon = (uname: any) => {
+        const upUname = uname.toUpperCase();
+        return upUname == "ANANONYMOUSGIFTER";
+    }
 
-	const calcTier = (ustate: any) => {
-		const plan = ustate["msg-param-sub-plan"] || "1000";
-		const tempTier = plan == "Prime" ? 1 : parseInt(plan,10) / 1000;
-		return tempTier == 3 ? 5 : tempTier;
-	}
+    const calcTier = (ustate: any) => {
+        const plan = ustate["msg-param-sub-plan"] || "1000";
+        const tempTier = plan == "Prime" ? 1 : parseInt(plan,10) / 1000;
+        return tempTier == 3 ? 5 : tempTier;
+    }
 
-	client.on("submysterygift",(channel, username, numbOfSubs, methods, userstate) => {
-		if (curSession.ignoreAnon && isAnon(username))
-			return;
-		const tier = calcTier(userstate);
+    client.on("submysterygift",(channel, username, numbOfSubs, methods, userstate) => {
+        if (curSession.ignoreAnon && isAnon(username))
+            return;
+        const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
         addToEndTime(ts, id, numbOfSubs * tier * curSession.subTime);
-	});
+    });
 
-	client.on("subgift",(channel, username, streakMonths, recipient, methods, userstate) => {
-		if (userstate["msg-param-community-gift-id"]) // Mass subgifts are handled in submysterygift
-			return;
-		if (curSession.ignoreAnon && isAnon(username))
-			return;
-		const tier = calcTier(userstate);
+    client.on("subgift",(channel, username, streakMonths, recipient, methods, userstate) => {
+        if (userstate["msg-param-community-gift-id"]) // Mass subgifts are handled in submysterygift
+            return;
+        if (curSession.ignoreAnon && isAnon(username))
+            return;
+        const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
-		addToEndTime(ts, id, tier * curSession.subTime);
-	});
+        addToEndTime(ts, id, tier * curSession.subTime);
+    });
 
     client.on("anongiftpaidupgrade", (_channel, _username, userstate) => {
-		const tier = calcTier(userstate);
+        const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - anongiftpaidupgrade from ${_username} to tier ${tier}!`);
-		addToEndTime(ts, id, tier * curSession.subTime);
-	});
+        addToEndTime(ts, id, tier * curSession.subTime);
+    });
 
-	client.on("giftpaidupgrade", (_channel, _username, sender, userstate) => {
-		const tier = calcTier(userstate);
+    client.on("giftpaidupgrade", (_channel, _username, sender, userstate) => {
+        const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - giftpaidupgrade from ${_username} to tier ${tier}!`);
-		addToEndTime(ts, id, tier * curSession.subTime);
-	});
+        addToEndTime(ts, id, tier * curSession.subTime);
+    });
 
-	client.on("resub",(_channel, _username, _months, _message, userstate, _methods) => {
-		const tier = calcTier(userstate);
+    client.on("resub",(_channel, _username, _months, _message, userstate, _methods) => {
+        const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${_username} has resubscribed with tier ${tier}!`);
-		addToEndTime(ts, id, tier * curSession.subTime);
-	});
+        addToEndTime(ts, id, tier * curSession.subTime);
+    });
 
-	client.on("subscription",(_channel, _username, _method, _message, userstate) => {
-		const tier = calcTier(userstate);
+    client.on("subscription",(_channel, _username, _method, _message, userstate) => {
+        const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${_username} has subscribed with tier ${tier}!`);
         addToEndTime(ts, id, tier * curSession.subTime);
-	});
+    });
 
-	client.on("cheer", (_channel, userstate, _message) => {
-		var bits: string = userstate["bits"] || "0";
-		console.log(`(${curSession.name}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
+    client.on("cheer", (_channel, userstate, _message) => {
+        var bits: string = userstate["bits"] || "0";
+        console.log(`(${curSession.name}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
         addToEndTime(ts, id, (parseInt(bits,10)/100) * curSession.dollarTime);
     });
 
@@ -333,20 +333,20 @@ function tmiLogin(ts: TimerState, id: number){
 function slLogin(ts: TimerState, id: number){
     const curSession = getUserSession(ts, id);
     let merchInterval: NodeJS.Timeout | number = 0;
-	const socket = io(`https://sockets.streamlabs.com?token=${curSession.slToken}`, {
-		transports: ["websocket"],
-	});
+    const socket = io(`https://sockets.streamlabs.com?token=${curSession.slToken}`, {
+        transports: ["websocket"],
+    });
 
-	socket.on("connect", () => {
-		console.log(`Connected to ${curSession.name}'s Streamlabs!`);
+    socket.on("connect", () => {
+        console.log(`Connected to ${curSession.name}'s Streamlabs!`);
         curSession.slStatus = true;
         gWSSync(ts, id);
-		slInstallMerch(ts, id);
+        slInstallMerch(ts, id);
         if (merchInterval == 0)
             merchInterval = setInterval(slInstallMerch.bind(null, ts, id), MERCH_UPDATE_TIME);
-	});
+    });
 
-	socket.on("disconnect", () => {
+    socket.on("disconnect", () => {
         console.log(`Disconnected from ${curSession.name}'s Streamlabs!`);
         curSession.slStatus = false;
         gWSSync(ts, id);
@@ -354,25 +354,25 @@ function slLogin(ts: TimerState, id: number){
             clearInterval(merchInterval);
             merchInterval = 0;
         }
-	});
+    });
 
-	socket.on("event", (e: any) => {
-		console.log(`(${curSession.name}) Streamlabs Event: ${JSON.stringify(e)}`);
-		switch (e.type){
-			case "donation":
+    socket.on("event", (e: any) => {
+        console.log(`(${curSession.name}) Streamlabs Event: ${JSON.stringify(e)}`);
+        switch (e.type){
+            case "donation":
                 console.log(`(${curSession.name}) STREAMLABS - Adding $${e.message[0].amount} to timer!`);
                 addToEndTime(ts, id, curSession.dollarTime * e.message[0].amount);
-				break;
-			case "merch":
-				if (!curSession.merchValues[e.message[0].product]){
-					console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!!`);
-					return;
-				}
+                break;
+            case "merch":
+                if (!curSession.merchValues[e.message[0].product]){
+                    console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!!`);
+                    return;
+                }
                 console.log(`(${curSession.name}) - STREAMLABS - Adding $${curSession.merchValues[e.message[0].product]} to timer!`);
                 addToEndTime(ts, id, curSession.dollarTime * curSession.merchValues[e.message[0].product]);
-				break;
-		}
-	});
+                break;
+        }
+    });
 
     return socket;
 }
@@ -405,17 +405,17 @@ function slInstallMerch(ts: TimerState, id: number){
 
 async function dbCreate(ts: TimerState, inObj: Object){
     const lvObj = Object.assign({}, inObj) as TimerUserSession;
-	await ts.usersModel.create({
-		userId: lvObj.userId,
-		name: lvObj.name,
-		accessToken: lvObj.accessToken,
-		subTime: lvObj.subTime,
-		dollarTime: lvObj.dollarTime,
-		slToken: lvObj.slToken,
-		endTime: lvObj.endTime,
-		shouldCap: lvObj.shouldCap,
-		ignoreAnon: lvObj.ignoreAnon
-	});
+    await ts.usersModel.create({
+        userId: lvObj.userId,
+        name: lvObj.name,
+        accessToken: lvObj.accessToken,
+        subTime: lvObj.subTime,
+        dollarTime: lvObj.dollarTime,
+        slToken: lvObj.slToken,
+        endTime: lvObj.endTime,
+        shouldCap: lvObj.shouldCap,
+        ignoreAnon: lvObj.ignoreAnon
+    });
 }
 
 function dbUpdate(ts: TimerState){
@@ -424,22 +424,22 @@ function dbUpdate(ts: TimerState){
     while (i < usLength){
         const curSession = ts.userSessions[i];
         ts.usersModel.update(
-			{
-				name: curSession.name,
-				accessToken: curSession.accessToken,
-				subTime: curSession.subTime,
-				dollarTime: curSession.dollarTime,
-				slToken: curSession.slToken,
-				endTime: Math.trunc(curSession.endTime),
-				shouldCap: curSession.shouldCap,
-				ignoreAnon: curSession.ignoreAnon,
-			},
-			{
-				where: {
-					userId: curSession.userId,
-				},
-			}
-		);
+            {
+                name: curSession.name,
+                accessToken: curSession.accessToken,
+                subTime: curSession.subTime,
+                dollarTime: curSession.dollarTime,
+                slToken: curSession.slToken,
+                endTime: Math.trunc(curSession.endTime),
+                shouldCap: curSession.shouldCap,
+                ignoreAnon: curSession.ignoreAnon,
+            },
+            {
+                where: {
+                    userId: curSession.userId,
+                },
+            }
+        );
         i++;
     }
 }
@@ -543,18 +543,18 @@ function wsSync(ts: TimerState, ws: TimerWebSocket) {
         return;
     const id = ws.userId;
     const curSession = getUserSession(ts, id);
-	ws.send(
-		JSON.stringify({
-			success: true,
-			endTime: curSession.endTime,
-			subTime: curSession.subTime,
-			dollarTime: curSession.dollarTime,
-			slStatus: curSession.slStatus,
-			cap: curSession.shouldCap,
-			anon: curSession.ignoreAnon,
-			merchValues: curSession.merchValues
-		})
-	);
+    ws.send(
+        JSON.stringify({
+            success: true,
+            endTime: curSession.endTime,
+            subTime: curSession.subTime,
+            dollarTime: curSession.dollarTime,
+            slStatus: curSession.slStatus,
+            cap: curSession.shouldCap,
+            anon: curSession.ignoreAnon,
+            merchValues: curSession.merchValues
+        })
+    );
 }
 
 function wsUpdateSetting(ts: TimerState, ws: TimerWebSocket, data: any) {
@@ -562,14 +562,14 @@ function wsUpdateSetting(ts: TimerState, ws: TimerWebSocket, data: any) {
         return;
     const id = ws.userId;
     const curSession = getUserSession(ts, id);
-	switch (data.setting) {
-		case "subTime":
-			if (parseInt(data.value)) curSession.subTime = parseInt(data.value);
-			break;
-		case "dollarTime":
-			if (parseInt(data.value)) curSession.dollarTime = parseInt(data.value);
-			break;
-	}
+    switch (data.setting) {
+        case "subTime":
+            if (parseInt(data.value)) curSession.subTime = parseInt(data.value);
+            break;
+        case "dollarTime":
+            if (parseInt(data.value)) curSession.dollarTime = parseInt(data.value);
+            break;
+    }
 }
 
 async function main(){
@@ -637,7 +637,7 @@ async function main(){
 
         const urlParams = url.parse(req.url, true).query;
         const accessToken = urlParams.token as string;
-        
+
         wsLogin(ts, ws, accessToken).then(()=>{
             ws.isReady = true;
             gWSSync(ts, ws.userId);
@@ -661,38 +661,38 @@ async function main(){
 
             try {
                 var jData = JSON.parse(data);
-			} catch (error) {
-				wsCloseError(ws, "Error while parsing JSON payload!");
-				return;
-			}
+            } catch (error) {
+                wsCloseError(ws, "Error while parsing JSON payload!");
+                return;
+            }
 
-			switch (jData.event) {
-				case "getTime":
-					break;
-				case "connectStreamlabs":
-					if (jData.slToken.length >= 1000)
+            switch (jData.event) {
+                case "getTime":
+                    break;
+                case "connectStreamlabs":
+                    if (jData.slToken.length >= 1000)
                         break;
                     curSession.slToken = jData.slToken;
                     if (curSession.conSL)
                         curSession.conSL.disconnect();
                     curSession.conSL = slLogin(ts, curSession.userId);
-					break;
-				case "setSetting":
-					wsUpdateSetting(ts, ws, jData);
-					break;
-				case "setEndTime":
+                    break;
+                case "setSetting":
+                    wsUpdateSetting(ts, ws, jData);
+                    break;
+                case "setEndTime":
                     setEndTime(ts, ws.userId, Math.trunc(parseInt(jData.value) || 0));
-					break;
-				case "setCap":
-					curSession.shouldCap = Boolean(jData.value) || false;
+                    break;
+                case "setCap":
+                    curSession.shouldCap = Boolean(jData.value) || false;
                     setEndTime(ts, ws.userId, curSession.endTime);
-					break;
-				case "setAnon":
-					curSession.ignoreAnon = Boolean(jData.value) || false;
-					break;
-			}
+                    break;
+                case "setAnon":
+                    curSession.ignoreAnon = Boolean(jData.value) || false;
+                    break;
+            }
             gWSSync(ts, id);
-		});
+        });
     });
 
     setInterval(dbUpdate.bind(null, ts), DB_UPDATE_TIME);
