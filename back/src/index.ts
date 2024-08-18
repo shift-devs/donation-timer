@@ -274,7 +274,7 @@ function tmiLogin(ts: TimerState, id: number){
 	}
 
 	const calcTier = (ustate: any) => {
-		const plan = ustate["msg-param-sub-plan"] || "";
+		const plan = ustate["msg-param-sub-plan"] || "1000";
 		const tempTier = plan == "Prime" ? 1 : parseInt(plan,10) / 1000;
 		return tempTier == 3 ? 5 : tempTier;
 	}
@@ -294,6 +294,12 @@ function tmiLogin(ts: TimerState, id: number){
 			return;
 		const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
+		addToEndTime(ts, id, tier * curSession.subTime);
+	});
+
+    client.on("anongiftpaidupgrade", (_channel, _username, userstate) => {
+		const tier = calcTier(userstate);
+        console.log(`(${curSession.name}) TMI - anongiftpaidupgrade from ${_username} to tier ${tier}!`);
 		addToEndTime(ts, id, tier * curSession.subTime);
 	});
 
