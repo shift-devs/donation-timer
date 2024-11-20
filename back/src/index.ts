@@ -364,12 +364,26 @@ function slLogin(ts: TimerState, id: number){
                 addToEndTime(ts, id, curSession.dollarTime * e.message[0].amount);
                 break;
             case "merch":
-                if (!curSession.merchValues[e.message[0].product]){
-                    console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!!`);
+                console.log(`Received merch purchase! Product name: "${e.message[0].product}"`);
+                let merchValue = curSession.merchValues[e.message[0].product];
+                if (!merchValue){
+                    console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!! Trying a fuzzier search...!`);
+                    const mvEntries = Object.entries(curSession.merchValues);
+                    const lowercaseProduct = e.message[0].product.toLowerCase();
+                    for (var i = 0; i < mvEntries.length; i++){
+                        if (mvEntries[i][0].toLowerCase().includes(lowercaseProduct)){
+                            console.log(`Found "${mvEntries[i][0]}" as a close enough match!`);
+                            merchValue = mvEntries[i][1];
+                            break;
+                        }
+                    }
+                }
+                if (!merchValue){
+                    console.log(`Definitely couldn't find a valid matching product!!! Tell Aaron! :^(`);
                     return;
                 }
-                console.log(`(${curSession.name}) - STREAMLABS - Adding $${curSession.merchValues[e.message[0].product]} to timer!`);
-                addToEndTime(ts, id, curSession.dollarTime * curSession.merchValues[e.message[0].product]);
+                console.log(`(${curSession.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
+                addToEndTime(ts, id, curSession.dollarTime * merchValue);
                 break;
         }
     });
