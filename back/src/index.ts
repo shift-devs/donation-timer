@@ -599,7 +599,7 @@ async function main(){
     try {
         await ts.sequelize.authenticate();
         await ts.usersModel.sync();
-        console.log("Connected has been established successfully to the database!");
+        console.log("Connection has been established successfully to the database!");
     } catch (error) {
         console.error("Unable to connect to the database:", error);
         return;
