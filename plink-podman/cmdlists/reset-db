@@ -1,0 +1,2 @@
+systemctl --user stop donationtimer
+podman-compose -f /home/arch/donation-timer/docker/dev.yml down -v
