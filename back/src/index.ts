@@ -413,7 +413,11 @@ function slInstallMerch(ts: TimerState, id: number){
             });
             curSession.merchValues = Object.assign({}, newMerchValues);
             console.log(`Done Getting ${curSession.name}'s Streamlabs Merch!`);
+        }).catch(()=>{
+            console.log(`Could not get new streamlabs merch at this time! Try again later!`);
         });
+    }).catch(()=>{
+        console.log(`Could not get new streamlabs merch at this time! Try again later!`);
     });
 }
 
