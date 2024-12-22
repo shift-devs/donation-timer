@@ -13,7 +13,7 @@ const CHAT_CMD_MAX_TIME = 10 * 3600;
 const MERCH_UPDATE_TIME = 60 * 1000;
 const DB_UPDATE_TIME = 5 * 1000;
 const CLIENT_ID: string = process.env.CLIENT_ID || "";
-
+const WH_PATH: string = process.env.WH_PATH || "";
 const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"]
 
 const USER_TABLE = {
@@ -365,6 +365,7 @@ function slLogin(ts: TimerState, id: number){
                 break;
             case "merch":
                 console.log(`Received merch purchase! Product name: "${e.message[0].product}"`);
+                const merchHookData = `From: \`${e.message[0].from}\`\nProduct: \`${e.message[0].product}\`\nMessage: \`${e.message[0].message}\``;
                 let merchValue = curSession.merchValues[e.message[0].product];
                 if (!merchValue){
                     console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!! Trying a fuzzier search...!`);
@@ -380,15 +381,41 @@ function slLogin(ts: TimerState, id: number){
                 }
                 if (!merchValue){
                     console.log(`Definitely couldn't find a valid matching product!!! Tell Aaron! :^(`);
+                    whSend(`**MERCH FAILURE!**\n${merchHookData}`);
                     return;
                 }
                 console.log(`(${curSession.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
+                whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
                 addToEndTime(ts, id, curSession.dollarTime * merchValue);
                 break;
         }
     });
 
     return socket;
+}
+
+function whSend(msg: string){
+    const aSnowflake = "305454678316154900";
+    if (WH_PATH == ""){
+        console.log("WH_PATH is not valid! Not sending hook!");
+        return;
+    }
+    axios.post(`https://discord.com/api/webhooks/${WH_PATH}`,
+    JSON.stringify(
+        {
+            "content": `<@${aSnowflake}> ${msg}`,
+            "allowed_mentions": {
+                "users": [aSnowflake]
+            }
+        }
+    ),{headers: {
+        "Content-Type": "application/json"
+    }}).then(()=>{
+        console.log("Sent a webhook!");
+    }).catch((err)=>{
+        console.log("Failed to send a webhook!");
+        console.log(err);
+    });
 }
 
 function slInstallMerch(ts: TimerState, id: number){
@@ -592,7 +619,7 @@ function wsUpdateSetting(ts: TimerState, ws: TimerWebSocket, data: any) {
 
 async function main(){
     console.log(`Running in ${CLIENT_ID==""?"Una":"A"}uthorized Mode!`);
-
+    whSend("**TIMER STARTED**");
     const ts = {} as TimerState;
     ts.userSessions = [];
 
