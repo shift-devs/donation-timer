@@ -8,7 +8,6 @@ services:
       - VITE_WEBSOCKET_URL=${VITE_WEBSOCKET_URL}
       - VITE_REDIRECT_URL=${VITE_REDIRECT_URL}
       - VITE_BASE_URL=${VITE_BASE_URL}
-      - WH_PATH=${WH_PATH}
     build:
       context: ..
       dockerfile: docker/Dockerfile-dev-front
@@ -24,6 +23,7 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - CLIENT_ID=${CLIENT_ID}
+      - WH_PATH=${WH_PATH}
     build:
       context: ..
       dockerfile: docker/Dockerfile-dev-back
