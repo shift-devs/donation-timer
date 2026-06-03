@@ -13,11 +13,11 @@ const Widget: React.FC = () => {
 	const updateSeconds = (endTime: number) => {
 		console.log(
 			`Syncing endtime to ${endTime} and seconds to ${
-				endTime - new Date().getTime() / 1000
+				(endTime - Date.now()) / 1000
 			} `
 		);
 
-		setSeconds(Math.round(endTime - new Date().getTime() / 1000));
+		setSeconds(Math.round((endTime - Date.now()) / 1000));
 	};
 
 	const connectWs = () => {

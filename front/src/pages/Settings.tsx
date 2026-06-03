@@ -49,7 +49,7 @@ const Settings: React.FC = () => {
 	};
 	
 	const updateSeconds = (endTime: number) => {
-		let tempSeconds = Math.round(endTime - new Date().getTime() / 1000);
+		let tempSeconds = Math.round((endTime - Date.now()) / 1000);
 		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
 		console.log(
 			`Force syncing endtime to ${endTime} and seconds to ${

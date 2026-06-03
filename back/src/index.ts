@@ -8,7 +8,7 @@ import io from "socket.io-client";
 const WSS_PORT = 3003;
 const WS_FORCE_SYNC_TIME = 5 * 1000;
 const WS_HB_TIME = 10 * 1000;
-const CAP_TIME = 30 * 3600;
+const CAP_TIME = 30 * 3600 * 1000;
 const CHAT_CMD_MAX_TIME = 10 * 3600;
 const MERCH_UPDATE_TIME = 60 * 1000;
 const DB_UPDATE_TIME = 5 * 1000;
@@ -46,7 +46,7 @@ const USER_TABLE = {
         defaultValue: null
     },
     endTime: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         allowNull: false,
         defaultValue: 0
     },
@@ -116,10 +116,10 @@ function setEndTime(ts: TimerState, id: number, newEndTime: number){
         console.log(`Ignoring non-finite endTime for ${curSession.name}!`);
         return;
     }
-    const nowSeconds = Math.trunc(Date.now() / 1000);
-    const deltaTime = newEndTime - nowSeconds;
+    const nowMs = Date.now();
+    const deltaTime = newEndTime - nowMs;
     if (curSession.shouldCap && deltaTime > CAP_TIME)
-        newEndTime = CAP_TIME + nowSeconds;
+        newEndTime = CAP_TIME + nowMs;
     newEndTime = Math.round(newEndTime);
     console.log(`Setting ${curSession.name}'s endTime to ${newEndTime}!`);
     curSession.endTime = newEndTime;
@@ -128,17 +128,18 @@ function setEndTime(ts: TimerState, id: number, newEndTime: number){
 
 function addToEndTime(ts: TimerState, id: number, seconds: number){
     const curSession = getUserSession(ts, id);
-    const nowSeconds = Math.trunc(Date.now() / 1000);
+    const nowMs = Date.now();
     let newEndTime = curSession.endTime;
-    if (newEndTime < nowSeconds)
-        newEndTime = nowSeconds;
-    newEndTime += seconds;
+    if (newEndTime < nowMs)
+        newEndTime = nowMs;
+    newEndTime += seconds * 1000;
     console.log(`Adding ${seconds} seconds to ${curSession.name}'s endTime!`);
     setEndTime(ts, id, newEndTime);
 }
 
 function loginUser(ts: TimerState, inObj: Object){
     const lvObj = Object.assign({}, inObj) as TimerUserSession;
+    lvObj.endTime = Number(lvObj.endTime); // bigint comes back as a string from pg
     lvObj.merchValues = {};
     lvObj.slStatus = false;
     const existingSession = getUserSession(ts, lvObj.userId);
@@ -479,7 +480,7 @@ function dbUpdate(ts: TimerState){
                 subTime: curSession.subTime,
                 dollarTime: curSession.dollarTime,
                 slToken: curSession.slToken,
-                endTime: Math.trunc(curSession.endTime),
+                endTime: Math.round(curSession.endTime),
                 shouldCap: curSession.shouldCap,
                 ignoreAnon: curSession.ignoreAnon,
             },

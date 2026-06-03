@@ -35,13 +35,12 @@ export function addTime(
 	currentEndTime: number,
 	seconds: number
 ) {
-	const now = Math.trunc(new Date().getTime() / 1000);
+	const now = Date.now();
 	if (currentEndTime < now) currentEndTime = now;
-	seconds = Math.floor(seconds);
 	console.log(
 		`Trying to add ${seconds} seconds with endTime: ${currentEndTime}`
 	);
-	setEndTime(ws, currentEndTime + seconds);
+	setEndTime(ws, currentEndTime + Math.round(seconds * 1000));
 	return 1;
 }
 

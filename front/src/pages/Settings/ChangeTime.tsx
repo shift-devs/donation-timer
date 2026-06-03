@@ -71,10 +71,10 @@ const ChangeTime: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 								onClick={() => {
 									setEndTime(
 										ws,
-										(parseInt(formattedHours) * 3600 || 0) +
+										((parseInt(formattedHours) * 3600 || 0) +
 											(parseInt(formattedMinutes) * 60 || 0) +
-											(parseInt(formattedSeconds) || 0) +
-											Math.trunc(Date.now() / 1000)
+											(parseInt(formattedSeconds) || 0)) * 1000 +
+											Date.now()
 									);
 								}}
 								colorScheme='purple'
