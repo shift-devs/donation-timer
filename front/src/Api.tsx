@@ -78,3 +78,13 @@ export function setAnon(ws: WebSocket, value: boolean) {
 	);
 	return 1;
 }
+
+export function setRates(ws: WebSocket, rates: any) {
+	ws.send(
+		JSON.stringify({
+			event: "setRates",
+			rates: rates,
+		})
+	);
+	return 1;
+}

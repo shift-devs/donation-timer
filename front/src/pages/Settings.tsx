@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import ConnectivitySettings from "./Settings/Connectivity";
 import Timer from "../Timer";
 import * as consts from "../Consts";
-import TimingSettings from "./Settings/TimingSettings";
 import ChangeTime from "./Settings/ChangeTime";
 import Merch from "./Settings/Merch";
+import TimePerAction from "./Settings/TimePerAction";
+import Controls from "./Settings/Controls";
 import {
 	Spinner,
 	Tabs,
@@ -12,10 +12,7 @@ import {
 	TabPanels,
 	Tab,
 	TabPanel,
-	Button,
-	Center,
 } from "@chakra-ui/react";
-import { setCap, setAnon } from "../Api";
 
 const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
@@ -29,25 +26,7 @@ const Settings: React.FC = () => {
 	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
-	const [capStatus, setCapStatus] = useState("Enable 30h cap");
-	const [anonStatus, setAnonStatus] = useState("Ignore Anonymous Giftsubs");
 
-	const toggleCap = () => {
-		if (capStatus === "Enable 30h cap") {
-			setCap(ws, true);
-		} else {
-			setCap(ws, false);
-		}
-	};
-
-	const toggleAnon = () => {
-		if (anonStatus === "Ignore Anonymous Giftsubs") {
-			setAnon(ws, true);
-		} else {
-			setAnon(ws, false);
-		}
-	};
-	
 	const updateSeconds = (endTime: number) => {
 		let tempSeconds = Math.round((endTime - Date.now()) / 1000);
 		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
@@ -70,10 +49,6 @@ const Settings: React.FC = () => {
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
-				if (response.cap) setCapStatus("Disable 30h cap");
-				else setCapStatus("Enable 30h cap");
-				if (response.anon) setAnonStatus("Unignore Anonymous Giftsubs")
-				else setAnonStatus("Ignore Anonymous Giftsubs");
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -128,29 +103,35 @@ const Settings: React.FC = () => {
 		return (
 			<div
 				style={{
-					margin: "auto",
+					height: "100vh",
+					display: "flex",
+					flexDirection: "column",
 					textAlign: "center",
 					width: "100%",
-					marginTop: "0%",
+					overflow: "hidden",
 				}}
 			>
 				<Timer input_seconds={seconds} textAlign='center' />
 				<br />
-				<Tabs>
+				<Tabs
+					display='flex'
+					flexDirection='column'
+					flex='1'
+					minH={0}
+					overflow='hidden'
+				>
 					<TabList>
-						<Tab>Timer Settings</Tab>
-						<Tab>Connect Streamlabs</Tab>
+						<Tab>Time Per Action</Tab>
+						<Tab>Controls</Tab>
 						<Tab>Change Time</Tab>
 						<Tab>Merch</Tab>
 					</TabList>
-					<br />
-					<br />
-					<TabPanels>
+					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
-							<TimingSettings ws={ws} input_settings={settings} />
+							<TimePerAction ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
-							<ConnectivitySettings ws={ws} status={settings.slStatus} />
+							<Controls ws={ws} token={token} baseUrl={BASE_URL} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<ChangeTime ws={ws} endTime={endTime} settings={settings} />
@@ -160,36 +141,6 @@ const Settings: React.FC = () => {
 						</TabPanel>
 					</TabPanels>
 				</Tabs>
-				<Center>
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							navigator.clipboard.writeText(
-								`${BASE_URL}/widget?token=${token}`
-							);
-						}}
-					>
-						Copy widget URL
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							toggleCap();
-						}}
-					>
-						{capStatus}
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							toggleAnon();
-						}}
-					>
-						{anonStatus}
-					</Button>
-				</Center>
 			</div>
 		);
 

@@ -50,7 +50,7 @@ const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 	const [fetched, setFetched] = useState(false);
 
 	useEffect(() => {
-		if (typeof settings.subTime == "number") setFetched(true);
+		if (settings.rates) setFetched(true);
 	}, [settings]);
 
 	if (Object.keys(settings.merchValues).length != 0){
@@ -76,7 +76,7 @@ const Merch: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 							<GridItem key={k} colSpan={1}>
 								<Button
 									onClick={() => {
-										addTime(ws, endTime, key[1] as number * settings.dollarTime);
+										addTime(ws, endTime, (key[1] as number) * (settings.rates?.streamlabs?.merch || 0));
 									}}
 									colorScheme='purple'
 									width='100%'

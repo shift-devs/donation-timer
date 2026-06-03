@@ -16,6 +16,30 @@ const CLIENT_ID: string = process.env.CLIENT_ID || "";
 const WH_PATH: string = process.env.WH_PATH || "";
 const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"]
 
+// seconds granted per unit, per platform. floats. defaults preserve old subTime=70/dollarTime=14 behavior
+const DEFAULT_RATES = {
+    twitch: { sub_t1: 70, sub_t2: 140, sub_t3: 350, bits: 0.14 },
+    streamlabs: { donation: 14, merch: 14 },
+};
+
+function normalizeRates(raw: any){
+    const num = (v: any, d: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
+    const t = (raw && raw.twitch) || {};
+    const s = (raw && raw.streamlabs) || {};
+    return {
+        twitch: {
+            sub_t1: num(t.sub_t1, DEFAULT_RATES.twitch.sub_t1),
+            sub_t2: num(t.sub_t2, DEFAULT_RATES.twitch.sub_t2),
+            sub_t3: num(t.sub_t3, DEFAULT_RATES.twitch.sub_t3),
+            bits: num(t.bits, DEFAULT_RATES.twitch.bits),
+        },
+        streamlabs: {
+            donation: num(s.donation, DEFAULT_RATES.streamlabs.donation),
+            merch: num(s.merch, DEFAULT_RATES.streamlabs.merch),
+        },
+    };
+}
+
 const USER_TABLE = {
     userId: {
         type: DataTypes.INTEGER,
@@ -57,6 +81,11 @@ const USER_TABLE = {
     ignoreAnon: {
         type: DataTypes.BOOLEAN,
         defaultValue: false
+    },
+    rates: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
     }
 }
 
@@ -77,6 +106,8 @@ interface TimerUserSession {
     shouldCap: boolean
     ignoreAnon: boolean
     slStatus: boolean
+    twitchStatus: boolean
+    rates: any
     merchValues: Object
     conTMI?: tmi.Client
     conSL?: SocketIOClient.Socket
@@ -140,6 +171,8 @@ function addToEndTime(ts: TimerState, id: number, seconds: number){
 function loginUser(ts: TimerState, inObj: Object){
     const lvObj = Object.assign({}, inObj) as TimerUserSession;
     lvObj.endTime = Number(lvObj.endTime); // bigint comes back as a string from pg
+    lvObj.rates = normalizeRates(lvObj.rates);
+    lvObj.twitchStatus = false;
     lvObj.merchValues = {};
     lvObj.slStatus = false;
     const existingSession = getUserSession(ts, lvObj.userId);
@@ -193,8 +226,16 @@ function tmiLogin(ts: TimerState, id: number){
     }
 
     client.on("connecting", l(`Connecting to ${curSession.name}'s Twitch Chat...`));
-    client.on("connected", l(`Connected to ${curSession.name}'s Twitch Chat!`));
-    client.on("disconnected", l(`Disconnected from ${curSession.name}'s Twitch Chat!`));
+    client.on("connected", () => {
+        console.log(`Connected to ${curSession.name}'s Twitch Chat!`);
+        curSession.twitchStatus = true;
+        gWSSync(ts, id);
+    });
+    client.on("disconnected", () => {
+        console.log(`Disconnected from ${curSession.name}'s Twitch Chat!`);
+        curSession.twitchStatus = false;
+        gWSSync(ts, id);
+    });
 
     client.on("message", (channel, tags, message, self) => {
         let filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
@@ -216,7 +257,6 @@ function tmiLogin(ts: TimerState, id: number){
                                     console.log("Invalid Tier!");
                                     return;
                                 }
-                                tier = tier == 3 ? 5 : tier;
                                 ptr++;
                                 continue;
                             }
@@ -231,7 +271,7 @@ function tmiLogin(ts: TimerState, id: number){
                             }
                             ptr++;
                         }
-                        timeToAdd = tier * curSession.subTime * subs;
+                        timeToAdd = subs * subRate(tier);
                         break;
                     case "!addmoney":
                         let dollars = 0;
@@ -246,7 +286,7 @@ function tmiLogin(ts: TimerState, id: number){
                             console.log("Invalid Money Amount!");
                             return;
                         }
-                        timeToAdd = dollars * curSession.dollarTime;
+                        timeToAdd = dollars * curSession.rates.streamlabs.donation;
                         break;
                     case "!addtime":
                         let seconds = 0;
@@ -280,16 +320,17 @@ function tmiLogin(ts: TimerState, id: number){
 
     const calcTier = (ustate: any) => {
         const plan = ustate["msg-param-sub-plan"] || "1000";
-        const tempTier = plan == "Prime" ? 1 : parseInt(plan,10) / 1000;
-        return tempTier == 3 ? 5 : tempTier;
+        return plan == "Prime" ? 1 : parseInt(plan,10) / 1000;
     }
+
+    const subRate = (tier: number) => curSession.rates.twitch["sub_t" + tier] || 0;
 
     client.on("submysterygift",(channel, username, numbOfSubs, methods, userstate) => {
         if (curSession.ignoreAnon && isAnon(username))
             return;
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
-        addToEndTime(ts, id, numbOfSubs * tier * curSession.subTime);
+        addToEndTime(ts, id, numbOfSubs * subRate(tier));
     });
 
     client.on("subgift",(channel, username, streakMonths, recipient, methods, userstate) => {
@@ -299,37 +340,37 @@ function tmiLogin(ts: TimerState, id: number){
             return;
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
-        addToEndTime(ts, id, tier * curSession.subTime);
+        addToEndTime(ts, id, subRate(tier));
     });
 
     client.on("anongiftpaidupgrade", (_channel, _username, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - anongiftpaidupgrade from ${_username} to tier ${tier}!`);
-        addToEndTime(ts, id, tier * curSession.subTime);
+        addToEndTime(ts, id, subRate(tier));
     });
 
     client.on("giftpaidupgrade", (_channel, _username, sender, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - giftpaidupgrade from ${_username} to tier ${tier}!`);
-        addToEndTime(ts, id, tier * curSession.subTime);
+        addToEndTime(ts, id, subRate(tier));
     });
 
     client.on("resub",(_channel, _username, _months, _message, userstate, _methods) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${_username} has resubscribed with tier ${tier}!`);
-        addToEndTime(ts, id, tier * curSession.subTime);
+        addToEndTime(ts, id, subRate(tier));
     });
 
     client.on("subscription",(_channel, _username, _method, _message, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${_username} has subscribed with tier ${tier}!`);
-        addToEndTime(ts, id, tier * curSession.subTime);
+        addToEndTime(ts, id, subRate(tier));
     });
 
     client.on("cheer", (_channel, userstate, _message) => {
         var bits: string = userstate["bits"] || "0";
         console.log(`(${curSession.name}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
-        addToEndTime(ts, id, (parseInt(bits,10)/100) * curSession.dollarTime);
+        addToEndTime(ts, id, parseInt(bits,10) * curSession.rates.twitch.bits);
     });
 
     return client;
@@ -366,7 +407,7 @@ function slLogin(ts: TimerState, id: number){
         switch (e.type){
             case "donation":
                 console.log(`(${curSession.name}) STREAMLABS - Adding $${e.message[0].amount} to timer!`);
-                addToEndTime(ts, id, curSession.dollarTime * e.message[0].amount);
+                addToEndTime(ts, id, curSession.rates.streamlabs.donation * e.message[0].amount);
                 break;
             case "merch":
                 console.log(`Received merch purchase! Product name: "${e.message[0].product}"`);
@@ -391,7 +432,7 @@ function slLogin(ts: TimerState, id: number){
                 }
                 console.log(`(${curSession.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
                 whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
-                addToEndTime(ts, id, curSession.dollarTime * merchValue);
+                addToEndTime(ts, id, curSession.rates.streamlabs.merch * merchValue);
                 break;
         }
     });
@@ -464,7 +505,8 @@ async function dbCreate(ts: TimerState, inObj: Object){
         slToken: lvObj.slToken,
         endTime: lvObj.endTime,
         shouldCap: lvObj.shouldCap,
-        ignoreAnon: lvObj.ignoreAnon
+        ignoreAnon: lvObj.ignoreAnon,
+        rates: lvObj.rates
     });
 }
 
@@ -483,6 +525,7 @@ function dbUpdate(ts: TimerState){
                 endTime: Math.round(curSession.endTime),
                 shouldCap: curSession.shouldCap,
                 ignoreAnon: curSession.ignoreAnon,
+                rates: curSession.rates,
             },
             {
                 where: {
@@ -564,7 +607,8 @@ async function wsLogin(ts: TimerState, ws: TimerWebSocket, accessToken: string){
             dollarTime: USER_TABLE.dollarTime.defaultValue,
             endTime: USER_TABLE.endTime.defaultValue,
             shouldCap: USER_TABLE.shouldCap.defaultValue,
-            ignoreAnon: USER_TABLE.ignoreAnon.defaultValue
+            ignoreAnon: USER_TABLE.ignoreAnon.defaultValue,
+            rates: DEFAULT_RATES
         }
         await dbCreate(ts, newUser);
         loginUser(ts, newUser);
@@ -601,29 +645,14 @@ function wsSync(ts: TimerState, ws: TimerWebSocket) {
         JSON.stringify({
             success: true,
             endTime: curSession.endTime,
-            subTime: curSession.subTime,
-            dollarTime: curSession.dollarTime,
             slStatus: curSession.slStatus,
+            twitchStatus: curSession.twitchStatus,
             cap: curSession.shouldCap,
             anon: curSession.ignoreAnon,
+            rates: curSession.rates,
             merchValues: curSession.merchValues
         })
     );
-}
-
-function wsUpdateSetting(ts: TimerState, ws: TimerWebSocket, data: any) {
-    if (!ws.isReady)
-        return;
-    const id = ws.userId;
-    const curSession = getUserSession(ts, id);
-    switch (data.setting) {
-        case "subTime":
-            if (parseInt(data.value)) curSession.subTime = parseInt(data.value);
-            break;
-        case "dollarTime":
-            if (parseInt(data.value)) curSession.dollarTime = parseInt(data.value);
-            break;
-    }
 }
 
 async function main(){
@@ -740,8 +769,8 @@ async function main(){
                         curSession.conSL.disconnect();
                     curSession.conSL = slLogin(ts, curSession.userId);
                     break;
-                case "setSetting":
-                    wsUpdateSetting(ts, ws, jData);
+                case "setRates":
+                    curSession.rates = normalizeRates(jData.rates);
                     break;
                 case "setEndTime":
                     setEndTime(ts, ws.userId, Math.trunc(parseInt(jData.value) || 0));
