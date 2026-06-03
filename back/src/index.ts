@@ -112,6 +112,10 @@ function getUserSessionIndexById(ts: TimerState, id: number){
 
 function setEndTime(ts: TimerState, id: number, newEndTime: number){
     const curSession = getUserSession(ts, id);
+    if (!Number.isFinite(newEndTime)){
+        console.log(`Ignoring non-finite endTime for ${curSession.name}!`);
+        return;
+    }
     const nowSeconds = Math.trunc(Date.now() / 1000);
     const deltaTime = newEndTime - nowSeconds;
     if (curSession.shouldCap && deltaTime > CAP_TIME)
@@ -484,7 +488,9 @@ function dbUpdate(ts: TimerState){
                     userId: curSession.userId,
                 },
             }
-        );
+        ).catch((err: any)=>{
+            console.log("Failed to update user in DB:", err);
+        });
         i++;
     }
 }
@@ -586,6 +592,8 @@ async function wsLogin(ts: TimerState, ws: TimerWebSocket, accessToken: string){
 function wsSync(ts: TimerState, ws: TimerWebSocket) {
     if (!ws.isReady)
         return;
+    if (ws.readyState !== WebSocket.OPEN)
+        return;
     const id = ws.userId;
     const curSession = getUserSession(ts, id);
     ws.send(
@@ -618,6 +626,12 @@ function wsUpdateSetting(ts: TimerState, ws: TimerWebSocket, data: any) {
 }
 
 async function main(){
+    process.on("unhandledRejection", (reason) => {
+        console.log("Unhandled rejection:", reason);
+    });
+    process.on("uncaughtException", (err) => {
+        console.log("Uncaught exception:", err);
+    });
     console.log(`Running in ${CLIENT_ID==""?"Una":"A"}uthorized Mode!`);
     whSend("**TIMER STARTED**");
     const ts = {} as TimerState;
@@ -686,6 +700,9 @@ async function main(){
         wsLogin(ts, ws, accessToken).then(()=>{
             ws.isReady = true;
             gWSSync(ts, ws.userId);
+        }).catch((err)=>{
+            console.log("wsLogin failed:", err);
+            wsCloseError(ws, "Failed to login!");
         });
 
         ws.on("pong",()=>{
@@ -715,7 +732,7 @@ async function main(){
                 case "getTime":
                     break;
                 case "connectStreamlabs":
-                    if (jData.slToken.length >= 1000)
+                    if (typeof jData.slToken !== "string" || jData.slToken.length >= 1000)
                         break;
                     curSession.slToken = jData.slToken;
                     if (curSession.conSL)
