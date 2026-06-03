@@ -556,8 +556,8 @@ async function wsLogin(ts: TimerState, ws: TimerWebSocket, accessToken: string){
             subTime: USER_TABLE.subTime.defaultValue,
             dollarTime: USER_TABLE.dollarTime.defaultValue,
             endTime: USER_TABLE.endTime.defaultValue,
-            shouldCap: USER_TABLE.endTime.defaultValue,
-            ignoreAnon: USER_TABLE.endTime.defaultValue
+            shouldCap: USER_TABLE.shouldCap.defaultValue,
+            ignoreAnon: USER_TABLE.ignoreAnon.defaultValue
         }
         await dbCreate(ts, newUser);
         loginUser(ts, newUser);
