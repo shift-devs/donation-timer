@@ -206,14 +206,25 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						</VStack>
 					</AccordionPanel>
 				</AccordionItem>
-				<AccordionItem isDisabled>
+				<AccordionItem>
 					<AccordionButton>
 						<HStack flex="1" textAlign="left">
 							<Text fontWeight={600}>Kick</Text>
-							<Badge>coming soon</Badge>
+							{settings.slStatus ? (
+								<Badge colorScheme="green">via Streamlabs</Badge>
+							) : (
+								<Badge>needs Streamlabs</Badge>
+							)}
 						</HStack>
 						<AccordionIcon />
 					</AccordionButton>
+					<AccordionPanel pb={4}>
+						<Text fontSize="sm" color="gray.600">
+							Kick subscriptions and gifted subs are relayed through your Streamlabs connection (with your
+							Kick channel linked in Streamlabs). Connect Streamlabs above to enable them, then set their
+							rates under Time Per Action. Kick tips arrive via the Streamlabs donation rate.
+						</Text>
+					</AccordionPanel>
 				</AccordionItem>
 			</Accordion>
 		</Box>

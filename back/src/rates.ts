@@ -6,6 +6,7 @@ export const DEFAULT_RATES = {
     streamlabs: { donation: 14, merch: 14 },
     youtube: { superchat: 14, supersticker: 14, membership: 70, membership_gift: 70 },
     fourthwall: { order: 14, donation: 14, membership: 70 },
+    kick: { subscription: 70, gift: 70 },
 };
 
 export function normalizeRates(raw: any){
@@ -14,6 +15,7 @@ export function normalizeRates(raw: any){
     const s = (raw && raw.streamlabs) || {};
     const y = (raw && raw.youtube) || {};
     const f = (raw && raw.fourthwall) || {};
+    const k = (raw && raw.kick) || {};
     return {
         twitch: {
             sub_t1: num(t.sub_t1, DEFAULT_RATES.twitch.sub_t1),
@@ -35,6 +37,10 @@ export function normalizeRates(raw: any){
             order: num(f.order, DEFAULT_RATES.fourthwall.order),
             donation: num(f.donation, DEFAULT_RATES.fourthwall.donation),
             membership: num(f.membership, DEFAULT_RATES.fourthwall.membership),
+        },
+        kick: {
+            subscription: num(k.subscription, DEFAULT_RATES.kick.subscription),
+            gift: num(k.gift, DEFAULT_RATES.kick.gift),
         },
     };
 }

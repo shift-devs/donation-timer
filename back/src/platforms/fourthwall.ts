@@ -2,6 +2,7 @@ import axios from "axios";
 import { TimerUserSession, TimerEvent } from "../types";
 import { FW_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
 import { emitSync } from "../bus";
+import { diag } from "../diag";
 
 const FW_API = "https://api.fourthwall.com/open-api/v1.0";
 
@@ -56,12 +57,12 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const sort = first && last && first.createdAt && last.createdAt
                     ? (first.createdAt > last.createdAt ? "newest-first" : "oldest-first")
                     : "unknown";
-                console.log(`FW-DIAG ${session.name} ${name}: total=${data.total} totalPages=${data.totalPages} returned=${rows.length} sort=${sort}`);
+                diag(`FW-DIAG ${session.name} ${name}: total=${data.total} totalPages=${data.totalPages} returned=${rows.length} sort=${sort}`);
                 if (name === "order")
-                    console.log(`FW-DIAG ${session.name} order statuses: ${rows.map((r: any) => r.status).join(", ")}`);
-                console.log(`FW-DIAG ${session.name} ${name} sample: ${JSON.stringify(first)}`);
+                    diag(`FW-DIAG ${session.name} order statuses: ${rows.map((r: any) => r.status).join(", ")}`);
+                diag(`FW-DIAG ${session.name} ${name} sample: ${JSON.stringify(first)}`);
             } catch (e: any) {
-                console.log(`FW-DIAG ${session.name} ${name} failed:`, e && e.response ? e.response.status : e && e.message);
+                diag(`FW-DIAG ${session.name} ${name} failed: ${e && e.response ? e.response.status : e && e.message}`);
             }
         }
     }
@@ -69,12 +70,12 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
     async function pollOrders(){
         const rows = await get("/order", { "createdAt[gt]": ordersCursor, size: 100 });
         for (const o of rows){
-            if (o.status && o.status !== "CONFIRMED") // only placed-and-paid orders grant time
-                continue;
+            // every order in /order is paid at checkout (real data shows statuses like DELIVERED, not just CONFIRMED),
+            // so count them all. refunds/cancellations aren't clawed back (known limitation).
             const usd = Number(o.amounts && o.amounts.total && o.amounts.total.value) || 0;
             if (!usd) // adds no time -> likely a field-shape mismatch (e.g. amount vs value); surface it
-                console.log(`FW-DIAG ${session.name}: order ${o.id} parsed to $0 (check amounts.total field)`);
-            emit({ platform: "fourthwall", kind: "money", usd, unit: "order", label: `Fourthwall order $${usd} from ${o.username || o.email || "someone"}` });
+                diag(`FW-DIAG ${session.name}: order ${o.id} parsed to $0 (check amounts.total field)`);
+            emit({ platform: "fourthwall", kind: "money", usd, unit: "order", label: `order $${usd} from ${o.username || o.email || "someone"}` });
         }
         for (const o of rows) // advance cursor past the newest we saw
             if (o.createdAt && o.createdAt > ordersCursor)
@@ -104,12 +105,12 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             await pollById("/donations", seenDonations, (d) => {
                 const usd = Number(d.amounts && d.amounts.total && d.amounts.total.value) || 0;
                 if (!usd)
-                    console.log(`FW-DIAG ${session.name}: donation ${d.id} parsed to $0 (check amounts.total field)`);
-                return { platform: "fourthwall", kind: "money", usd, unit: "donation", label: `Fourthwall donation $${usd} from ${d.username || d.email || "someone"}` };
+                    diag(`FW-DIAG ${session.name}: donation ${d.id} parsed to $0 (check amounts.total field)`);
+                return { platform: "fourthwall", kind: "money", usd, unit: "donation", label: `donation $${usd} from ${d.username || d.email || "someone"}` };
             });
             await pollById("/memberships/members", seenMembers, (m) => {
                 // flat per new member (renewals reuse the same id so polling won't re-fire them; tiers TBD)
-                return { platform: "fourthwall", kind: "member", count: 1, unit: "membership", label: `Fourthwall membership from ${m.nickname || m.email || "someone"}` };
+                return { platform: "fourthwall", kind: "member", count: 1, unit: "membership", label: `membership from ${m.nickname || m.email || "someone"}` };
             });
             if (!diagnosed){ // creds work (we got here), so dump real samples once
                 await logDiagnostics();

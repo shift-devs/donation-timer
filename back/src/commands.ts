@@ -8,6 +8,7 @@ const SPEC: { [platform: string]: { [action: string]: Kind } } = {
     streamlabs: { donation: "money", merch: "money" },
     youtube: { superchat: "money", supersticker: "money", membership: "member", membership_gift: "member" },
     fourthwall: { order: "money", donation: "money", membership: "member" },
+    kick: { subscription: "member", gift: "member" },
 };
 
 export function commandHelp(): string {

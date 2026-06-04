@@ -63,7 +63,16 @@ const PLATFORMS = [
 			{ key: "membership", label: "Membership", unit: "per member", test: 1 },
 		],
 	},
-	{ key: "kick", name: "Kick", real: false, gated: true, actions: [] },
+	{
+		key: "kick",
+		name: "Kick",
+		real: true,
+		gated: true,
+		actions: [
+			{ key: "subscription", label: "Subscription", unit: "per sub", test: 1 },
+			{ key: "gift", label: "Gifted sub", unit: "per gift", test: 5 },
+		],
+	},
 ];
 
 function fmt(seconds: number): string {
@@ -88,6 +97,7 @@ const DEFAULTS: any = {
 	streamlabs: { donation: 14, merch: 14 },
 	youtube: { superchat: 14, supersticker: 14, membership: 70, membership_gift: 70 },
 	fourthwall: { order: 14, donation: 14, membership: 70 },
+	kick: { subscription: 70, gift: 70 },
 };
 
 function normalize(raw: any) {
@@ -96,6 +106,7 @@ function normalize(raw: any) {
 	const s = (raw && raw.streamlabs) || {};
 	const y = (raw && raw.youtube) || {};
 	const f = (raw && raw.fourthwall) || {};
+	const k = (raw && raw.kick) || {};
 	return {
 		twitch: {
 			sub_t1: num(t.sub_t1, DEFAULTS.twitch.sub_t1),
@@ -117,6 +128,10 @@ function normalize(raw: any) {
 			order: num(f.order, DEFAULTS.fourthwall.order),
 			donation: num(f.donation, DEFAULTS.fourthwall.donation),
 			membership: num(f.membership, DEFAULTS.fourthwall.membership),
+		},
+		kick: {
+			subscription: num(k.subscription, DEFAULTS.kick.subscription),
+			gift: num(k.gift, DEFAULTS.kick.gift),
 		},
 	};
 }
@@ -145,12 +160,12 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 	const setRate = (pk: string, ak: string, v: number) =>
 		setDraft((d: any) => ({ ...d, [pk]: { ...d[pk], [ak]: v } }));
 
-	// youtube events arrive over the streamlabs socket, so it follows the streamlabs connection;
-	// fourthwall is webhook-based, so "connected" means its webhook is registered
+	// youtube + kick events arrive over the streamlabs socket, so they follow the streamlabs connection;
+	// fourthwall is polled, so "connected" means its poller is working
 	const connectedOf = (p: any) =>
 		p.key === "twitch"
 			? !!settings.twitchStatus
-			: p.key === "streamlabs" || p.key === "youtube"
+			: p.key === "streamlabs" || p.key === "youtube" || p.key === "kick"
 			? !!settings.slStatus
 			: p.key === "fourthwall"
 			? !!settings.fourthwallStatus
@@ -208,10 +223,10 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 								) : (
 									<Badge colorScheme={connectedOf(p) ? "green" : "gray"}>
 										{connectedOf(p)
-											? p.key === "youtube"
+											? p.key === "youtube" || p.key === "kick"
 												? "via Streamlabs"
 												: "connected"
-											: p.key === "youtube"
+											: p.key === "youtube" || p.key === "kick"
 											? "connect Streamlabs"
 											: "connect in Connections"}
 									</Badge>

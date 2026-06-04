@@ -16,5 +16,6 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         console.log(`Time change would be greater than ${CHAT_CMD_MAX_TIME} seconds!`);
         return;
     }
-    addToEndTime(session, seconds, event.label);
+    // tag every logged action with its platform (one chokepoint -> covers organic + chat + terminal commands)
+    addToEndTime(session, seconds, `[${event.platform}] ${event.label}`);
 }
