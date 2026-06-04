@@ -1,0 +1,17 @@
+export const WSS_PORT = 3003;
+export const WS_FORCE_SYNC_TIME = 5 * 1000;
+export const WS_HB_TIME = 10 * 1000;
+export const CAP_TIME = 30 * 3600 * 1000;
+export const CHAT_CMD_MAX_TIME = 10 * 3600;
+export const MERCH_UPDATE_TIME = 60 * 1000;
+export const DB_UPDATE_TIME = 5 * 1000;
+export const LOG_PAGE = 50;
+export const WS_MSG_BURST = 40;   // per-connection message burst allowance
+export const WS_MSG_RATE = 20;    // sustained messages/sec before dropping (FE-loop guard)
+export const CLIENT_ID: string = process.env.CLIENT_ID || "";
+export const WH_PATH: string = process.env.WH_PATH || "";
+export const FW_POLL_TIME = 5 * 1000;     // how often we poll the fourthwall api for new orders/donations/members
+export const FW_HTTP_TIMEOUT = 15 * 1000; // give up on a single fourthwall request so cycles can't hang/stack
+export const LOG_RETENTION_MS = 30 * 24 * 3600 * 1000; // keep ~30 days of audit-log rows, prune older
+export const LOG_PRUNE_TIME = 6 * 3600 * 1000;         // how often to prune old log rows
+export const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"];

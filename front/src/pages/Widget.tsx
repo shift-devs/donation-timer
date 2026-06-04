@@ -4,32 +4,33 @@ import * as consts from "../Consts";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
+let reconnectTimer: any;
 let timer_color: string = "white";
 
 const Widget: React.FC = () => {
+	const token = new URLSearchParams(window.location.search).get("token");
 	const [seconds, setSeconds] = useState(0);
+	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
 
-	const updateSeconds = (endTime: number) => {
-		console.log(
-			`Syncing endtime to ${endTime} and seconds to ${
-				(endTime - Date.now()) / 1000
-			} `
-		);
-
-		setSeconds(Math.round((endTime - Date.now()) / 1000));
+	const updateSeconds = (et: number) => {
+		setEndTime(et);
+		setSeconds(Math.round((et - Date.now()) / 1000));
 	};
 
 	const connectWs = () => {
-		ws = new WebSocket(`${WS_URL}?token=${token}&page=widget`);
+		// tear down any prior socket so handlers/reconnects can't stack
+		if (ws) {
+			ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+			try { ws.close(); } catch {}
+		}
+		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=widget`);
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
-			console.log(`received ${event.data}`);
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
-
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -43,7 +44,8 @@ const Widget: React.FC = () => {
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
 			setFetched(false);
-			setTimeout(connectWs, 5000);
+			clearTimeout(reconnectTimer);
+			reconnectTimer = setTimeout(connectWs, 5000);
 		};
 
 		ws.onerror = (event) => {
@@ -54,22 +56,24 @@ const Widget: React.FC = () => {
 
 	useEffect(() => {
 		connectWs();
-		return () => ws.close();
+		return () => {
+			clearTimeout(reconnectTimer);
+			if (ws) {
+				ws.onclose = ws.onmessage = ws.onerror = null;
+				ws.close();
+			}
+		};
 	}, []);
 
+	// single interval deriving seconds from endTime each tick — no per-tick re-arm, no drift over a weeks-long overlay
 	useEffect(() => {
-		const interval = setInterval(() => {
-			if (seconds > 0) {
-				setSeconds((prev) => prev - 1);
-			}
+		const id = setInterval(() => {
+			const s = Math.round((endTime - Date.now()) / 1000);
+			setSeconds(s > 0 ? s : 0);
 		}, 1000);
-		return () => {
-			clearInterval(interval);
-		};
-	}, [seconds]);
+		return () => clearInterval(id);
+	}, [endTime]);
 
-	const token = new URLSearchParams(window.location.search).get("token");
-	
 	if (!fetched || !token)
 		return (
 			<div style={{
