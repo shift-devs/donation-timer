@@ -40,7 +40,29 @@ const PLATFORMS = [
 			{ key: "merch", label: "Merch (item price)", unit: "per $", test: 25 },
 		],
 	},
-	{ key: "youtube", name: "YouTube", real: false, gated: true, actions: [] },
+	{
+		key: "youtube",
+		name: "YouTube",
+		real: true,
+		gated: true,
+		actions: [
+			{ key: "superchat", label: "Super Chat", unit: "per $", test: 5 },
+			{ key: "supersticker", label: "Super Sticker", unit: "per $", test: 5 },
+			{ key: "membership", label: "Membership", unit: "per member", test: 1 },
+			{ key: "membership_gift", label: "Gifted membership", unit: "per gift", test: 5 },
+		],
+	},
+	{
+		key: "fourthwall",
+		name: "Fourthwall",
+		real: true,
+		gated: true,
+		actions: [
+			{ key: "order", label: "Purchase (order total)", unit: "per $", test: 25 },
+			{ key: "donation", label: "Donation", unit: "per $", test: 5 },
+			{ key: "membership", label: "Membership", unit: "per member", test: 1 },
+		],
+	},
 	{ key: "kick", name: "Kick", real: false, gated: true, actions: [] },
 ];
 
@@ -64,12 +86,16 @@ function fmt(seconds: number): string {
 const DEFAULTS: any = {
 	twitch: { sub_t1: 70, sub_t2: 140, sub_t3: 350, bits: 0.14 },
 	streamlabs: { donation: 14, merch: 14 },
+	youtube: { superchat: 14, supersticker: 14, membership: 70, membership_gift: 70 },
+	fourthwall: { order: 14, donation: 14, membership: 70 },
 };
 
 function normalize(raw: any) {
 	const num = (v: any, d: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
 	const t = (raw && raw.twitch) || {};
 	const s = (raw && raw.streamlabs) || {};
+	const y = (raw && raw.youtube) || {};
+	const f = (raw && raw.fourthwall) || {};
 	return {
 		twitch: {
 			sub_t1: num(t.sub_t1, DEFAULTS.twitch.sub_t1),
@@ -80,6 +106,17 @@ function normalize(raw: any) {
 		streamlabs: {
 			donation: num(s.donation, DEFAULTS.streamlabs.donation),
 			merch: num(s.merch, DEFAULTS.streamlabs.merch),
+		},
+		youtube: {
+			superchat: num(y.superchat, DEFAULTS.youtube.superchat),
+			supersticker: num(y.supersticker, DEFAULTS.youtube.supersticker),
+			membership: num(y.membership, DEFAULTS.youtube.membership),
+			membership_gift: num(y.membership_gift, DEFAULTS.youtube.membership_gift),
+		},
+		fourthwall: {
+			order: num(f.order, DEFAULTS.fourthwall.order),
+			donation: num(f.donation, DEFAULTS.fourthwall.donation),
+			membership: num(f.membership, DEFAULTS.fourthwall.membership),
 		},
 	};
 }
@@ -108,8 +145,16 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 	const setRate = (pk: string, ak: string, v: number) =>
 		setDraft((d: any) => ({ ...d, [pk]: { ...d[pk], [ak]: v } }));
 
+	// youtube events arrive over the streamlabs socket, so it follows the streamlabs connection;
+	// fourthwall is webhook-based, so "connected" means its webhook is registered
 	const connectedOf = (p: any) =>
-		p.key === "twitch" ? !!settings.twitchStatus : p.key === "streamlabs" ? !!settings.slStatus : false;
+		p.key === "twitch"
+			? !!settings.twitchStatus
+			: p.key === "streamlabs" || p.key === "youtube"
+			? !!settings.slStatus
+			: p.key === "fourthwall"
+			? !!settings.fourthwallStatus
+			: false;
 
 	const actionRow = (p: any, a: any) => {
 		const rate = draft[p.key][a.key];
@@ -162,7 +207,13 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 									<Badge>coming soon</Badge>
 								) : (
 									<Badge colorScheme={connectedOf(p) ? "green" : "gray"}>
-										{connectedOf(p) ? "connected" : "connect in Connections"}
+										{connectedOf(p)
+											? p.key === "youtube"
+												? "via Streamlabs"
+												: "connected"
+											: p.key === "youtube"
+											? "connect Streamlabs"
+											: "connect in Connections"}
 									</Badge>
 								)}
 							</HStack>

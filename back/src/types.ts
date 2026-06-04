@@ -21,12 +21,15 @@ export interface TimerUserSession {
     ignoreAnon: boolean
     slStatus: boolean
     twitchStatus: boolean
+    fourthwallStatus: boolean
+    fourthwallError?: string
     rates: any
     connections: any
     merchValues: any
     loggedOut?: boolean
     conTMI?: tmi.Client
     conSL?: any
+    conFW?: any
 }
 
 export interface TimerWebSocket extends WebSocket {
@@ -42,8 +45,8 @@ export interface TimerWebSocket extends WebSocket {
 
 // normalized event a platform adapter emits; the central handler turns it into time
 export interface TimerEvent {
-    platform: "twitch" | "streamlabs" | "youtube" | "kick"
-    kind: "sub" | "bits" | "money" | "time"
+    platform: "twitch" | "streamlabs" | "youtube" | "kick" | "fourthwall"
+    kind: "sub" | "bits" | "money" | "member" | "time"
     tier?: number
     count?: number
     bits?: number

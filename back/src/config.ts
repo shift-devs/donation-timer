@@ -10,4 +10,6 @@ export const WS_MSG_BURST = 40;   // per-connection message burst allowance
 export const WS_MSG_RATE = 20;    // sustained messages/sec before dropping (FE-loop guard)
 export const CLIENT_ID: string = process.env.CLIENT_ID || "";
 export const WH_PATH: string = process.env.WH_PATH || "";
+export const FW_POLL_TIME = 5 * 1000;     // how often we poll the fourthwall api for new orders/donations/members
+export const FW_HTTP_TIMEOUT = 15 * 1000; // give up on a single fourthwall request so cycles can't hang/stack
 export const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"];

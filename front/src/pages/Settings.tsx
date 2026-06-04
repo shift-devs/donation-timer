@@ -5,8 +5,9 @@ import ChangeTime from "./Settings/ChangeTime";
 import Merch from "./Settings/Merch";
 import TimePerAction from "./Settings/TimePerAction";
 import Controls from "./Settings/Controls";
-import Log from "./Settings/Log";
+import Terminal from "./Settings/Terminal";
 import Connections from "./Settings/Connections";
+import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
 	Spinner,
@@ -66,6 +67,11 @@ const Settings: React.FC = () => {
 			}
 			if ("logEntry" in response) {
 				setLog((prev) => [...prev, response.logEntry]);
+				return;
+			}
+			if ("commandResult" in response) {
+				const cr = response.commandResult;
+				setLog((prev) => [...prev, { t: Date.now(), line: cr.message, kind: cr.ok ? "ok" : "err" }]);
 				return;
 			}
 
@@ -134,10 +140,17 @@ const Settings: React.FC = () => {
 
 	const loadOlder = () => {
 		if (!logHasMore || logLoadingRef.current) return;
-		const cursor = log.length ? log[0].id : null;
+		// command-feed lines have no id; page from the oldest real log entry
+		const firstWithId = log.find((e) => e.id != null);
+		const cursor = firstWithId ? firstWithId.id : null;
 		if (cursor == null) return;
 		logLoadingRef.current = true;
 		ws.send(JSON.stringify({ event: "getLogPage", before: cursor }));
+	};
+
+	const runTerminalCommand = (cmd: string) => {
+		setLog((prev) => [...prev, { t: Date.now(), line: "> " + cmd, kind: "input" }]);
+		runCommand(ws, cmd);
 	};
 
 	if (!token) return <Navigate to="/login" replace />;
@@ -171,7 +184,7 @@ const Settings: React.FC = () => {
 						<Tab>Controls</Tab>
 						<Tab>Change Time</Tab>
 						<Tab>Merch</Tab>
-						<Tab>Log</Tab>
+						<Tab>Terminal</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
@@ -190,7 +203,13 @@ const Settings: React.FC = () => {
 							<Merch ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
 						<TabPanel>
-							<Log entries={log} hasMore={logHasMore} active={tabIndex === 5} onLoadOlder={loadOlder} />
+							<Terminal
+								entries={log}
+								hasMore={logHasMore}
+								active={tabIndex === 5}
+								onLoadOlder={loadOlder}
+								onCommand={runTerminalCommand}
+							/>
 						</TabPanel>
 					</TabPanels>
 				</Tabs>

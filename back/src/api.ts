@@ -6,9 +6,12 @@ import { TimerWebSocket } from "./types";
 import { bus, emitSync } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
-import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor } from "./session";
+import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
+import { handle } from "./events";
+import { parseCommand } from "./commands";
+import { CHAT_CMD_MAX_TIME } from "./config";
 
 let wss: WebSocket.Server;
 
@@ -34,12 +37,17 @@ function wsSync(ws: TimerWebSocket) {
             endTime: curSession.endTime,
             slStatus: curSession.slStatus,
             twitchStatus: curSession.twitchStatus,
+            fourthwallStatus: curSession.fourthwallStatus,
             cap: curSession.shouldCap,
             anon: curSession.ignoreAnon,
             rates: curSession.rates,
             connections: {
                 twitch: { channel: curSession.connections.twitch.channel },
-                streamlabs: { hasToken: !!curSession.connections.streamlabs.token }
+                streamlabs: { hasToken: !!curSession.connections.streamlabs.token },
+                fourthwall: {
+                    configured: !!(curSession.connections.fourthwall && curSession.connections.fourthwall.username),
+                    error: curSession.fourthwallError || ""
+                }
             },
             merchValues: curSession.merchValues
         })
@@ -223,6 +231,26 @@ export function startApi(){
                 case "getLogPage":
                     sendLogPage(ws, jData.before);
                     return;
+                case "runCommand": {
+                    // terminal input: same parser/grammar as chat would use, routed through the one handler
+                    const parsed = parseCommand(typeof jData.command === "string" ? jData.command : "");
+                    if (parsed.help){
+                        ws.send(JSON.stringify({ commandResult: { ok: true, message: parsed.help } }));
+                        return;
+                    }
+                    if (parsed.error || !parsed.event){
+                        ws.send(JSON.stringify({ commandResult: { ok: false, message: parsed.error || "Invalid command." } }));
+                        return;
+                    }
+                    const before = curSession.endTime;
+                    handle(curSession, parsed.event); // applies rates + cap, adds time, writes the log entry
+                    const added = Math.round((curSession.endTime - before) / 1000);
+                    const message = added !== 0
+                        ? `+${added}s — ${parsed.event.label}`
+                        : `no time added — rate is 0 or over the ${CHAT_CMD_MAX_TIME / 3600}h command cap`;
+                    ws.send(JSON.stringify({ commandResult: { ok: added !== 0, message } }));
+                    return;
+                }
                 case "setConnection": {
                     const platform = jData.platform;
                     const config = jData.config || {};
@@ -241,6 +269,22 @@ export function startApi(){
                             curSession.conSL.disconnect();
                         curSession.slStatus = false;
                         curSession.conSL = config.token ? connectStreamlabsFor(curSession) : undefined;
+                    } else if (platform === "fourthwall") {
+                        if (curSession.conFW)
+                            curSession.conFW.disconnect();
+                        curSession.fourthwallStatus = false;
+                        curSession.fourthwallError = "";
+                        if (config.disconnect) {
+                            curSession.connections.fourthwall = { username: "", password: "" };
+                            curSession.conFW = undefined;
+                            break;
+                        }
+                        const username = typeof config.username === "string" ? config.username.trim() : "";
+                        const password = typeof config.password === "string" ? config.password : "";
+                        if (!username || !password)
+                            break;
+                        curSession.connections.fourthwall = { username, password };
+                        curSession.conFW = connectFourthwallFor(curSession);
                     }
                     break;
                 }

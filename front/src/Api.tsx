@@ -99,3 +99,13 @@ export function setConnection(ws: WebSocket, platform: string, config: any) {
 	);
 	return 1;
 }
+
+export function runCommand(ws: WebSocket, command: string) {
+	ws.send(
+		JSON.stringify({
+			event: "runCommand",
+			command: command,
+		})
+	);
+	return 1;
+}

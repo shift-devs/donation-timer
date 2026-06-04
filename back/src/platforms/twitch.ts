@@ -1,6 +1,32 @@
 import tmi from "tmi.js";
 import { TimerUserSession, TimerEvent } from "../types";
 import { emitSync } from "../bus";
+import { parseCommand } from "../commands";
+
+// chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
+// parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
+// also type the canonical grammar directly (e.g. "!youtube superchat 10").
+function chatToCommand(body: string): string | null {
+    const parts = body.trim().split(/\s+/);
+    const verb = parts[0];
+    if (verb === "" || verb === "nop")
+        return null;
+    if (verb === "addsub"){
+        let tier = 1, count = 1;
+        for (let i = 1; i < parts.length; i++){
+            if (/^t\d+$/.test(parts[i]))
+                tier = parseInt(parts[i].slice(1), 10);
+            else if (parts[i] !== "" && Number.isFinite(Number(parts[i])))
+                count = Number(parts[i]);
+        }
+        return `twitch sub_t${tier} ${count}`;
+    }
+    if (verb === "addmoney") // legacy: adds a donation's worth of time
+        return `streamlabs donation ${(parts[1] || "").replaceAll("$", "")}`;
+    if (verb === "addtime")
+        return `time ${parts[1] || ""}`;
+    return body.trim();
+}
 
 // translates twitch chat/sub/cheer events into normalized TimerEvents; knows nothing about rates/timer/db
 export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) => void){
@@ -47,72 +73,24 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
     }
 
     client.on("message", (ch, tags, message, self) => {
-        let filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
-        var mSplit = filterMessage.split(" ");
+        const filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
         console.log(`(${session.name}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
         if (!tags.username)
             return;
         if (!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase()))
             return;
-        const label = `Chat: ${filterMessage} (${tags.username})`;
-        switch (mSplit[0]) {
-            case "!nop":
-                console.log("No operation!");
-                break;
-            case "!addsub": {
-                var subs = 1, tier = 1, ptr = 1;
-                while (ptr < mSplit.length){
-                    if (mSplit[ptr].charAt(0) == "t"){
-                        tier = parseInt(mSplit[ptr].slice(1),10);
-                        if (!(tier >= 1 && tier <= 3)){
-                            console.log("Invalid Tier!");
-                            return;
-                        }
-                        ptr++;
-                        continue;
-                    }
-                    if (mSplit[ptr] == ""){
-                        ptr++;
-                        continue;
-                    }
-                    subs = parseInt(mSplit[ptr],10);
-                    if (!Number.isFinite(subs)){
-                        console.log("Invalid Number of Subs!");
-                        return;
-                    }
-                    ptr++;
-                }
-                emit({ platform: "twitch", kind: "sub", tier, count: subs, manual: true, label });
-                break;
-            }
-            case "!addmoney": {
-                if (mSplit.length < 2){
-                    console.log("Not Enough Parameters!");
-                    return;
-                }
-                let dollarString = mSplit[1].replaceAll("$","");
-                const dollars = parseFloat(dollarString);
-                if (!Number.isFinite(dollars)){
-                    console.log("Invalid Money Amount!");
-                    return;
-                }
-                emit({ platform: "twitch", kind: "money", usd: dollars, unit: "donation", manual: true, label });
-                break;
-            }
-            case "!addtime": {
-                if (mSplit.length < 2){
-                    console.log("Not Enough Parameters!");
-                    return;
-                }
-                const seconds = parseInt(mSplit[1],10);
-                if (!Number.isFinite(seconds)){
-                    console.log("Invalid Time Amount!");
-                    return;
-                }
-                emit({ platform: "twitch", kind: "time", seconds, manual: true, label });
-                break;
-            }
+        if (filterMessage.charAt(0) !== "!") // only mod/broadcaster ! commands
+            return;
+        const command = chatToCommand(filterMessage.slice(1));
+        if (!command)
+            return;
+        const parsed = parseCommand(command);
+        if (parsed.error || !parsed.event){
+            console.log(`(${session.name}) chat command "${filterMessage}" rejected: ${parsed.error || "no event"}`);
+            return;
         }
+        parsed.event.label = `Chat: ${filterMessage} (${tags.username})`; // keep who ran it in the audit log
+        emit(parsed.event);
     });
 
     client.on("submysterygift",(ch, username, numbOfSubs, methods, userstate) => {

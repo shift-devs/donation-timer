@@ -5,6 +5,30 @@ import { MERCH_UPDATE_TIME } from "../config";
 import { emitSync } from "../bus";
 import { whSend } from "../notify";
 
+// temporary diagnostic: client's youtube membership levels are enjoyer / full membership / quickster.
+// streamlabs doesn't document which field carries the level, so scan the raw payload for these known strings
+// to pinpoint the exact key. remove once we know the field and wire per-tier rates.
+const KNOWN_YT_LEVELS = ["enjoyer", "full membership", "quickster"];
+function probeLevelField(obj: any, path: string){
+    if (obj && typeof obj === "object"){
+        for (const k of Object.keys(obj))
+            probeLevelField(obj[k], path ? `${path}.${k}` : k);
+    } else if (typeof obj === "string"){
+        const low = obj.toLowerCase();
+        if (KNOWN_YT_LEVELS.some((l) => low.includes(l)))
+            console.log(`YT-LEVEL-FIELD-FOUND at "${path}" = ${JSON.stringify(obj)}`);
+    }
+}
+
+// youtube super chat / super sticker. streamlabs relays the amount in micros (x1,000,000), e.g. "2000000" = $2.00
+function emitSuperChat(e: any, unit: "superchat" | "supersticker", emit: (ev: TimerEvent) => void){
+    const m = e.message[0];
+    const usd = (Number(m.amount) || 0) / 1000000;
+    const who = m.name || "someone";
+    const shown = m.displayString || `$${usd}`;
+    emit({ platform: "youtube", kind: "money", usd, unit, label: `Super ${unit === "supersticker" ? "Sticker" : "Chat"} ${shown} from ${who}` });
+}
+
 function slInstallMerch(session: TimerUserSession){
     const newMerchValues = {};
     console.log(`Getting New Streamlabs Merch For ${session.name}...`);
@@ -91,6 +115,34 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
                 console.log(`(${session.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
                 whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
                 emit({ platform: "streamlabs", kind: "money", usd: merchValue as number, unit: "merch", label: `Merch: ${e.message[0].product} ($${merchValue})` });
+                break;
+            }
+            // youtube super chats & memberships are relayed on this same socket (see "via streamlabs" in NOTES)
+            case "superchat":
+                emitSuperChat(e, "superchat", emit);
+                break;
+            case "supersticker":
+                emitSuperChat(e, "supersticker", emit);
+                break;
+            case "subscription": {
+                if (e.for !== "youtube_account") // twitch subs come through tmi; don't double-count them here
+                    break;
+                // tagged so the real payload is easy to grep out of a live stream's logs (checking for a tier/level field)
+                console.log(`YT-MEMBERSHIP-PAYLOAD ${JSON.stringify(e)}`);
+                probeLevelField(e, ""); // logs YT-LEVEL-FIELD-FOUND with the exact path holding the level name
+                const m = e.message[0];
+                // youtube membership tiers are arbitrary creator-named levels; surface whatever level field SL sends
+                // (undocumented) in the log so we can confirm if per-tier rates are even possible. flat rate for now.
+                const level = m.membershipLevelName || m.membership_level_name || m.levelName || m.level || m.tier;
+                const lvl = level ? ` [${level}]` : "";
+                const gifter = m.gifter || m.gifterName || m.gifter_username;
+                if (m.gifted || m.isGift || gifter) {
+                    let count = Number(m.amount) || Number(m.gift_count) || Number(m.quantity) || 1;
+                    count = Math.min(Math.max(Math.trunc(count), 1), 100); // guard against a misread field inflating time
+                    emit({ platform: "youtube", kind: "member", unit: "membership_gift", count, label: `YouTube: ${count}x gift membership${lvl} from ${gifter || m.name}` });
+                } else {
+                    emit({ platform: "youtube", kind: "member", unit: "membership", count: 1, label: `YouTube membership${lvl} from ${m.name}` });
+                }
                 break;
             }
         }

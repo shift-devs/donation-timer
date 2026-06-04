@@ -4,6 +4,7 @@ import { normalizeConnections } from "./connections";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
+import { connectFourthwall } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
 
@@ -35,6 +36,10 @@ export function connectStreamlabsFor(session: TimerUserSession){
     return connectStreamlabs(session, emitFor(session));
 }
 
+export function connectFourthwallFor(session: TimerUserSession){
+    return connectFourthwall(session, emitFor(session));
+}
+
 export function loginUser(inObj: Object){
     const lvObj = Object.assign({}, inObj) as TimerUserSession;
     lvObj.endTime = Number(lvObj.endTime); // bigint comes back as a string from pg
@@ -43,6 +48,7 @@ export function loginUser(inObj: Object){
     lvObj.twitchStatus = false;
     lvObj.merchValues = {};
     lvObj.slStatus = false;
+    lvObj.fourthwallStatus = false;
     const existingSession = getUserSession(lvObj.userId);
     if (existingSession.userId != 0){
         console.log(`loginUser: WARNING! Already existing userId ${existingSession.userId} is logged in! Logging them out first!`);
@@ -55,6 +61,8 @@ export function loginUser(inObj: Object){
         curSession.conTMI = connectTwitchFor(curSession);
     if (curSession.connections.streamlabs.token)
         curSession.conSL = connectStreamlabsFor(curSession);
+    if (curSession.connections.fourthwall.username && curSession.connections.fourthwall.password)
+        curSession.conFW = connectFourthwallFor(curSession);
     console.log(`${curSession.name} has logged in!`);
 }
 
@@ -71,6 +79,8 @@ export function logoutUser(id: number){
         curSession.conSL.disconnect();
     if (curSession.conTMI)
         curSession.conTMI.disconnect();
+    if (curSession.conFW)
+        curSession.conFW.disconnect();
     sessions.splice(curIndex,1);
     console.log(`${curSession.name} has logged out!`);
 }
