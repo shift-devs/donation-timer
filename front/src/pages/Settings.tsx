@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Timer from "../Timer";
 import * as consts from "../Consts";
 import ChangeTime from "./Settings/ChangeTime";
 import Merch from "./Settings/Merch";
 import TimePerAction from "./Settings/TimePerAction";
 import Controls from "./Settings/Controls";
+import Log from "./Settings/Log";
+import Connections from "./Settings/Connections";
 import {
 	Spinner,
 	Tabs,
@@ -26,6 +28,11 @@ const Settings: React.FC = () => {
 	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
+	const [log, setLog] = useState<any[]>([]);
+	const [logHasMore, setLogHasMore] = useState(false);
+	const [tabIndex, setTabIndex] = useState(0);
+	const logLoadingRef = useRef(false);
+	const logRequestedRef = useRef(false);
 
 	const updateSeconds = (endTime: number) => {
 		let tempSeconds = Math.round((endTime - Date.now()) / 1000);
@@ -45,12 +52,32 @@ const Settings: React.FC = () => {
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
 			console.log(`received ${event.data}`);
+
+			if ("logPage" in response) {
+				logLoadingRef.current = false;
+				if (response.before == null) {
+					setLog(response.logPage);
+				} else {
+					setLog((prev) => [...response.logPage, ...prev]);
+				}
+				setLogHasMore(response.hasMore);
+				return;
+			}
+			if ("logEntry" in response) {
+				setLog((prev) => [...prev, response.logEntry]);
+				return;
+			}
+
 			setSettings(response);
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
 				if (!fetched) {
 					setFetched(true);
+				}
+				if (!logRequestedRef.current) {
+					logRequestedRef.current = true;
+					ws.send(JSON.stringify({ event: "getLogPage" }));
 				}
 				if (!forceSync)
 					forceSync = setInterval(
@@ -71,6 +98,7 @@ const Settings: React.FC = () => {
 
 		ws.onclose = (event) => {
 			setFetched(false);
+			logRequestedRef.current = false;
 			console.log(
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
@@ -99,6 +127,14 @@ const Settings: React.FC = () => {
 		}
 	},[seconds]);
 
+	const loadOlder = () => {
+		if (!logHasMore || logLoadingRef.current) return;
+		const cursor = log.length ? log[0].id : null;
+		if (cursor == null) return;
+		logLoadingRef.current = true;
+		ws.send(JSON.stringify({ event: "getLogPage", before: cursor }));
+	};
+
 	if (fetched)
 		return (
 			<div
@@ -114,6 +150,8 @@ const Settings: React.FC = () => {
 				<Timer input_seconds={seconds} textAlign='center' />
 				<br />
 				<Tabs
+					index={tabIndex}
+					onChange={setTabIndex}
 					display='flex'
 					flexDirection='column'
 					flex='1'
@@ -122,13 +160,18 @@ const Settings: React.FC = () => {
 				>
 					<TabList>
 						<Tab>Time Per Action</Tab>
+						<Tab>Connections</Tab>
 						<Tab>Controls</Tab>
 						<Tab>Change Time</Tab>
 						<Tab>Merch</Tab>
+						<Tab>Log</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
 							<TimePerAction ws={ws} settings={settings} />
+						</TabPanel>
+						<TabPanel>
+							<Connections ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} baseUrl={BASE_URL} settings={settings} />
@@ -138,6 +181,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<Merch ws={ws} endTime={endTime} settings={settings} />
+						</TabPanel>
+						<TabPanel>
+							<Log entries={log} hasMore={logHasMore} active={tabIndex === 5} onLoadOlder={loadOlder} />
 						</TabPanel>
 					</TabPanels>
 				</Tabs>

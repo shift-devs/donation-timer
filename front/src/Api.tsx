@@ -88,3 +88,14 @@ export function setRates(ws: WebSocket, rates: any) {
 	);
 	return 1;
 }
+
+export function setConnection(ws: WebSocket, platform: string, config: any) {
+	ws.send(
+		JSON.stringify({
+			event: "setConnection",
+			platform: platform,
+			config: config,
+		})
+	);
+	return 1;
+}

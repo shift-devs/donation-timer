@@ -10,14 +10,12 @@ import {
 	Button,
 	Flex,
 	HStack,
-	Input,
 	NumberInput,
 	NumberInputField,
 	Spacer,
 	Text,
-	VStack,
 } from "@chakra-ui/react";
-import { setRates, connectSl } from "../../Api";
+import { setRates } from "../../Api";
 
 const PLATFORMS = [
 	{
@@ -97,7 +95,6 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 	const savedStr = JSON.stringify(saved);
 	const [draft, setDraft] = useState<any>(saved);
 	const [testQty, setTestQty] = useState(makeTests);
-	const [slToken, setSlToken] = useState("");
 	const prevSavedRef = useRef(savedStr);
 
 	// follow the server's rates only when there are no unsaved local edits
@@ -153,31 +150,11 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 		);
 	};
 
-	const connectBox = (p: any) => (
-		<VStack align="stretch" spacing={3} py={2}>
-			<Text color="gray.600">Connect {p.name} to set its time-per-action rates.</Text>
-			<HStack>
-				<Input
-					placeholder={`Paste ${p.name} socket token…`}
-					width="320px"
-					value={slToken}
-					onChange={(e) => setSlToken(e.currentTarget.value)}
-				/>
-				<Button colorScheme="purple" onClick={() => connectSl(ws, slToken)}>
-					Connect
-				</Button>
-			</HStack>
-			<Text fontSize="xs" color="gray.400">
-				(connecting is instant — separate from the Save below)
-			</Text>
-		</VStack>
-	);
-
 	return (
 		<Box textAlign="left">
 			<Accordion allowMultiple defaultIndex={[0]}>
 				{PLATFORMS.map((p) => (
-					<AccordionItem key={p.key} isDisabled={!p.real}>
+					<AccordionItem key={p.key} isDisabled={!p.real || !connectedOf(p)}>
 						<AccordionButton>
 							<HStack flex="1" textAlign="left">
 								<Text fontWeight={600}>{p.name}</Text>
@@ -185,14 +162,14 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 									<Badge>coming soon</Badge>
 								) : (
 									<Badge colorScheme={connectedOf(p) ? "green" : "gray"}>
-										{connectedOf(p) ? "connected" : "not connected"}
+										{connectedOf(p) ? "connected" : "connect in Connections"}
 									</Badge>
 								)}
 							</HStack>
 							<AccordionIcon />
 						</AccordionButton>
 						<AccordionPanel pb={4}>
-							{p.gated && !connectedOf(p) ? connectBox(p) : p.actions.map((a) => actionRow(p, a))}
+							{p.actions.map((a) => actionRow(p, a))}
 						</AccordionPanel>
 					</AccordionItem>
 				))}

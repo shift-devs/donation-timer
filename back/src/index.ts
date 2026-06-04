@@ -1,4 +1,4 @@
-import { Sequelize, DataTypes, Model, ModelStatic} from "sequelize";
+import { Sequelize, DataTypes, Model, ModelStatic, Op} from "sequelize";
 import axios, {AxiosResponse} from "axios";
 import url from "url";
 import tmi from "tmi.js";
@@ -12,6 +12,9 @@ const CAP_TIME = 30 * 3600 * 1000;
 const CHAT_CMD_MAX_TIME = 10 * 3600;
 const MERCH_UPDATE_TIME = 60 * 1000;
 const DB_UPDATE_TIME = 5 * 1000;
+const LOG_PAGE = 50;
+const WS_MSG_BURST = 40;   // per-connection message burst allowance
+const WS_MSG_RATE = 20;    // sustained messages/sec before dropping (FE-loop guard)
 const CLIENT_ID: string = process.env.CLIENT_ID || "";
 const WH_PATH: string = process.env.WH_PATH || "";
 const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"]
@@ -37,6 +40,17 @@ function normalizeRates(raw: any){
             donation: num(s.donation, DEFAULT_RATES.streamlabs.donation),
             merch: num(s.merch, DEFAULT_RATES.streamlabs.merch),
         },
+    };
+}
+
+// per-platform connection config (what to watch). twitch channel defaults to the login name.
+function normalizeConnections(raw: any, name: string, slToken: string){
+    const c = raw || {};
+    const t = c.twitch || {};
+    const s = c.streamlabs || {};
+    return {
+        twitch: { channel: typeof t.channel === "string" && t.channel ? t.channel : (name || "") },
+        streamlabs: { token: typeof s.token === "string" ? s.token : (slToken || "") },
     };
 }
 
@@ -86,12 +100,41 @@ const USER_TABLE = {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: {}
+    },
+    connections: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    }
+}
+
+const LOG_TABLE = {
+    userId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
+    action: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+    },
+    oldMs: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
+    },
+    newMs: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
+    },
+    addedMs: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
     }
 }
 
 interface TimerState {
     sequelize: Sequelize
     usersModel: ModelStatic<any>
+    logsModel: ModelStatic<any>
     userSessions: Array<TimerUserSession>
 }
 
@@ -108,6 +151,7 @@ interface TimerUserSession {
     slStatus: boolean
     twitchStatus: boolean
     rates: any
+    connections: any
     merchValues: Object
     conTMI?: tmi.Client
     conSL?: SocketIOClient.Socket
@@ -119,9 +163,13 @@ interface TimerWebSocket extends WebSocket {
     isReady: boolean
     forceSyncInterval: NodeJS.Timeout | number
     hbInterval: NodeJS.Timeout | number
+    msgTokens: number
+    msgLast: number
+    msgWarnAt: number
 }
 
 let gWSSync = (ts: TimerState, id: number) => {} // Global callback function is registered in main
+let gWSLog = (ts: TimerState, id: number, entry: any) => {} // registered in main
 
 function getUserSession(ts: TimerState, id: number) {
     const curIndex = getUserSessionIndexById(ts, id);
@@ -157,8 +205,9 @@ function setEndTime(ts: TimerState, id: number, newEndTime: number){
     gWSSync(ts, id);
 }
 
-function addToEndTime(ts: TimerState, id: number, seconds: number){
+function addToEndTime(ts: TimerState, id: number, seconds: number, action: string){
     const curSession = getUserSession(ts, id);
+    const oldEndTime = curSession.endTime;
     const nowMs = Date.now();
     let newEndTime = curSession.endTime;
     if (newEndTime < nowMs)
@@ -166,12 +215,28 @@ function addToEndTime(ts: TimerState, id: number, seconds: number){
     newEndTime += seconds * 1000;
     console.log(`Adding ${seconds} seconds to ${curSession.name}'s endTime!`);
     setEndTime(ts, id, newEndTime);
+    logTimerEvent(ts, id, action, oldEndTime, curSession.endTime);
+}
+
+function logTimerEvent(ts: TimerState, id: number, action: string, oldEndTime: number, newEndTime: number){
+    const curSession = getUserSession(ts, id);
+    if (curSession.userId == 0)
+        return;
+    const nowMs = Date.now();
+    const oldMs = Math.max(Math.round(oldEndTime) - nowMs, 0);
+    const newMs = Math.max(Math.round(newEndTime) - nowMs, 0);
+    const entry = { t: nowMs, action, oldMs, newMs, addedMs: newMs - oldMs };
+    ts.logsModel.create({ userId: id, action, oldMs, newMs, addedMs: entry.addedMs }).catch((err: any)=>{
+        console.log("Failed to write log:", err);
+    });
+    gWSLog(ts, id, entry);
 }
 
 function loginUser(ts: TimerState, inObj: Object){
     const lvObj = Object.assign({}, inObj) as TimerUserSession;
     lvObj.endTime = Number(lvObj.endTime); // bigint comes back as a string from pg
     lvObj.rates = normalizeRates(lvObj.rates);
+    lvObj.connections = normalizeConnections(lvObj.connections, lvObj.name, (lvObj as any).slToken);
     lvObj.twitchStatus = false;
     lvObj.merchValues = {};
     lvObj.slStatus = false;
@@ -183,8 +248,9 @@ function loginUser(ts: TimerState, inObj: Object){
 
     ts.userSessions.push(lvObj);
     const curSession = ts.userSessions[ts.userSessions.length - 1];
-    curSession.conTMI = tmiLogin(ts, curSession.userId);
-    if (curSession.slToken)
+    if (curSession.connections.twitch.channel)
+        curSession.conTMI = tmiLogin(ts, curSession.userId);
+    if (curSession.connections.streamlabs.token)
         curSession.conSL = slLogin(ts, curSession.userId);
     console.log(`${curSession.name} has logged in!`);
 }
@@ -212,7 +278,7 @@ function tmiLogin(ts: TimerState, id: number){
             reconnect: true,
             reconnectInterval: 5000,
         },
-        channels: [curSession.name]
+        channels: [curSession.connections.twitch.channel]
     });
 
     client.connect().catch((err)=>{
@@ -225,14 +291,14 @@ function tmiLogin(ts: TimerState, id: number){
         }
     }
 
-    client.on("connecting", l(`Connecting to ${curSession.name}'s Twitch Chat...`));
+    client.on("connecting", l(`Connecting to ${curSession.connections.twitch.channel}'s Twitch Chat...`));
     client.on("connected", () => {
-        console.log(`Connected to ${curSession.name}'s Twitch Chat!`);
+        console.log(`Connected to ${curSession.connections.twitch.channel}'s Twitch Chat!`);
         curSession.twitchStatus = true;
         gWSSync(ts, id);
     });
     client.on("disconnected", () => {
-        console.log(`Disconnected from ${curSession.name}'s Twitch Chat!`);
+        console.log(`Disconnected from ${curSession.connections.twitch.channel}'s Twitch Chat!`);
         curSession.twitchStatus = false;
         gWSSync(ts, id);
     });
@@ -242,7 +308,7 @@ function tmiLogin(ts: TimerState, id: number){
         var mSplit = filterMessage.split(" ");
         console.log(`(${curSession.name}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
         if (tags.username) {
-            if (tags.mod || tags.username.toLowerCase() == curSession.name){
+            if (tags.mod || tags.username.toLowerCase() == curSession.connections.twitch.channel.toLowerCase()){
                 let timeToAdd = 0;
                 switch (mSplit[0]) {
                     case "!nop":
@@ -308,7 +374,7 @@ function tmiLogin(ts: TimerState, id: number){
                     console.log(`Time change would be greater than ${CHAT_CMD_MAX_TIME} seconds!`);
                     return;
                 }
-                addToEndTime(ts, id, timeToAdd);
+                addToEndTime(ts, id, timeToAdd, `Chat: ${filterMessage} (${tags.username})`);
             }
         }
     });
@@ -330,7 +396,7 @@ function tmiLogin(ts: TimerState, id: number){
             return;
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
-        addToEndTime(ts, id, numbOfSubs * subRate(tier));
+        addToEndTime(ts, id, numbOfSubs * subRate(tier), `${numbOfSubs}x Tier ${tier} gift sub from ${username}`);
     });
 
     client.on("subgift",(channel, username, streakMonths, recipient, methods, userstate) => {
@@ -340,37 +406,37 @@ function tmiLogin(ts: TimerState, id: number){
             return;
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
-        addToEndTime(ts, id, subRate(tier));
+        addToEndTime(ts, id, subRate(tier), `Tier ${tier} gift sub from ${username} -> ${recipient}`);
     });
 
     client.on("anongiftpaidupgrade", (_channel, _username, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - anongiftpaidupgrade from ${_username} to tier ${tier}!`);
-        addToEndTime(ts, id, subRate(tier));
+        addToEndTime(ts, id, subRate(tier), `Gift sub upgrade (anon) Tier ${tier}`);
     });
 
     client.on("giftpaidupgrade", (_channel, _username, sender, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - giftpaidupgrade from ${_username} to tier ${tier}!`);
-        addToEndTime(ts, id, subRate(tier));
+        addToEndTime(ts, id, subRate(tier), `Gift sub upgrade from ${_username} Tier ${tier}`);
     });
 
     client.on("resub",(_channel, _username, _months, _message, userstate, _methods) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${_username} has resubscribed with tier ${tier}!`);
-        addToEndTime(ts, id, subRate(tier));
+        addToEndTime(ts, id, subRate(tier), `Tier ${tier} resub (${_username})`);
     });
 
     client.on("subscription",(_channel, _username, _method, _message, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${curSession.name}) TMI - ${_username} has subscribed with tier ${tier}!`);
-        addToEndTime(ts, id, subRate(tier));
+        addToEndTime(ts, id, subRate(tier), `Tier ${tier} sub (${_username})`);
     });
 
     client.on("cheer", (_channel, userstate, _message) => {
         var bits: string = userstate["bits"] || "0";
         console.log(`(${curSession.name}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
-        addToEndTime(ts, id, parseInt(bits,10) * curSession.rates.twitch.bits);
+        addToEndTime(ts, id, parseInt(bits,10) * curSession.rates.twitch.bits, `Cheer ${bits} bits (${userstate["display-name"]})`);
     });
 
     return client;
@@ -379,7 +445,7 @@ function tmiLogin(ts: TimerState, id: number){
 function slLogin(ts: TimerState, id: number){
     const curSession = getUserSession(ts, id);
     let merchInterval: NodeJS.Timeout | number = 0;
-    const socket = io(`https://sockets.streamlabs.com?token=${curSession.slToken}`, {
+    const socket = io(`https://sockets.streamlabs.com?token=${curSession.connections.streamlabs.token}`, {
         transports: ["websocket"],
     });
 
@@ -407,7 +473,7 @@ function slLogin(ts: TimerState, id: number){
         switch (e.type){
             case "donation":
                 console.log(`(${curSession.name}) STREAMLABS - Adding $${e.message[0].amount} to timer!`);
-                addToEndTime(ts, id, curSession.rates.streamlabs.donation * e.message[0].amount);
+                addToEndTime(ts, id, curSession.rates.streamlabs.donation * e.message[0].amount, `Donation $${e.message[0].amount} from ${e.message[0].from}`);
                 break;
             case "merch":
                 console.log(`Received merch purchase! Product name: "${e.message[0].product}"`);
@@ -432,7 +498,7 @@ function slLogin(ts: TimerState, id: number){
                 }
                 console.log(`(${curSession.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
                 whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
-                addToEndTime(ts, id, curSession.rates.streamlabs.merch * merchValue);
+                addToEndTime(ts, id, curSession.rates.streamlabs.merch * merchValue, `Merch: ${e.message[0].product} ($${merchValue})`);
                 break;
         }
     });
@@ -506,7 +572,8 @@ async function dbCreate(ts: TimerState, inObj: Object){
         endTime: lvObj.endTime,
         shouldCap: lvObj.shouldCap,
         ignoreAnon: lvObj.ignoreAnon,
-        rates: lvObj.rates
+        rates: lvObj.rates,
+        connections: lvObj.connections
     });
 }
 
@@ -526,6 +593,7 @@ function dbUpdate(ts: TimerState){
                 shouldCap: curSession.shouldCap,
                 ignoreAnon: curSession.ignoreAnon,
                 rates: curSession.rates,
+                connections: curSession.connections,
             },
             {
                 where: {
@@ -552,6 +620,9 @@ function wsCloseError(ws: TimerWebSocket, reason: string){
 async function wsLogin(ts: TimerState, ws: TimerWebSocket, accessToken: string){
     ws.userId = 0;
     ws.isAlive = true;
+    ws.msgTokens = WS_MSG_BURST;
+    ws.msgLast = Date.now();
+    ws.msgWarnAt = 0;
     ws.forceSyncInterval = setInterval(wsSync.bind(null,ts,ws),WS_FORCE_SYNC_TIME);
     ws.hbInterval = setInterval(()=>{
         if (ws.isAlive == false){
@@ -608,7 +679,8 @@ async function wsLogin(ts: TimerState, ws: TimerWebSocket, accessToken: string){
             endTime: USER_TABLE.endTime.defaultValue,
             shouldCap: USER_TABLE.shouldCap.defaultValue,
             ignoreAnon: USER_TABLE.ignoreAnon.defaultValue,
-            rates: DEFAULT_RATES
+            rates: DEFAULT_RATES,
+            connections: { twitch: { channel: userName }, streamlabs: { token: "" } }
         }
         await dbCreate(ts, newUser);
         loginUser(ts, newUser);
@@ -650,9 +722,38 @@ function wsSync(ts: TimerState, ws: TimerWebSocket) {
             cap: curSession.shouldCap,
             anon: curSession.ignoreAnon,
             rates: curSession.rates,
+            connections: {
+                twitch: { channel: curSession.connections.twitch.channel },
+                streamlabs: { hasToken: !!curSession.connections.streamlabs.token }
+            },
             merchValues: curSession.merchValues
         })
     );
+}
+
+function sendLogPage(ts: TimerState, ws: TimerWebSocket, before: any) {
+    if (!ws.isReady)
+        return;
+    if (ws.readyState !== WebSocket.OPEN)
+        return;
+    const where: any = { userId: ws.userId };
+    if (Number.isFinite(before))
+        where.id = { [Op.lt]: before };
+    ts.logsModel.findAll({ where, order: [["id", "DESC"]], limit: LOG_PAGE }).then((rows: any[]) => {
+        if (ws.readyState !== WebSocket.OPEN)
+            return;
+        const page = rows.reverse().map((r: any) => ({
+            id: r.dataValues.id,
+            t: new Date(r.dataValues.createdAt).getTime(),
+            action: r.dataValues.action,
+            oldMs: Number(r.dataValues.oldMs),
+            newMs: Number(r.dataValues.newMs),
+            addedMs: Number(r.dataValues.addedMs),
+        }));
+        ws.send(JSON.stringify({ logPage: page, hasMore: rows.length === LOG_PAGE, before: Number.isFinite(before) ? before : null }));
+    }).catch((err: any) => {
+        console.log("Failed to load log page:", err);
+    });
 }
 
 async function main(){
@@ -684,6 +785,7 @@ async function main(){
     );
 
     ts.usersModel = ts.sequelize.define("User", USER_TABLE);
+    ts.logsModel = ts.sequelize.define("Log", LOG_TABLE, { updatedAt: false });
 
     try {
         await ts.sequelize.authenticate();
@@ -720,6 +822,16 @@ async function main(){
         }
     }
 
+    gWSLog = function(ts: TimerState, id: number, entry: any){
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id == ws.userId && ws.readyState === WebSocket.OPEN){
+                ws.send(JSON.stringify({ logEntry: entry }));
+            }
+        }
+    }
+
     wss.on("connection", (ws: TimerWebSocket, req: any) => {
         console.log("A client has connected to the WSS backend!");
         ws.isReady = false;
@@ -748,6 +860,18 @@ async function main(){
         ws.on("message", (data: any)=>{
             if (!ws.isReady)
                 return;
+            // token-bucket rate limit per connection — guards against FE loops spamming the server
+            const now = Date.now();
+            ws.msgTokens = Math.min(WS_MSG_BURST, ws.msgTokens + ((now - ws.msgLast) / 1000) * WS_MSG_RATE);
+            ws.msgLast = now;
+            if (ws.msgTokens < 1){
+                if (now - ws.msgWarnAt > 5000){
+                    ws.msgWarnAt = now;
+                    console.log(`Rate limiting userId ${ws.userId} (too many messages) — dropping.`);
+                }
+                return;
+            }
+            ws.msgTokens -= 1;
             const id = ws.userId;
             const curSession = getUserSession(ts, id);
 
@@ -761,20 +885,39 @@ async function main(){
             switch (jData.event) {
                 case "getTime":
                     break;
-                case "connectStreamlabs":
-                    if (typeof jData.slToken !== "string" || jData.slToken.length >= 1000)
-                        break;
-                    curSession.slToken = jData.slToken;
-                    if (curSession.conSL)
-                        curSession.conSL.disconnect();
-                    curSession.conSL = slLogin(ts, curSession.userId);
+                case "getLogPage":
+                    sendLogPage(ts, ws, jData.before);
+                    return;
+                case "setConnection": {
+                    const platform = jData.platform;
+                    const config = jData.config || {};
+                    if (platform === "twitch") {
+                        const channel = (typeof config.channel === "string" ? config.channel : "").trim().toLowerCase();
+                        curSession.connections.twitch.channel = channel;
+                        if (curSession.conTMI)
+                            curSession.conTMI.disconnect();
+                        curSession.twitchStatus = false;
+                        curSession.conTMI = channel ? tmiLogin(ts, curSession.userId) : undefined;
+                    } else if (platform === "streamlabs") {
+                        if (typeof config.token !== "string" || config.token.length >= 1000)
+                            break;
+                        curSession.connections.streamlabs.token = config.token;
+                        if (curSession.conSL)
+                            curSession.conSL.disconnect();
+                        curSession.slStatus = false;
+                        curSession.conSL = config.token ? slLogin(ts, curSession.userId) : undefined;
+                    }
                     break;
+                }
                 case "setRates":
                     curSession.rates = normalizeRates(jData.rates);
                     break;
-                case "setEndTime":
+                case "setEndTime": {
+                    const oldET = curSession.endTime;
                     setEndTime(ts, ws.userId, Math.trunc(parseInt(jData.value) || 0));
+                    logTimerEvent(ts, ws.userId, "Manual change", oldET, curSession.endTime);
                     break;
+                }
                 case "setCap":
                     curSession.shouldCap = Boolean(jData.value) || false;
                     setEndTime(ts, ws.userId, curSession.endTime);
