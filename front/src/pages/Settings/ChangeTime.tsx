@@ -71,10 +71,10 @@ const ChangeTime: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 								onClick={() => {
 									setEndTime(
 										ws,
-										(parseInt(formattedHours) * 3600 || 0) +
+										((parseInt(formattedHours) * 3600 || 0) +
 											(parseInt(formattedMinutes) * 60 || 0) +
-											(parseInt(formattedSeconds) || 0) +
-											Math.trunc(Date.now() / 1000)
+											(parseInt(formattedSeconds) || 0)) * 1000 +
+											Date.now()
 									);
 								}}
 								colorScheme='purple'
@@ -190,7 +190,7 @@ const ChangeTime: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 							</NumberInput>
 							<Button
 								onClick={() => {
-									addTime(ws, endTime, Subs * settings.subTime * (SubTier == 3 ? 5 : SubTier));
+									addTime(ws, endTime, Subs * (settings.rates?.twitch?.["sub_t" + SubTier] || 0));
 								}}
 								colorScheme='purple'
 								width='
@@ -216,7 +216,7 @@ const ChangeTime: React.FC<{ ws: any; endTime: number; settings: any }> = ({
 							</NumberInput>
 							<Button
 								onClick={() => {
-									addTime(ws, endTime, Dollars * settings.dollarTime);
+									addTime(ws, endTime, Dollars * (settings.rates?.streamlabs?.donation || 0));
 								}}
 								colorScheme='purple'
 								width='

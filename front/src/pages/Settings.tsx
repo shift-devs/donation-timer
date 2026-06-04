@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from "react";
-import ConnectivitySettings from "./Settings/Connectivity";
+import React, { useEffect, useRef, useState } from "react";
 import Timer from "../Timer";
 import * as consts from "../Consts";
-import TimingSettings from "./Settings/TimingSettings";
 import ChangeTime from "./Settings/ChangeTime";
 import Merch from "./Settings/Merch";
+import TimePerAction from "./Settings/TimePerAction";
+import Controls from "./Settings/Controls";
+import Log from "./Settings/Log";
+import Connections from "./Settings/Connections";
+import { Navigate } from "react-router-dom";
 import {
 	Spinner,
 	Tabs,
@@ -12,44 +15,28 @@ import {
 	TabPanels,
 	Tab,
 	TabPanel,
-	Button,
-	Center,
 } from "@chakra-ui/react";
-import { setCap, setAnon } from "../Api";
 
 const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
-const token = new URLSearchParams(window.location.search).get("token");
 
 let ws: WebSocket;
 let forceSync: any;
 
 const Settings: React.FC = () => {
+	const token = localStorage.getItem("identity");
 	const [settings, setSettings] = useState({ slStatus: false });
 	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
-	const [capStatus, setCapStatus] = useState("Enable 30h cap");
-	const [anonStatus, setAnonStatus] = useState("Ignore Anonymous Giftsubs");
+	const [log, setLog] = useState<any[]>([]);
+	const [logHasMore, setLogHasMore] = useState(false);
+	const [tabIndex, setTabIndex] = useState(0);
+	const logLoadingRef = useRef(false);
+	const logRequestedRef = useRef(false);
 
-	const toggleCap = () => {
-		if (capStatus === "Enable 30h cap") {
-			setCap(ws, true);
-		} else {
-			setCap(ws, false);
-		}
-	};
-
-	const toggleAnon = () => {
-		if (anonStatus === "Ignore Anonymous Giftsubs") {
-			setAnon(ws, true);
-		} else {
-			setAnon(ws, false);
-		}
-	};
-	
 	const updateSeconds = (endTime: number) => {
-		let tempSeconds = Math.round(endTime - new Date().getTime() / 1000);
+		let tempSeconds = Math.round((endTime - Date.now()) / 1000);
 		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
 		console.log(
 			`Force syncing endtime to ${endTime} and seconds to ${
@@ -66,16 +53,32 @@ const Settings: React.FC = () => {
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
 			console.log(`received ${event.data}`);
+
+			if ("logPage" in response) {
+				logLoadingRef.current = false;
+				if (response.before == null) {
+					setLog(response.logPage);
+				} else {
+					setLog((prev) => [...response.logPage, ...prev]);
+				}
+				setLogHasMore(response.hasMore);
+				return;
+			}
+			if ("logEntry" in response) {
+				setLog((prev) => [...prev, response.logEntry]);
+				return;
+			}
+
 			setSettings(response);
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
-				if (response.cap) setCapStatus("Disable 30h cap");
-				else setCapStatus("Enable 30h cap");
-				if (response.anon) setAnonStatus("Unignore Anonymous Giftsubs")
-				else setAnonStatus("Ignore Anonymous Giftsubs");
 				if (!fetched) {
 					setFetched(true);
+				}
+				if (!logRequestedRef.current) {
+					logRequestedRef.current = true;
+					ws.send(JSON.stringify({ event: "getLogPage" }));
 				}
 				if (!forceSync)
 					forceSync = setInterval(
@@ -90,12 +93,14 @@ const Settings: React.FC = () => {
 					);
 				}
 			} else if ("error" in response) {
-				alert(`error: ${response.error}`);
+				localStorage.removeItem("identity");
+				window.location.href = "/login";
 			}
 		};
 
 		ws.onclose = (event) => {
 			setFetched(false);
+			logRequestedRef.current = false;
 			console.log(
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
@@ -109,8 +114,11 @@ const Settings: React.FC = () => {
 	};
 
 	useEffect(() => {
+		if (!token) return;
 		connectWs();
-		return () => ws.close();
+		return () => {
+			if (ws) ws.close();
+		};
 	}, []);
 
 	useEffect(() => {
@@ -124,33 +132,56 @@ const Settings: React.FC = () => {
 		}
 	},[seconds]);
 
+	const loadOlder = () => {
+		if (!logHasMore || logLoadingRef.current) return;
+		const cursor = log.length ? log[0].id : null;
+		if (cursor == null) return;
+		logLoadingRef.current = true;
+		ws.send(JSON.stringify({ event: "getLogPage", before: cursor }));
+	};
+
+	if (!token) return <Navigate to="/login" replace />;
+
 	if (fetched)
 		return (
 			<div
 				style={{
-					margin: "auto",
+					height: "100vh",
+					display: "flex",
+					flexDirection: "column",
 					textAlign: "center",
 					width: "100%",
-					marginTop: "0%",
+					overflow: "hidden",
 				}}
 			>
 				<Timer input_seconds={seconds} textAlign='center' />
 				<br />
-				<Tabs>
+				<Tabs
+					index={tabIndex}
+					onChange={setTabIndex}
+					display='flex'
+					flexDirection='column'
+					flex='1'
+					minH={0}
+					overflow='hidden'
+				>
 					<TabList>
-						<Tab>Timer Settings</Tab>
-						<Tab>Connect Streamlabs</Tab>
+						<Tab>Time Per Action</Tab>
+						<Tab>Connections</Tab>
+						<Tab>Controls</Tab>
 						<Tab>Change Time</Tab>
 						<Tab>Merch</Tab>
+						<Tab>Log</Tab>
 					</TabList>
-					<br />
-					<br />
-					<TabPanels>
+					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
-							<TimingSettings ws={ws} input_settings={settings} />
+							<TimePerAction ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
-							<ConnectivitySettings ws={ws} status={settings.slStatus} />
+							<Connections ws={ws} settings={settings} />
+						</TabPanel>
+						<TabPanel>
+							<Controls ws={ws} token={token} baseUrl={BASE_URL} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<ChangeTime ws={ws} endTime={endTime} settings={settings} />
@@ -158,38 +189,11 @@ const Settings: React.FC = () => {
 						<TabPanel>
 							<Merch ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
+						<TabPanel>
+							<Log entries={log} hasMore={logHasMore} active={tabIndex === 5} onLoadOlder={loadOlder} />
+						</TabPanel>
 					</TabPanels>
 				</Tabs>
-				<Center>
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							navigator.clipboard.writeText(
-								`${BASE_URL}/widget?token=${token}`
-							);
-						}}
-					>
-						Copy widget URL
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							toggleCap();
-						}}
-					>
-						{capStatus}
-					</Button>
-					&nbsp;
-					<Button
-						colorScheme='purple'
-						onClick={() => {
-							toggleAnon();
-						}}
-					>
-						{anonStatus}
-					</Button>
-				</Center>
 			</div>
 		);
 

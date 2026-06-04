@@ -35,13 +35,12 @@ export function addTime(
 	currentEndTime: number,
 	seconds: number
 ) {
-	const now = Math.trunc(new Date().getTime() / 1000);
+	const now = Date.now();
 	if (currentEndTime < now) currentEndTime = now;
-	seconds = Math.floor(seconds);
 	console.log(
 		`Trying to add ${seconds} seconds with endTime: ${currentEndTime}`
 	);
-	setEndTime(ws, currentEndTime + seconds);
+	setEndTime(ws, currentEndTime + Math.round(seconds * 1000));
 	return 1;
 }
 
@@ -75,6 +74,27 @@ export function setAnon(ws: WebSocket, value: boolean) {
 		JSON.stringify({
 			event: "setAnon",
 			value: value,
+		})
+	);
+	return 1;
+}
+
+export function setRates(ws: WebSocket, rates: any) {
+	ws.send(
+		JSON.stringify({
+			event: "setRates",
+			rates: rates,
+		})
+	);
+	return 1;
+}
+
+export function setConnection(ws: WebSocket, platform: string, config: any) {
+	ws.send(
+		JSON.stringify({
+			event: "setConnection",
+			platform: platform,
+			config: config,
 		})
 	);
 	return 1;
