@@ -1,0 +1,13 @@
+export const WSS_PORT = 3003;
+export const WS_FORCE_SYNC_TIME = 5 * 1000;
+export const WS_HB_TIME = 10 * 1000;
+export const CAP_TIME = 30 * 3600 * 1000;
+export const CHAT_CMD_MAX_TIME = 10 * 3600;
+export const MERCH_UPDATE_TIME = 60 * 1000;
+export const DB_UPDATE_TIME = 5 * 1000;
+export const LOG_PAGE = 50;
+export const WS_MSG_BURST = 40;   // per-connection message burst allowance
+export const WS_MSG_RATE = 20;    // sustained messages/sec before dropping (FE-loop guard)
+export const CLIENT_ID: string = process.env.CLIENT_ID || "";
+export const WH_PATH: string = process.env.WH_PATH || "";
+export const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"];
