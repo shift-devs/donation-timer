@@ -7,6 +7,7 @@ import TimePerAction from "./Settings/TimePerAction";
 import Controls from "./Settings/Controls";
 import Log from "./Settings/Log";
 import Connections from "./Settings/Connections";
+import { Navigate } from "react-router-dom";
 import {
 	Spinner,
 	Tabs,
@@ -18,12 +19,12 @@ import {
 
 const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
-const token = new URLSearchParams(window.location.search).get("token");
 
 let ws: WebSocket;
 let forceSync: any;
 
 const Settings: React.FC = () => {
+	const token = localStorage.getItem("identity");
 	const [settings, setSettings] = useState({ slStatus: false });
 	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
@@ -92,7 +93,8 @@ const Settings: React.FC = () => {
 					);
 				}
 			} else if ("error" in response) {
-				alert(`error: ${response.error}`);
+				localStorage.removeItem("identity");
+				window.location.href = "/login";
 			}
 		};
 
@@ -112,8 +114,11 @@ const Settings: React.FC = () => {
 	};
 
 	useEffect(() => {
+		if (!token) return;
 		connectWs();
-		return () => ws.close();
+		return () => {
+			if (ws) ws.close();
+		};
 	}, []);
 
 	useEffect(() => {
@@ -134,6 +139,8 @@ const Settings: React.FC = () => {
 		logLoadingRef.current = true;
 		ws.send(JSON.stringify({ event: "getLogPage", before: cursor }));
 	};
+
+	if (!token) return <Navigate to="/login" replace />;
 
 	if (fetched)
 		return (
