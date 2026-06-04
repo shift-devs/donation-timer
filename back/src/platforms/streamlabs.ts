@@ -4,30 +4,13 @@ import { TimerUserSession, TimerEvent } from "../types";
 import { MERCH_UPDATE_TIME } from "../config";
 import { emitSync } from "../bus";
 import { whSend } from "../notify";
-import { diag } from "../diag";
+// youtube + kick events ride this same socket; each platform owns its own translation in its file
+import { handleYoutubeStreamlabsEvent } from "./youtube";
+import { handleKickStreamlabsEvent } from "./kick";
 
-// temporary diagnostic: client's youtube membership levels are enjoyer / full membership / quickster.
-// streamlabs doesn't document which field carries the level, so scan the raw payload for these known strings
-// to pinpoint the exact key. remove once we know the field and wire per-tier rates.
-const KNOWN_YT_LEVELS = ["enjoyer", "full membership", "quickster"];
-function probeLevelField(obj: any, path: string, sink: (line: string) => void){
-    if (obj && typeof obj === "object"){
-        for (const k of Object.keys(obj))
-            probeLevelField(obj[k], path ? `${path}.${k}` : k, sink);
-    } else if (typeof obj === "string"){
-        const low = obj.toLowerCase();
-        if (KNOWN_YT_LEVELS.some((l) => low.includes(l)))
-            sink(`YT-LEVEL-FIELD-FOUND at "${path}" = ${JSON.stringify(obj)}`);
-    }
-}
-
-// youtube super chat / super sticker. streamlabs relays the amount in micros (x1,000,000), e.g. "2000000" = $2.00
-function emitSuperChat(e: any, unit: "superchat" | "supersticker", emit: (ev: TimerEvent) => void){
-    const m = e.message[0];
-    const usd = (Number(m.amount) || 0) / 1000000;
-    const who = m.name || "someone";
-    const shown = m.displayString || `$${usd}`;
-    emit({ platform: "youtube", kind: "money", usd, unit, label: `Super ${unit === "supersticker" ? "Sticker" : "Chat"} ${shown} from ${who}` });
+// parse a money amount that may arrive as a number or a formatted string ("5.00", "$5") -> finite number
+function parseMoney(v: any): number {
+    return Number(typeof v === "string" ? v.replace(/[^0-9.-]/g, "") : v) || 0;
 }
 
 function slInstallMerch(session: TimerUserSession){
@@ -86,20 +69,27 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
     });
 
     socket.on("event", (e: any) => {
+      try {
         console.log(`(${session.name}) Streamlabs Event: ${JSON.stringify(e)}`);
+        // streamlabs payloads are message[], but keep-alives / new shapes can omit it — guard before any access
+        const m = Array.isArray(e.message) ? e.message[0] : e.message;
+        if (!m)
+            return;
         switch (e.type){
-            case "donation":
-                console.log(`(${session.name}) STREAMLABS - Adding $${e.message[0].amount} to timer!`);
-                emit({ platform: "streamlabs", kind: "money", usd: e.message[0].amount, unit: "donation", label: `Donation $${e.message[0].amount} from ${e.message[0].from}` });
+            case "donation": {
+                const usd = parseMoney(m.amount);
+                console.log(`(${session.name}) STREAMLABS - Adding $${usd} to timer!`);
+                emit({ platform: "streamlabs", kind: "money", usd, unit: "donation", label: `Donation $${usd} from ${m.from}` });
                 break;
+            }
             case "merch": {
-                console.log(`Received merch purchase! Product name: "${e.message[0].product}"`);
-                const merchHookData = `From: \`${e.message[0].from}\`\nProduct: \`${e.message[0].product}\`\nMessage: \`${e.message[0].message}\``;
-                let merchValue = session.merchValues[e.message[0].product];
+                console.log(`Received merch purchase! Product name: "${m.product}"`);
+                const merchHookData = `From: \`${m.from}\`\nProduct: \`${m.product}\`\nMessage: \`${m.message}\``;
+                let merchValue = session.merchValues[m.product];
                 if (!merchValue){
-                    console.log(`WARNING! STREAMLABS PRODUCT "${e.message[0].product}" IS NOT IN MERCHVALUES!! Trying a fuzzier search...!`);
+                    console.log(`WARNING! STREAMLABS PRODUCT "${m.product}" IS NOT IN MERCHVALUES!! Trying a fuzzier search...!`);
                     const mvEntries = Object.entries(session.merchValues);
-                    const lowercaseProduct = e.message[0].product.toLowerCase();
+                    const lowercaseProduct = m.product.toLowerCase();
                     for (var i = 0; i < mvEntries.length; i++){
                         if (mvEntries[i][0].toLowerCase().includes(lowercaseProduct)){
                             console.log(`Found "${mvEntries[i][0]}" as a close enough match!`);
@@ -115,46 +105,19 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
                 }
                 console.log(`(${session.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
                 whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
-                emit({ platform: "streamlabs", kind: "money", usd: merchValue as number, unit: "merch", label: `Merch: ${e.message[0].product} ($${merchValue})` });
+                emit({ platform: "streamlabs", kind: "money", usd: merchValue as number, unit: "merch", label: `Merch: ${m.product} ($${merchValue})` });
                 break;
             }
-            // youtube super chats & memberships are relayed on this same socket (see "via streamlabs" in NOTES)
-            case "superchat":
-                emitSuperChat(e, "superchat", emit);
+            // youtube + kick ride this socket but own their translation in their own adapter files; let them claim it
+            default:
+                if (handleYoutubeStreamlabsEvent(session, e, m, emit))
+                    break;
+                handleKickStreamlabsEvent(session, e, m, emit);
                 break;
-            case "supersticker":
-                emitSuperChat(e, "supersticker", emit);
-                break;
-            case "subscription": {
-                // both youtube memberships and kick subs are relayed here, distinguished by `for`. twitch subs also
-                // come through (for: twitch_account) but we read those via tmi, so they're ignored to avoid double-counting.
-                const m = e.message[0];
-                const gifter = m.gifter || m.gifterName || m.gifter_username;
-                const isGift = !!(m.gifted || m.isGift || gifter);
-                let count = Number(m.amount) || Number(m.gift_count) || Number(m.quantity) || 1;
-                count = Math.min(Math.max(Math.trunc(count), 1), 100); // guard against a misread field inflating time
-                if (e.for === "youtube_account") {
-                    // surface the raw payload + detected level straight to the user's Terminal (and container logs)
-                    diag(`(${session.name}) YT-MEMBERSHIP-PAYLOAD ${JSON.stringify(e)}`);
-                    probeLevelField(e, "", (line) => diag(`(${session.name}) ${line}`));
-                    // youtube membership tiers are arbitrary creator-named levels; surface whatever level field SL sends.
-                    const level = m.membershipLevelName || m.membership_level_name || m.levelName || m.level || m.tier;
-                    const lvl = level ? ` [${level}]` : "";
-                    if (isGift)
-                        emit({ platform: "youtube", kind: "member", unit: "membership_gift", count, label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
-                    else
-                        emit({ platform: "youtube", kind: "member", unit: "membership", count: 1, label: `membership${lvl} from ${m.name}` });
-                } else if (e.for === "kick_account") {
-                    // kick subs are single-tier; SL's kick socket payload is undocumented, so surface it to confirm sub-vs-gift fields
-                    diag(`(${session.name}) KICK-SUB-PAYLOAD ${JSON.stringify(e)}`);
-                    if (isGift)
-                        emit({ platform: "kick", kind: "member", unit: "gift", count, label: `${count}x gift sub from ${gifter || m.name}` });
-                    else
-                        emit({ platform: "kick", kind: "member", unit: "subscription", count: 1, label: `sub from ${m.name}` });
-                }
-                break;
-            }
         }
+      } catch (err) {
+        console.log(`(${session.name}) Streamlabs event handler error:`, err);
+      }
     });
 
     return socket;

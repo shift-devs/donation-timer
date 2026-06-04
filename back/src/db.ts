@@ -1,4 +1,4 @@
-import { Sequelize, DataTypes, ModelStatic } from "sequelize";
+import { Sequelize, DataTypes, ModelStatic, Op } from "sequelize";
 import { TimerUserSession } from "./types";
 
 export const USER_TABLE = {
@@ -121,9 +121,17 @@ export async function dbCreate(inObj: Object){
     });
 }
 
-export function dbUpdate(sessions: TimerUserSession[]){
-    for (let i = 0; i < sessions.length; i++){
-        const curSession = sessions[i];
+// deletes audit-log rows older than the retention window so the Logs table can't grow without bound over weeks
+export async function dbPruneLogs(retentionMs: number){
+    const cutoff = new Date(Date.now() - retentionMs);
+    const deleted = await logsModel.destroy({ where: { createdAt: { [Op.lt]: cutoff } } });
+    if (deleted)
+        console.log(`Pruned ${deleted} log rows older than ${Math.round(retentionMs / 86400000)}d.`);
+}
+
+// awaits all writes so the caller can serialize ticks; a single failure can't reject the whole batch (allSettled)
+export async function dbUpdate(sessions: TimerUserSession[]){
+    const results = await Promise.allSettled(sessions.map((curSession) =>
         usersModel.update(
             {
                 name: curSession.name,
@@ -142,8 +150,9 @@ export function dbUpdate(sessions: TimerUserSession[]){
                     userId: curSession.userId,
                 },
             }
-        ).catch((err: any)=>{
-            console.log("Failed to update user in DB:", err);
-        });
-    }
+        )
+    ));
+    for (const r of results)
+        if (r.status === "rejected")
+            console.log("Failed to update user in DB:", r.reason);
 }

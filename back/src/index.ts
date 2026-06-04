@@ -1,5 +1,5 @@
-import { CLIENT_ID, DB_UPDATE_TIME } from "./config";
-import { connectDb, dbUpdate, usersModel } from "./db";
+import { CLIENT_ID, DB_UPDATE_TIME, LOG_RETENTION_MS, LOG_PRUNE_TIME } from "./config";
+import { connectDb, dbUpdate, dbPruneLogs, usersModel } from "./db";
 import { whSend } from "./notify";
 import { sessions, loginUser } from "./session";
 import { startApi } from "./api";
@@ -35,7 +35,27 @@ async function main(){
 
     startApi();
 
-    setInterval(() => dbUpdate(sessions), DB_UPDATE_TIME);
+    // self-scheduling so a slow/stalled DB can never stack overlapping write batches (no setInterval pileup)
+    const dbLoop = async () => {
+        try {
+            await dbUpdate(sessions);
+        } catch (err) {
+            console.log("dbUpdate batch failed:", err);
+        }
+        setTimeout(dbLoop, DB_UPDATE_TIME);
+    };
+    dbLoop();
+
+    // periodically prune old audit-log rows so the Logs table stays bounded over a weeks-long run
+    const pruneLoop = async () => {
+        try {
+            await dbPruneLogs(LOG_RETENTION_MS);
+        } catch (err) {
+            console.log("Log prune failed:", err);
+        }
+        setTimeout(pruneLoop, LOG_PRUNE_TIME);
+    };
+    pruneLoop();
 }
 
 main();

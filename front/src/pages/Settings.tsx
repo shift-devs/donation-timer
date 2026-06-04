@@ -22,7 +22,8 @@ const WS_URL = consts.WS_URL;
 const BASE_URL = consts.BASE_URL;
 
 let ws: WebSocket;
-let forceSync: any;
+let reconnectTimer: any;
+const LOG_CAP = 2000; // keep the live feed bounded — a dashboard tab can stay open for weeks
 
 const Settings: React.FC = () => {
 	const token = localStorage.getItem("identity");
@@ -49,7 +50,12 @@ const Settings: React.FC = () => {
 	};
 
 	const connectWs = () => {
-		ws = new WebSocket(`${WS_URL}?token=${token}&page=settings`);
+		// tear down any prior socket so handlers/reconnects can't stack (the old CPU-spin failure mode)
+		if (ws) {
+			ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+			try { ws.close(); } catch {}
+		}
+		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=settings`);
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
@@ -66,12 +72,12 @@ const Settings: React.FC = () => {
 				return;
 			}
 			if ("logEntry" in response) {
-				setLog((prev) => [...prev, response.logEntry]);
+				setLog((prev) => [...prev, response.logEntry].slice(-LOG_CAP));
 				return;
 			}
 			if ("commandResult" in response) {
 				const cr = response.commandResult;
-				setLog((prev) => [...prev, { t: Date.now(), line: cr.message, kind: cr.ok ? "ok" : "err" }]);
+				setLog((prev) => [...prev, { t: Date.now(), line: cr.message, kind: cr.ok ? "ok" : "err" }].slice(-LOG_CAP));
 				return;
 			}
 
@@ -86,18 +92,7 @@ const Settings: React.FC = () => {
 					logRequestedRef.current = true;
 					ws.send(JSON.stringify({ event: "getLogPage" }));
 				}
-				if (!forceSync)
-					forceSync = setInterval(
-						() => updateSeconds(response.endTime),
-						10 * 1000
-					);
-				else {
-					clearInterval(forceSync);
-					forceSync = setInterval(
-						() => updateSeconds(response.endTime),
-						10 * 1000
-					);
-				}
+				// no separate force-sync interval needed: the 1s countdown derives from endTime each tick (below)
 			} else if ("error" in response) {
 				localStorage.removeItem("identity");
 				window.location.href = "/login";
@@ -110,7 +105,8 @@ const Settings: React.FC = () => {
 			console.log(
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
-			setTimeout(connectWs, 5000);
+			clearTimeout(reconnectTimer); // never let reconnects stack
+			reconnectTimer = setTimeout(connectWs, 5000);
 		};
 
 		ws.onerror = (event) => {
@@ -123,20 +119,22 @@ const Settings: React.FC = () => {
 		if (!token) return;
 		connectWs();
 		return () => {
-			if (ws) ws.close();
+			clearTimeout(reconnectTimer);
+			if (ws) {
+				ws.onclose = ws.onmessage = ws.onerror = null; // don't reconnect after unmount
+				ws.close();
+			}
 		};
 	}, []);
 
+	// single interval that derives the displayed seconds from endTime each tick — no per-tick re-arm, no drift
 	useEffect(() => {
-		const interval = setTimeout(() => {
-			if (seconds > 0) {
-				setSeconds((prev) => prev - 1);
-			}
+		const id = setInterval(() => {
+			const s = Math.round((endTime - Date.now()) / 1000);
+			setSeconds(s > 0 ? s : 0);
 		}, 1000);
-		return () => {
-			clearTimeout(interval);
-		}
-	},[seconds]);
+		return () => clearInterval(id);
+	}, [endTime]);
 
 	const loadOlder = () => {
 		if (!logHasMore || logLoadingRef.current) return;
@@ -144,12 +142,13 @@ const Settings: React.FC = () => {
 		const firstWithId = log.find((e) => e.id != null);
 		const cursor = firstWithId ? firstWithId.id : null;
 		if (cursor == null) return;
+		if (!ws || ws.readyState !== WebSocket.OPEN) return; // mid-reconnect; don't send/wedge the loading flag
 		logLoadingRef.current = true;
 		ws.send(JSON.stringify({ event: "getLogPage", before: cursor }));
 	};
 
 	const runTerminalCommand = (cmd: string) => {
-		setLog((prev) => [...prev, { t: Date.now(), line: "> " + cmd, kind: "input" }]);
+		setLog((prev) => [...prev, { t: Date.now(), line: "> " + cmd, kind: "input" }].slice(-LOG_CAP));
 		runCommand(ws, cmd);
 	};
 

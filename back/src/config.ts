@@ -12,4 +12,6 @@ export const CLIENT_ID: string = process.env.CLIENT_ID || "";
 export const WH_PATH: string = process.env.WH_PATH || "";
 export const FW_POLL_TIME = 5 * 1000;     // how often we poll the fourthwall api for new orders/donations/members
 export const FW_HTTP_TIMEOUT = 15 * 1000; // give up on a single fourthwall request so cycles can't hang/stack
+export const LOG_RETENTION_MS = 30 * 24 * 3600 * 1000; // keep ~30 days of audit-log rows, prune older
+export const LOG_PRUNE_TIME = 6 * 3600 * 1000;         // how often to prune old log rows
 export const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"];
