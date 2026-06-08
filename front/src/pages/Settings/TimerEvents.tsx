@@ -280,9 +280,9 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					<Badge colorScheme="purple">setup</Badge>
 				</HStack>
 				<Text fontSize="sm" color="gray.600" mb={2}>
-					In OBS add a <b>Browser</b> source with this URL, sized to your canvas (e.g. 1920×1080). The page is
-					transparent so video overlays your scene, and audio plays through the source. Use a clip's <b>Test</b>
-					button to confirm it's wired up before going live.
+					In OBS add a <b>Browser</b> source with this URL, sized to your canvas (e.g. 1920×1080). The page fills
+					with <Code fontSize="xs">#00FF00</Code> — add a <b>Color Key</b> filter on that green so only the clip
+					shows, and audio plays through the source. Use a clip's <b>Test</b> button to confirm it's wired up before going live.
 				</Text>
 				<HStack>
 					<Code p={2} fontSize="xs" maxW="100%" overflowX="auto" whiteSpace="nowrap">{sourceUrl}</Code>

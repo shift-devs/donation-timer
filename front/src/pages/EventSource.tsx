@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import * as consts from "../Consts";
 
 // the OBS browser source for timer events. add this page as a Browser Source; the backend pushes {playEvent} messages
-// (scheduled or via the dashboard Test button) and we play the clip here. transparent background so video overlays
-// the scene. mirrors Widget.tsx's connect/reconnect lifecycle.
+// (scheduled or via the dashboard Test button) and we play the clip here. the page is a solid #00FF00 fill that OBS
+// keys out (color key filter), so only the clip shows over the scene. mirrors Widget.tsx's connect/reconnect lifecycle.
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -73,12 +73,12 @@ const EventSource: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	// transparent, full-viewport, no scrollbars — OBS composites this over the scene
+	// full-viewport chroma key fill: #00FF00 is keyed out in OBS (color key filter) so only the clip shows
 	const wrap: React.CSSProperties = {
 		position: "fixed",
 		inset: 0,
 		margin: 0,
-		background: "transparent",
+		background: "#00FF00",
 		overflow: "hidden",
 		display: "flex",
 		alignItems: "center",
