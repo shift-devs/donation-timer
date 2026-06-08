@@ -1,7 +1,7 @@
 import axios from "axios";
 import io from "socket.io-client";
 import { TimerUserSession, TimerEvent } from "../types";
-import { MERCH_UPDATE_TIME } from "../config";
+import { MERCH_UPDATE_TIME, WS_FORCE_SYNC_TIME } from "../config";
 import { emitSync } from "../bus";
 import { whSend } from "../notify";
 // youtube + kick events ride this same socket; each platform owns its own translation in its file
@@ -15,9 +15,12 @@ function parseMoney(v: any): number {
 
 function slInstallMerch(session: TimerUserSession){
     const newMerchValues = {};
-    console.log(`Getting New Streamlabs Merch For ${session.name}...`);
+    // the merch catalog belongs to the streamer we're watching (their twitch handle), not the operator account that
+    // logged in — session.name is just the login. keying on the channel pulls the right products to match purchases.
+    const watching = session.connections.twitch.channel || session.name;
+    console.log(`Getting New Streamlabs Merch For ${watching}...`);
     axios
-    .get(`https://streamlabs.com/api/v6/user/${session.name}`, {
+    .get(`https://streamlabs.com/api/v6/user/${watching}`, {
     })
     .then((httpRes) => {
         if (Math.trunc(httpRes.status / 100)!=2)
@@ -33,7 +36,7 @@ function slInstallMerch(session: TimerUserSession){
                 newMerchValues[x.name] = x.variants[0].price / 100;
             });
             session.merchValues = Object.assign({}, newMerchValues);
-            console.log(`Done Getting ${session.name}'s Streamlabs Merch!`);
+            console.log(`Done Getting ${watching}'s Streamlabs Merch!`);
         }).catch(()=>{
             console.log(`Could not get new streamlabs merch at this time! Try again later!`);
         });
@@ -45,13 +48,16 @@ function slInstallMerch(session: TimerUserSession){
 // translates streamlabs donation/merch events into normalized TimerEvents
 export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEvent) => void){
     let merchInterval: NodeJS.Timeout | number = 0;
+    // label logs by the streamer we're watching (their twitch channel), not the operator account that logged in
+    const watching = session.connections.twitch.channel || session.name;
     const socket = io(`https://sockets.streamlabs.com?token=${session.connections.streamlabs.token}`, {
         transports: ["websocket"],
     });
 
     socket.on("connect", () => {
-        console.log(`Connected to ${session.name}'s Streamlabs!`);
+        console.log(`Connected to ${watching}'s Streamlabs!`);
         session.slStatus = true;
+        session.slError = "";
         emitSync(session.userId);
         slInstallMerch(session);
         if (merchInterval == 0)
@@ -59,8 +65,10 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
     });
 
     socket.on("disconnect", () => {
-        console.log(`Disconnected from ${session.name}'s Streamlabs!`);
+        console.log(`Disconnected from ${watching}'s Streamlabs!`);
         session.slStatus = false;
+        if (!session.slError) // don't clobber a more specific token-rejected reason
+            session.slError = "Disconnected from Streamlabs — reconnecting…";
         emitSync(session.userId);
         if (merchInterval != 0){
             clearInterval(merchInterval);
@@ -68,9 +76,36 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
         }
     });
 
+    // a websocket that opens isn't proof the token is good: streamlabs refuses a bad token with connect_error.
+    // surface that as the badge reason instead of letting the connection sit silently grey/never-green.
+    socket.on("connect_error", (err: any) => {
+        session.slStatus = false;
+        session.slError = `Couldn't connect to Streamlabs (${(err && err.message) || "check the socket token"}).`;
+        emitSync(session.userId);
+    });
+    socket.on("error", (err: any) => {
+        session.slStatus = false;
+        session.slError = `Streamlabs socket error (${(err && err.message) || err || "unknown"}).`;
+        emitSync(session.userId);
+    });
+
+    // watchdog: socket.io can silently diverge from reality (missed disconnect, half-open transport). reconcile the
+    // badge against the library's own connection flag every sync tick so green always means "the socket is live now".
+    const live = setInterval(() => {
+        const connected = !!socket.connected;
+        if (session.slStatus !== connected){
+            session.slStatus = connected;
+            if (!connected && !session.slError)
+                session.slError = "Streamlabs socket went quiet — reconnecting…";
+            if (connected)
+                session.slError = "";
+            emitSync(session.userId);
+        }
+    }, WS_FORCE_SYNC_TIME);
+
     socket.on("event", (e: any) => {
       try {
-        console.log(`(${session.name}) Streamlabs Event: ${JSON.stringify(e)}`);
+        console.log(`(${watching}) Streamlabs Event: ${JSON.stringify(e)}`);
         // streamlabs payloads are message[], but keep-alives / new shapes can omit it — guard before any access
         const m = Array.isArray(e.message) ? e.message[0] : e.message;
         if (!m)
@@ -78,7 +113,7 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
         switch (e.type){
             case "donation": {
                 const usd = parseMoney(m.amount);
-                console.log(`(${session.name}) STREAMLABS - Adding $${usd} to timer!`);
+                console.log(`(${watching}) STREAMLABS - Adding $${usd} to timer!`);
                 emit({ platform: "streamlabs", kind: "money", usd, unit: "donation", label: `Donation $${usd} from ${m.from}` });
                 break;
             }
@@ -103,7 +138,7 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
                     whSend(`**MERCH FAILURE!**\n${merchHookData}`);
                     return;
                 }
-                console.log(`(${session.name}) - STREAMLABS - Adding $${merchValue} to timer!`);
+                console.log(`(${watching}) - STREAMLABS - Adding $${merchValue} to timer!`);
                 whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
                 emit({ platform: "streamlabs", kind: "money", usd: merchValue as number, unit: "merch", label: `Merch: ${m.product} ($${merchValue})` });
                 break;
@@ -116,9 +151,20 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
                 break;
         }
       } catch (err) {
-        console.log(`(${session.name}) Streamlabs event handler error:`, err);
+        console.log(`(${watching}) Streamlabs event handler error:`, err);
       }
     });
 
-    return socket;
+    // callers only ever call .disconnect(); wrap so we also stop the watchdog (and merch loop) on teardown
+    return {
+        disconnect(){
+            clearInterval(live);
+            if (merchInterval != 0){
+                clearInterval(merchInterval);
+                merchInterval = 0;
+            }
+            socket.disconnect();
+            session.slStatus = false;
+        }
+    };
 }

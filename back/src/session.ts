@@ -1,6 +1,8 @@
 import { TimerUserSession, TimerEvent } from "./types";
+import { emitSync } from "./bus";
 import { normalizeRates } from "./rates";
 import { normalizeConnections } from "./connections";
+import { normalizeTimerEvents } from "./timerEvents";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
@@ -25,7 +27,17 @@ export function getUserSession(id: number){
 
 // every platform adapter gets the same emit: route its events through the central handler for this session
 function emitFor(session: TimerUserSession){
-    return (e: TimerEvent) => handle(session, e);
+    return (e: TimerEvent) => {
+        // only organic platform traffic counts as proof the integration is live — typed commands carry manual:true
+        // and (for the terminal) never reach this emit at all, so they can't fake a "last event" freshness signal.
+        if (!e.manual){
+            if (!session.lastEventAt)
+                session.lastEventAt = {};
+            session.lastEventAt[e.platform] = Date.now();
+            emitSync(session.userId); // push the freshness/relay status promptly (e.g. youtube waiting -> live)
+        }
+        handle(session, e);
+    };
 }
 
 export function connectTwitchFor(session: TimerUserSession){
@@ -45,10 +57,16 @@ export function loginUser(inObj: Object){
     lvObj.endTime = Number(lvObj.endTime); // bigint comes back as a string from pg
     lvObj.rates = normalizeRates(lvObj.rates);
     lvObj.connections = normalizeConnections(lvObj.connections, lvObj.name, (lvObj as any).slToken);
+    lvObj.timerEvents = normalizeTimerEvents(lvObj.timerEvents);
     lvObj.twitchStatus = false;
+    lvObj.twitchError = "";
     lvObj.merchValues = {};
     lvObj.slStatus = false;
+    lvObj.slError = "";
     lvObj.fourthwallStatus = false;
+    lvObj.fourthwallError = "";
+    lvObj.fourthwallLastOkAt = 0;
+    lvObj.lastEventAt = {};
     const existingSession = getUserSession(lvObj.userId);
     if (existingSession.userId != 0){
         console.log(`loginUser: WARNING! Already existing userId ${existingSession.userId} is logged in! Logging them out first!`);

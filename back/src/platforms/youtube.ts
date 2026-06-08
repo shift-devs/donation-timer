@@ -44,9 +44,11 @@ export function handleYoutubeStreamlabsEvent(session: TimerUserSession, e: any, 
         case "subscription": {
             if (e.for !== "youtube_account")
                 return false;
+            // label by the watched streamer's twitch channel, not the operator login (session.name)
+            const watching = session.connections.twitch.channel || session.name;
             // surface the raw payload + detected level to diagnostics.log so we can confirm the tier field
-            diag(`(${session.name}) YT-MEMBERSHIP-PAYLOAD ${JSON.stringify(e)}`);
-            probeLevelField(e, "", (line) => diag(`(${session.name}) ${line}`));
+            diag(`(${watching}) YT-MEMBERSHIP-PAYLOAD ${JSON.stringify(e)}`);
+            probeLevelField(e, "", (line) => diag(`(${watching}) ${line}`));
             const gifter = m.gifter || m.gifterName || m.gifter_username;
             const isGift = !!(m.gifted || m.isGift || gifter);
             let count = Number(m.amount) || Number(m.gift_count) || Number(m.quantity) || 1;

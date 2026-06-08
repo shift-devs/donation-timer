@@ -11,3 +11,8 @@ export function emitSync(userId: number) {
 export function emitLog(userId: number, entry: any) {
     bus.emit("logEntry", userId, entry);
 }
+
+// tell this user's /events browser source(s) to play a clip. api.ts routes it to page=events clients only.
+export function emitPlayEvent(userId: number, payload: any) {
+    bus.emit("playEvent", userId, payload);
+}

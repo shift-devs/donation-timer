@@ -6,6 +6,8 @@ import { TimerWebSocket } from "./types";
 import { bus, emitSync } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
+import { normalizeTimerEvents } from "./timerEvents";
+import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
@@ -41,12 +43,16 @@ function wsSync(ws: TimerWebSocket) {
             cap: curSession.shouldCap,
             anon: curSession.ignoreAnon,
             rates: curSession.rates,
+            // last genuine event per platform (ms) — lets the ui prove data is flowing, esp. youtube/kick which only relay
+            lastEventAt: curSession.lastEventAt || {},
+            timerEvents: curSession.timerEvents || [],
             connections: {
-                twitch: { channel: curSession.connections.twitch.channel },
-                streamlabs: { hasToken: !!curSession.connections.streamlabs.token },
+                twitch: { channel: curSession.connections.twitch.channel, error: curSession.twitchError || "" },
+                streamlabs: { hasToken: !!curSession.connections.streamlabs.token, error: curSession.slError || "" },
                 fourthwall: {
                     configured: !!(curSession.connections.fourthwall && curSession.connections.fourthwall.username),
-                    error: curSession.fourthwallError || ""
+                    error: curSession.fourthwallError || "",
+                    lastOkAt: curSession.fourthwallLastOkAt || 0 // last successful credential-verifying poll
                 }
             },
             merchValues: curSession.merchValues
@@ -175,12 +181,28 @@ export function startApi(){
         }
     });
 
+    // play commands go ONLY to this user's /events browser source(s), not the dashboard/widget
+    bus.on("playEvent", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.page !== "events" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            try {
+                ws.send(JSON.stringify({ playEvent: payload }));
+            } catch (err) {
+                console.log("Failed to send a play event to a client:", err);
+            }
+        }
+    });
+
     wss.on("connection", (ws: TimerWebSocket, req: any) => {
         console.log("A client has connected to the WSS backend!");
         ws.isReady = false;
 
         const urlParams = url.parse(req.url, true).query;
         const accessToken = urlParams.token as string;
+        ws.page = urlParams.page as string; // which page this client is (settings/widget/events) — routes play commands
 
         wsLogin(ws, accessToken).then(()=>{
             ws.isReady = true;
@@ -291,6 +313,13 @@ export function startApi(){
                 case "setRates":
                     curSession.rates = normalizeRates(jData.rates);
                     break;
+                case "setTimerEvents":
+                    curSession.timerEvents = normalizeTimerEvents(jData.timerEvents);
+                    break;
+                case "testTimerEvent":
+                    // play immediately on the /events source, bypassing the schedule + remaining-time window
+                    testTimerEvent(curSession, typeof jData.id === "string" ? jData.id : "");
+                    return;
                 case "setEndTime": {
                     const oldET = curSession.endTime;
                     setEndTime(curSession, Math.trunc(parseInt(jData.value) || 0));

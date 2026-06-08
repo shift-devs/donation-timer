@@ -41,7 +41,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
     });
 
     client.connect().catch((err)=>{
-        console.log(`TMI - Unable to connect: ${session.name} and ${session.accessToken}`);
+        console.log(`TMI - Unable to connect to ${channel}'s Twitch Chat!`);
     });
 
     function l(event) {
@@ -54,11 +54,13 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
     client.on("connected", () => {
         console.log(`Connected to ${channel}'s Twitch Chat!`);
         session.twitchStatus = true;
+        session.twitchError = "";
         emitSync(session.userId);
     });
-    client.on("disconnected", () => {
+    client.on("disconnected", (reason: any) => {
         console.log(`Disconnected from ${channel}'s Twitch Chat!`);
         session.twitchStatus = false;
+        session.twitchError = `Disconnected from Twitch chat${reason ? ` (${reason})` : ""} — reconnecting…`;
         emitSync(session.userId);
     });
 
@@ -74,7 +76,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
 
     client.on("message", (ch, tags, message, self) => {
         const filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
-        console.log(`(${session.name}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
+        console.log(`(${channel}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
         if (!tags.username)
             return;
         if (!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase()))
@@ -86,7 +88,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             return;
         const parsed = parseCommand(command);
         if (parsed.error || !parsed.event){
-            console.log(`(${session.name}) chat command "${filterMessage}" rejected: ${parsed.error || "no event"}`);
+            console.log(`(${channel}) chat command "${filterMessage}" rejected: ${parsed.error || "no event"}`);
             return;
         }
         parsed.event.label = `Chat: ${filterMessage} (${tags.username})`; // keep who ran it in the audit log
@@ -95,7 +97,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
 
     client.on("submysterygift",(ch, username, numbOfSubs, methods, userstate) => {
         const tier = calcTier(userstate);
-        console.log(`(${session.name}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
+        console.log(`(${channel}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
         emit({ platform: "twitch", kind: "sub", tier, count: numbOfSubs, anonymous: isAnon(username), label: `${numbOfSubs}x Tier ${tier} gift sub from ${username}` });
     });
 
@@ -103,37 +105,37 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (userstate["msg-param-community-gift-id"]) // mass subgifts are handled in submysterygift
             return;
         const tier = calcTier(userstate);
-        console.log(`(${session.name}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
+        console.log(`(${channel}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
         emit({ platform: "twitch", kind: "sub", tier, count: 1, anonymous: isAnon(username), label: `Tier ${tier} gift sub from ${username} -> ${recipient}` });
     });
 
     client.on("anongiftpaidupgrade", (_ch, _username, userstate) => {
         const tier = calcTier(userstate);
-        console.log(`(${session.name}) TMI - anongiftpaidupgrade from ${_username} to tier ${tier}!`);
+        console.log(`(${channel}) TMI - anongiftpaidupgrade from ${_username} to tier ${tier}!`);
         emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Gift sub upgrade (anon) Tier ${tier}` });
     });
 
     client.on("giftpaidupgrade", (_ch, _username, sender, userstate) => {
         const tier = calcTier(userstate);
-        console.log(`(${session.name}) TMI - giftpaidupgrade from ${_username} to tier ${tier}!`);
+        console.log(`(${channel}) TMI - giftpaidupgrade from ${_username} to tier ${tier}!`);
         emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Gift sub upgrade from ${_username} Tier ${tier}` });
     });
 
     client.on("resub",(_ch, _username, _months, _message, userstate, _methods) => {
         const tier = calcTier(userstate);
-        console.log(`(${session.name}) TMI - ${_username} has resubscribed with tier ${tier}!`);
+        console.log(`(${channel}) TMI - ${_username} has resubscribed with tier ${tier}!`);
         emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Tier ${tier} resub (${_username})` });
     });
 
     client.on("subscription",(_ch, _username, _method, _message, userstate) => {
         const tier = calcTier(userstate);
-        console.log(`(${session.name}) TMI - ${_username} has subscribed with tier ${tier}!`);
+        console.log(`(${channel}) TMI - ${_username} has subscribed with tier ${tier}!`);
         emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Tier ${tier} sub (${_username})` });
     });
 
     client.on("cheer", (_ch, userstate, _message) => {
         var bits: string = userstate["bits"] || "0";
-        console.log(`(${session.name}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
+        console.log(`(${channel}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
         emit({ platform: "twitch", kind: "bits", bits: parseInt(bits,10), label: `Cheer ${bits} bits (${userstate["display-name"]})` });
     });
 

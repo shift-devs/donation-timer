@@ -5,6 +5,7 @@ export const CAP_TIME = 30 * 3600 * 1000;
 export const CHAT_CMD_MAX_TIME = 10 * 3600;
 export const MERCH_UPDATE_TIME = 60 * 1000;
 export const DB_UPDATE_TIME = 5 * 1000;
+export const EVENT_TICK_TIME = 5 * 1000;  // how often the timer-event scheduler checks triggers (minute-granular)
 export const LOG_PAGE = 50;
 export const WS_MSG_BURST = 40;   // per-connection message burst allowance
 export const WS_MSG_RATE = 20;    // sustained messages/sec before dropping (FE-loop guard)

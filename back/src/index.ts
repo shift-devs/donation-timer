@@ -1,8 +1,9 @@
-import { CLIENT_ID, DB_UPDATE_TIME, LOG_RETENTION_MS, LOG_PRUNE_TIME } from "./config";
+import { CLIENT_ID, DB_UPDATE_TIME, LOG_RETENTION_MS, LOG_PRUNE_TIME, EVENT_TICK_TIME } from "./config";
 import { connectDb, dbUpdate, dbPruneLogs, usersModel } from "./db";
 import { whSend } from "./notify";
 import { sessions, loginUser } from "./session";
 import { startApi } from "./api";
+import { tickTimerEvents } from "./scheduler";
 
 async function main(){
     process.on("unhandledRejection", (reason) => {
@@ -45,6 +46,17 @@ async function main(){
         setTimeout(dbLoop, DB_UPDATE_TIME);
     };
     dbLoop();
+
+    // self-scheduling tick that fires due timer events (separate from the db loop so a slow write can't delay playback)
+    const eventLoop = () => {
+        try {
+            tickTimerEvents();
+        } catch (err) {
+            console.log("timer-event tick failed:", err);
+        }
+        setTimeout(eventLoop, EVENT_TICK_TIME);
+    };
+    eventLoop();
 
     // periodically prune old audit-log rows so the Logs table stays bounded over a weeks-long run
     const pruneLoop = async () => {

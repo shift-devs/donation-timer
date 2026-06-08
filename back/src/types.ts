@@ -20,11 +20,17 @@ export interface TimerUserSession {
     shouldCap: boolean
     ignoreAnon: boolean
     slStatus: boolean
+    slError?: string
     twitchStatus: boolean
+    twitchError?: string
     fourthwallStatus: boolean
     fourthwallError?: string
+    fourthwallLastOkAt?: number
+    // ms timestamp of the last genuine (non-command) event we received per platform — proof data is actually flowing
+    lastEventAt?: { [platform: string]: number }
     rates: any
     connections: any
+    timerEvents: any
     merchValues: any
     loggedOut?: boolean
     conTMI?: tmi.Client
@@ -34,6 +40,7 @@ export interface TimerUserSession {
 
 export interface TimerWebSocket extends WebSocket {
     userId: number
+    page?: string
     isAlive: boolean
     isReady: boolean
     forceSyncInterval: NodeJS.Timeout | number
