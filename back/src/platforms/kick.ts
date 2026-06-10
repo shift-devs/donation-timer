@@ -8,8 +8,10 @@ import { diag } from "../diag";
 export function handleKickStreamlabsEvent(session: TimerUserSession, e: any, m: any, emit: (ev: TimerEvent) => void): boolean {
     if (e.type !== "subscription" || e.for !== "kick_account")
         return false;
+    // label by the watched streamer's twitch channel, not the operator login (session.name)
+    const watching = session.connections.twitch.channel || session.name;
     // kick's socket payload is undocumented; surface it to diagnostics.log to confirm sub-vs-gift fields
-    diag(`(${session.name}) KICK-SUB-PAYLOAD ${JSON.stringify(e)}`);
+    diag(`(${watching}) KICK-SUB-PAYLOAD ${JSON.stringify(e)}`);
     const gifter = m.gifter || m.gifterName || m.gifter_username;
     const isGift = !!(m.gifted || m.isGift || gifter);
     let count = Number(m.amount) || Number(m.gift_count) || Number(m.quantity) || 1;

@@ -7,6 +7,7 @@ import TimePerAction from "./Settings/TimePerAction";
 import Controls from "./Settings/Controls";
 import Terminal from "./Settings/Terminal";
 import Connections from "./Settings/Connections";
+import TimerEvents from "./Settings/TimerEvents";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -179,27 +180,28 @@ const Settings: React.FC = () => {
 				>
 					<TabList>
 						<Tab>Time Per Action</Tab>
+						<Tab>Timer Events</Tab>
 						<Tab>Connections</Tab>
-						<Tab>Controls</Tab>
-						<Tab>Change Time</Tab>
 						<Tab>Merch</Tab>
+						<Tab>Change Time</Tab>
 						<Tab>Terminal</Tab>
+						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
 							<TimePerAction ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
+							<TimerEvents ws={ws} settings={settings} />
+						</TabPanel>
+						<TabPanel>
 							<Connections ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
-							<Controls ws={ws} token={token} baseUrl={BASE_URL} settings={settings} />
+							<Merch ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<ChangeTime ws={ws} endTime={endTime} settings={settings} />
-						</TabPanel>
-						<TabPanel>
-							<Merch ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<Terminal
@@ -209,6 +211,9 @@ const Settings: React.FC = () => {
 								onLoadOlder={loadOlder}
 								onCommand={runTerminalCommand}
 							/>
+						</TabPanel>
+						<TabPanel>
+							<Controls ws={ws} token={token} baseUrl={BASE_URL} settings={settings} />
 						</TabPanel>
 					</TabPanels>
 				</Tabs>

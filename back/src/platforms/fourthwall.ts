@@ -22,6 +22,8 @@ function describeError(err: any): string {
 // fourthwall has no public-localhost-friendly push, so we POLL its rest api (outbound, like the streamlabs merch loop).
 // orders support createdAt[gt]; donations/members are page/size only so we baseline-seed + dedup by id.
 export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEvent) => void){
+    // label logs by the watched streamer's twitch channel, not the operator account that logged in (session.name)
+    const watching = session.connections.twitch.channel || session.name;
     const fw = session.connections.fourthwall || {};
     const auth = "Basic " + Buffer.from(`${fw.username}:${fw.password}`).toString("base64");
     const headers = { Authorization: auth };
@@ -57,12 +59,12 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const sort = first && last && first.createdAt && last.createdAt
                     ? (first.createdAt > last.createdAt ? "newest-first" : "oldest-first")
                     : "unknown";
-                diag(`FW-DIAG ${session.name} ${name}: total=${data.total} totalPages=${data.totalPages} returned=${rows.length} sort=${sort}`);
+                diag(`FW-DIAG ${watching} ${name}: total=${data.total} totalPages=${data.totalPages} returned=${rows.length} sort=${sort}`);
                 if (name === "order")
-                    diag(`FW-DIAG ${session.name} order statuses: ${rows.map((r: any) => r.status).join(", ")}`);
-                diag(`FW-DIAG ${session.name} ${name} sample: ${JSON.stringify(first)}`);
+                    diag(`FW-DIAG ${watching} order statuses: ${rows.map((r: any) => r.status).join(", ")}`);
+                diag(`FW-DIAG ${watching} ${name} sample: ${JSON.stringify(first)}`);
             } catch (e: any) {
-                diag(`FW-DIAG ${session.name} ${name} failed: ${e && e.response ? e.response.status : e && e.message}`);
+                diag(`FW-DIAG ${watching} ${name} failed: ${e && e.response ? e.response.status : e && e.message}`);
             }
         }
     }
@@ -74,7 +76,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             // so count them all. refunds/cancellations aren't clawed back (known limitation).
             const usd = Number(o.amounts && o.amounts.total && o.amounts.total.value) || 0;
             if (!usd) // adds no time -> likely a field-shape mismatch (e.g. amount vs value); surface it
-                diag(`FW-DIAG ${session.name}: order ${o.id} parsed to $0 (check amounts.total field)`);
+                diag(`FW-DIAG ${watching}: order ${o.id} parsed to $0 (check amounts.total field)`);
             emit({ platform: "fourthwall", kind: "money", usd, unit: "order", label: `order $${usd} from ${o.username || o.email || "someone"}` });
         }
         for (const o of rows) // advance cursor past the newest we saw
@@ -105,7 +107,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             await pollById("/donations", seenDonations, (d) => {
                 const usd = Number(d.amounts && d.amounts.total && d.amounts.total.value) || 0;
                 if (!usd)
-                    diag(`FW-DIAG ${session.name}: donation ${d.id} parsed to $0 (check amounts.total field)`);
+                    diag(`FW-DIAG ${watching}: donation ${d.id} parsed to $0 (check amounts.total field)`);
                 return { platform: "fourthwall", kind: "money", usd, unit: "donation", label: `donation $${usd} from ${d.username || d.email || "someone"}` };
             });
             await pollById("/memberships/members", seenMembers, (m) => {
@@ -118,12 +120,13 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             }
             if (!baselined){
                 baselined = true;
-                console.log(`Fourthwall baseline done for ${session.name} (${seenDonations.size} donations, ${seenMembers.size} members seen)`);
+                console.log(`Fourthwall baseline done for ${watching} (${seenDonations.size} donations, ${seenMembers.size} members seen)`);
             }
             session.fourthwallError = "";
+            session.fourthwallLastOkAt = Date.now(); // each ok poll re-verifies the creds; surfaced as "verified Xs ago"
             if (!session.fourthwallStatus){
                 session.fourthwallStatus = true;
-                console.log(`Connected to ${session.name}'s Fourthwall!`);
+                console.log(`Connected to ${watching}'s Fourthwall!`);
             }
             emitSync(session.userId);
         } catch (err: any) {
@@ -131,7 +134,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             session.fourthwallError = describeError(err); // surfaced to the connections ui via wsSync
             const r = err && err.response;
             // include the failing url + fourthwall's error body so auth-vs-bad-request-vs-scope is obvious
-            console.log(`Fourthwall poll failed for ${session.name}:`, r
+            console.log(`Fourthwall poll failed for ${watching}:`, r
                 ? `${r.status} ${err.config && err.config.method} ${err.config && err.config.url} -> ${JSON.stringify(r.data)}`
                 : (err && err.message));
             emitSync(session.userId);

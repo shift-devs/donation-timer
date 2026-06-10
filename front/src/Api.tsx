@@ -62,6 +62,16 @@ export function setRates(ws: WebSocket, rates: any) {
 	return 1;
 }
 
+export function setTimerEvents(ws: WebSocket, timerEvents: any) {
+	send(ws, { event: "setTimerEvents", timerEvents: timerEvents });
+	return 1;
+}
+
+export function testTimerEvent(ws: WebSocket, id: string) {
+	send(ws, { event: "testTimerEvent", id: id });
+	return 1;
+}
+
 export function setConnection(ws: WebSocket, platform: string, config: any) {
 	send(ws, { event: "setConnection", platform: platform, config: config });
 	return 1;

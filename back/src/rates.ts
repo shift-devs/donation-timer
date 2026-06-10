@@ -4,7 +4,12 @@ import { TimerEvent } from "./types";
 export const DEFAULT_RATES = {
     twitch: { sub_t1: 70, sub_t2: 140, sub_t3: 350, bits: 0.14 },
     streamlabs: { donation: 14, merch: 14 },
-    youtube: { superchat: 14, supersticker: 14, membership: 70, membership_gift: 70 },
+    youtube: {
+        superchat: 14, supersticker: 14,
+        // memberships split by the creator's three levels (enjoyer / full / quickster), regular and gifted
+        membership_enjoyer: 70, membership_full: 70, membership_quickster: 70,
+        membership_gift_enjoyer: 70, membership_gift_full: 70, membership_gift_quickster: 70,
+    },
     fourthwall: { order: 14, donation: 14, membership: 70 },
     kick: { subscription: 70, gift: 70 },
 };
@@ -30,8 +35,12 @@ export function normalizeRates(raw: any){
         youtube: {
             superchat: num(y.superchat, DEFAULT_RATES.youtube.superchat),
             supersticker: num(y.supersticker, DEFAULT_RATES.youtube.supersticker),
-            membership: num(y.membership, DEFAULT_RATES.youtube.membership),
-            membership_gift: num(y.membership_gift, DEFAULT_RATES.youtube.membership_gift),
+            membership_enjoyer: num(y.membership_enjoyer, DEFAULT_RATES.youtube.membership_enjoyer),
+            membership_full: num(y.membership_full, DEFAULT_RATES.youtube.membership_full),
+            membership_quickster: num(y.membership_quickster, DEFAULT_RATES.youtube.membership_quickster),
+            membership_gift_enjoyer: num(y.membership_gift_enjoyer, DEFAULT_RATES.youtube.membership_gift_enjoyer),
+            membership_gift_full: num(y.membership_gift_full, DEFAULT_RATES.youtube.membership_gift_full),
+            membership_gift_quickster: num(y.membership_gift_quickster, DEFAULT_RATES.youtube.membership_gift_quickster),
         },
         fourthwall: {
             order: num(f.order, DEFAULT_RATES.fourthwall.order),

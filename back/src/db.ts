@@ -52,6 +52,11 @@ export const USER_TABLE = {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: {}
+    },
+    timerEvents: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: []
     }
 }
 
@@ -117,7 +122,8 @@ export async function dbCreate(inObj: Object){
         shouldCap: lvObj.shouldCap,
         ignoreAnon: lvObj.ignoreAnon,
         rates: lvObj.rates,
-        connections: lvObj.connections
+        connections: lvObj.connections,
+        timerEvents: lvObj.timerEvents
     });
 }
 
@@ -144,6 +150,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 ignoreAnon: curSession.ignoreAnon,
                 rates: curSession.rates,
                 connections: curSession.connections,
+                timerEvents: curSession.timerEvents,
             },
             {
                 where: {
