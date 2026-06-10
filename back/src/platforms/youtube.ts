@@ -17,19 +17,24 @@ function emitSuperChat(m: any, unit: "superchat" | "supersticker", emit: (ev: Ti
     emit({ platform: "youtube", kind: "money", usd, unit, label: `Super ${unit === "supersticker" ? "Sticker" : "Chat"} ${shown} from ${who}` });
 }
 
-// temporary diagnostic: client's youtube membership levels are enjoyer / full membership / quickster.
-// streamlabs doesn't document which field carries the level, so scan the raw payload for these known strings
-// to pinpoint the exact key. remove once we know the field and wire per-tier rates.
-const KNOWN_YT_LEVELS = ["enjoyer", "full membership", "quickster"];
-function probeLevelField(obj: any, path: string, sink: (line: string) => void){
-    if (obj && typeof obj === "object"){
-        for (const k of Object.keys(obj))
-            probeLevelField(obj[k], path ? `${path}.${k}` : k, sink);
-    } else if (typeof obj === "string"){
-        const low = obj.toLowerCase();
-        if (KNOWN_YT_LEVELS.some((l) => low.includes(l)))
-            sink(`YT-LEVEL-FIELD-FOUND at "${path}" = ${JSON.stringify(obj)}`);
-    }
+// the creator's three membership levels. streamlabs relays only the human-readable name
+// (membershipLevelName); membershipLevel/membershipLevelID arrive null, so we key off the name string.
+const YT_TIER_BY_NAME: { [name: string]: string } = {
+    "enjoyer": "enjoyer",
+    "full membership": "full",
+    "quickster": "quickster",
+};
+const YT_DEFAULT_TIER = "full"; // unknown/missing level falls back to the standard tier so time is still granted
+
+function ytTier(level: any, watching: string): string {
+    const low = String(level || "").trim().toLowerCase();
+    const tier = YT_TIER_BY_NAME[low];
+    if (tier)
+        return tier;
+    // surface any level string we don't recognize so the mapping can be extended
+    if (low)
+        diag(`(${watching}) YT-UNKNOWN-TIER ${JSON.stringify(level)} -> defaulting to ${YT_DEFAULT_TIER}`);
+    return YT_DEFAULT_TIER;
 }
 
 // claims the youtube events streamlabs relays. returns true if it handled `e`, false to let another adapter try.
@@ -46,20 +51,20 @@ export function handleYoutubeStreamlabsEvent(session: TimerUserSession, e: any, 
                 return false;
             // label by the watched streamer's twitch channel, not the operator login (session.name)
             const watching = session.connections.twitch.channel || session.name;
-            // surface the raw payload + detected level to diagnostics.log so we can confirm the tier field
+            // surface the raw payload to diagnostics.log so we can confirm the enjoyer/quickster tier strings
             diag(`(${watching}) YT-MEMBERSHIP-PAYLOAD ${JSON.stringify(e)}`);
-            probeLevelField(e, "", (line) => diag(`(${watching}) ${line}`));
             const gifter = m.gifter || m.gifterName || m.gifter_username;
             const isGift = !!(m.gifted || m.isGift || gifter);
             let count = Number(m.amount) || Number(m.gift_count) || Number(m.quantity) || 1;
             count = Math.min(Math.max(Math.trunc(count), 1), 100); // guard against a misread field inflating time
-            // youtube membership tiers are arbitrary creator-named levels; surface whatever level field SL sends.
+            // split membership time by the creator's level; gifts grant at the level that was gifted
             const level = m.membershipLevelName || m.membership_level_name || m.levelName || m.level || m.tier;
+            const tier = ytTier(level, watching);
             const lvl = level ? ` [${level}]` : "";
             if (isGift)
-                emit({ platform: "youtube", kind: "member", unit: "membership_gift", count, label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
+                emit({ platform: "youtube", kind: "member", unit: `membership_gift_${tier}`, count, label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
             else
-                emit({ platform: "youtube", kind: "member", unit: "membership", count: 1, label: `membership${lvl} from ${m.name}` });
+                emit({ platform: "youtube", kind: "member", unit: `membership_${tier}`, count: 1, label: `membership${lvl} from ${m.name}` });
             return true;
         }
     }

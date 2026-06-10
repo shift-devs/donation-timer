@@ -6,7 +6,11 @@ type Kind = "sub" | "bits" | "money" | "member";
 const SPEC: { [platform: string]: { [action: string]: Kind } } = {
     twitch: { sub_t1: "sub", sub_t2: "sub", sub_t3: "sub", bits: "bits" },
     streamlabs: { donation: "money", merch: "money" },
-    youtube: { superchat: "money", supersticker: "money", membership: "member", membership_gift: "member" },
+    youtube: {
+        superchat: "money", supersticker: "money",
+        membership_enjoyer: "member", membership_full: "member", membership_quickster: "member",
+        membership_gift_enjoyer: "member", membership_gift_full: "member", membership_gift_quickster: "member",
+    },
     fourthwall: { order: "money", donation: "money", membership: "member" },
     kick: { subscription: "member", gift: "member" },
 };

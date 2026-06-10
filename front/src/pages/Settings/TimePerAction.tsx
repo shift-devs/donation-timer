@@ -48,8 +48,12 @@ const PLATFORMS = [
 		actions: [
 			{ key: "superchat", label: "Super Chat", unit: "per $", test: 5 },
 			{ key: "supersticker", label: "Super Sticker", unit: "per $", test: 5 },
-			{ key: "membership", label: "Membership", unit: "per member", test: 1 },
-			{ key: "membership_gift", label: "Gifted membership", unit: "per gift", test: 5 },
+			{ key: "membership_enjoyer", label: "Membership — Enjoyer", unit: "per member", test: 1 },
+			{ key: "membership_full", label: "Membership — Full", unit: "per member", test: 1 },
+			{ key: "membership_quickster", label: "Membership — Quickster", unit: "per member", test: 1 },
+			{ key: "membership_gift_enjoyer", label: "Gifted — Enjoyer", unit: "per gift", test: 5 },
+			{ key: "membership_gift_full", label: "Gifted — Full", unit: "per gift", test: 5 },
+			{ key: "membership_gift_quickster", label: "Gifted — Quickster", unit: "per gift", test: 5 },
 		],
 	},
 	{
@@ -95,7 +99,11 @@ function fmt(seconds: number): string {
 const DEFAULTS: any = {
 	twitch: { sub_t1: 70, sub_t2: 140, sub_t3: 350, bits: 0.14 },
 	streamlabs: { donation: 14, merch: 14 },
-	youtube: { superchat: 14, supersticker: 14, membership: 70, membership_gift: 70 },
+	youtube: {
+		superchat: 14, supersticker: 14,
+		membership_enjoyer: 70, membership_full: 70, membership_quickster: 70,
+		membership_gift_enjoyer: 70, membership_gift_full: 70, membership_gift_quickster: 70,
+	},
 	fourthwall: { order: 14, donation: 14, membership: 70 },
 	kick: { subscription: 70, gift: 70 },
 };
@@ -121,8 +129,12 @@ function normalize(raw: any) {
 		youtube: {
 			superchat: num(y.superchat, DEFAULTS.youtube.superchat),
 			supersticker: num(y.supersticker, DEFAULTS.youtube.supersticker),
-			membership: num(y.membership, DEFAULTS.youtube.membership),
-			membership_gift: num(y.membership_gift, DEFAULTS.youtube.membership_gift),
+			membership_enjoyer: num(y.membership_enjoyer, DEFAULTS.youtube.membership_enjoyer),
+			membership_full: num(y.membership_full, DEFAULTS.youtube.membership_full),
+			membership_quickster: num(y.membership_quickster, DEFAULTS.youtube.membership_quickster),
+			membership_gift_enjoyer: num(y.membership_gift_enjoyer, DEFAULTS.youtube.membership_gift_enjoyer),
+			membership_gift_full: num(y.membership_gift_full, DEFAULTS.youtube.membership_gift_full),
+			membership_gift_quickster: num(y.membership_gift_quickster, DEFAULTS.youtube.membership_gift_quickster),
 		},
 		fourthwall: {
 			order: num(f.order, DEFAULTS.fourthwall.order),
