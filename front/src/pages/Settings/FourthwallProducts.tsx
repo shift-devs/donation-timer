@@ -48,9 +48,17 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const dirty = JSON.stringify(normalize(draft)) !== savedStr;
 	const toast = useToast();
 
-	const simulate = (p: { id: string; name: string; usd: number }) => {
+	const simulate = (p: { id: string; name: string; usd: number; image?: string }) => {
 		testFwPurchase(ws, p);
 		toast({ title: `Simulated purchase: ${p.name}`, status: "info", duration: 2500, isClosable: true });
+	};
+
+	const alertUrl = `${window.location.origin}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
+	const copyAlertUrl = () => {
+		navigator.clipboard.writeText(alertUrl).then(
+			() => toast({ title: "Alert URL copied", status: "success", duration: 2000 }),
+			() => toast({ title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }),
+		);
 	};
 
 	if (!configured)
@@ -59,7 +67,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// bonuses saved for products the shop no longer lists — keep them visible so they can be zeroed out
 	const orphans = products === null ? [] : Object.keys(saved).filter((id) => !products.some((p) => p.id === id));
 
-	const row = (id: string, name: string, faded: boolean, image?: string, product?: { id: string; name: string; usd: number }) => (
+	const row = (id: string, name: string, faded: boolean, image?: string, product?: { id: string; name: string; usd: number; image?: string }) => (
 		<Flex key={id} align='center' py={1.5} borderBottom='1px solid' borderColor='whiteAlpha.200'>
 			<Box
 				as={product ? "button" : "div"}
@@ -117,7 +125,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 			{products !== null && products.length === 0 && !error && (
 				<Text color='gray.400'>No products found in the shop.</Text>
 			)}
-			{(products || []).map((p) => row(p.id, p.name, false, p.image, { id: p.id, name: p.name, usd: Number(p.usd) || 0 }))}
+			{(products || []).map((p) => row(p.id, p.name, false, p.image, { id: p.id, name: p.name, usd: Number(p.usd) || 0, image: p.image || "" }))}
 			{orphans.map((id) => row(id, `(no longer listed) ${id}`, true))}
 			<Flex mt={4}>
 				<Spacer />
@@ -125,6 +133,25 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					Save
 				</Button>
 			</Flex>
+
+			<Box mt={8} p={4} borderRadius='md' bg='whiteAlpha.100' fontSize='sm'>
+				<Text fontWeight='bold' mb={2}>Purchase alerts — OBS browser source setup</Text>
+				<Text mb={1}>1. In OBS: Sources → + → Browser.</Text>
+				<Flex mb={1} align='center' gap={2} flexWrap='wrap'>
+					<Text flexShrink={0}>2. URL:</Text>
+					<Text as='code' bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all'>{alertUrl}</Text>
+					<Button size='xs' onClick={copyAlertUrl}>Copy</Button>
+				</Flex>
+				<Text mb={1}>3. Width 1200, Height 220 (the alert is a ~125px banner), FPS 30.</Text>
+				<Text mb={1}>
+					4. The page is a solid green fill: on the source add Filters → Color Key, key color green
+					(#00FF00), so only the alert shows over your scene.
+				</Text>
+				<Text>
+					5. Every Fourthwall purchase plays an alert here — and clicking a product thumbnail above
+					simulates one, so you can test the source without spending money.
+				</Text>
+			</Box>
 		</Box>
 	);
 };

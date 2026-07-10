@@ -82,8 +82,8 @@ export function getFwProducts(ws: WebSocket) {
 	return 1;
 }
 
-export function testFwPurchase(ws: WebSocket, product: { id: string; name: string; usd: number }) {
-	send(ws, { event: "testFwPurchase", id: product.id, name: product.name, usd: product.usd });
+export function testFwPurchase(ws: WebSocket, product: { id: string; name: string; usd: number; image?: string }) {
+	send(ws, { event: "testFwPurchase", id: product.id, name: product.name, usd: product.usd, image: product.image || "" });
 	return 1;
 }
 

@@ -1,7 +1,7 @@
 import axios from "axios";
 import { TimerUserSession, TimerEvent } from "../types";
 import { FW_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
-import { emitSync } from "../bus";
+import { emitSync, emitFwAlert } from "../bus";
 import { diag } from "../diag";
 
 const FW_API = "https://api.fourthwall.com/open-api/v1.0";
@@ -135,6 +135,14 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const qty = Math.max(1, Math.trunc(Number(line.variant && line.variant.quantity)) || 1);
                 emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${line.name || line.id} x${qty}` });
             }
+            // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image
+            emitFwAlert(session.userId, {
+                name: o.username || "Someone",
+                message: offers.length
+                    ? `purchased ${offers[0].name || "merch"}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
+                    : "made a purchase",
+                image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
+            });
         }
         for (const o of rows) // advance cursor past the newest we saw
             if (o.createdAt && o.createdAt > ordersCursor)

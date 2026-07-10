@@ -3,7 +3,7 @@ import axios, { AxiosResponse } from "axios";
 import WebSocket from "ws";
 import { WSS_PORT, WS_FORCE_SYNC_TIME, WS_HB_TIME, WS_MSG_BURST, WS_MSG_RATE, CLIENT_ID, ALLOWED_USERS } from "./config";
 import { TimerWebSocket } from "./types";
-import { bus, emitSync } from "./bus";
+import { bus, emitSync, emitFwAlert } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
@@ -183,6 +183,21 @@ export function startApi(){
         }
     });
 
+    // purchase alerts go ONLY to this user's /fwalert browser source(s)
+    bus.on("fwAlert", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.page !== "fwalert" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            try {
+                ws.send(JSON.stringify({ fwAlert: payload }));
+            } catch (err) {
+                console.log("Failed to send a purchase alert to a client:", err);
+            }
+        }
+    });
+
     // play commands go ONLY to this user's /events browser source(s), not the dashboard/widget
     bus.on("playEvent", (id: number, payload: any) => {
         const clientsArr = Array.from(wss.clients);
@@ -353,6 +368,12 @@ export function startApi(){
                     const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
                     if (perItem)
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
+                    // drive the /fwalert browser source too, so a thumbnail click tests the full on-stream alert
+                    emitFwAlert(id, {
+                        name: "SIMULATED",
+                        message: `purchased ${pname}`,
+                        image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
+                    });
                     const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);
                     ws.send(JSON.stringify({ commandResult: {
                         ok: addedSim !== 0,
