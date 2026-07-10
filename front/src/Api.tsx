@@ -82,6 +82,11 @@ export function getFwProducts(ws: WebSocket) {
 	return 1;
 }
 
+export function testFwPurchase(ws: WebSocket, product: { id: string; name: string; usd: number }) {
+	send(ws, { event: "testFwPurchase", id: product.id, name: product.name, usd: product.usd });
+	return 1;
+}
+
 export function setConnection(ws: WebSocket, platform: string, config: any) {
 	send(ws, { event: "setConnection", platform: platform, config: config });
 	return 1;

@@ -337,6 +337,32 @@ export function startApi(){
                     // play immediately on the /events source, bypassing the schedule + remaining-time window
                     testTimerEvent(curSession, typeof jData.id === "string" ? jData.id : "");
                     return;
+                case "testFwPurchase": {
+                    // simulate a shop order from the dashboard: same rate + per-product-bonus path a real order
+                    // takes, but manual (command-capped, doesn't count as platform liveness). the price comes from
+                    // the product list the client loaded. future hook: also fire a browser-source notification here.
+                    const pid = typeof jData.id === "string" ? jData.id.slice(0, 100) : "";
+                    const pname = ((typeof jData.name === "string" && jData.name) ? jData.name : pid).slice(0, 200);
+                    const usd = Math.min(Math.max(Number(jData.usd) || 0, 0), 100000);
+                    if (!pid){
+                        ws.send(JSON.stringify({ commandResult: { ok: false, message: "Simulated purchase: missing product id." } }));
+                        return;
+                    }
+                    const beforeSim = curSession.endTime;
+                    handle(curSession, { platform: "fourthwall", kind: "money", usd, unit: "order", manual: true, label: `simulated order: ${pname} ($${usd})` });
+                    const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
+                    if (perItem)
+                        handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
+                    const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);
+                    ws.send(JSON.stringify({ commandResult: {
+                        ok: addedSim !== 0,
+                        message: addedSim !== 0
+                            ? `+${addedSim}s — simulated purchase: ${pname} ($${usd}${perItem ? `, +${perItem}s bonus` : ""})`
+                            : `no time added — order rate and product bonus are both 0 for ${pname}`,
+                    }}));
+                    emitSync(id);
+                    return;
+                }
                 case "setEndTime": {
                     const oldET = curSession.endTime;
                     setEndTime(curSession, Math.trunc(parseInt(jData.value) || 0));
