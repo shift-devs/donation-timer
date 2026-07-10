@@ -72,6 +72,16 @@ export function testTimerEvent(ws: WebSocket, id: string) {
 	return 1;
 }
 
+export function setFwProductBonuses(ws: WebSocket, bonuses: any) {
+	send(ws, { event: "setFwProductBonuses", bonuses: bonuses });
+	return 1;
+}
+
+export function getFwProducts(ws: WebSocket) {
+	send(ws, { event: "getFwProducts" });
+	return 1;
+}
+
 export function setConnection(ws: WebSocket, platform: string, config: any) {
 	send(ws, { event: "setConnection", platform: platform, config: config });
 	return 1;

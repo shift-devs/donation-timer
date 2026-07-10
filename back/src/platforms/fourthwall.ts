@@ -6,8 +6,50 @@ import { diag } from "../diag";
 
 const FW_API = "https://api.fourthwall.com/open-api/v1.0";
 
+// per-product time bonuses: { [offerId]: seconds-per-item }, granted on top of the per-dollar order
+// rate and multiplied by the quantity purchased. this owns validating untrusted client input.
+const MAX_BONUS_PRODUCTS = 1000;
+export function normalizeFwProductBonuses(raw: any): { [id: string]: number } {
+    const out: { [id: string]: number } = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return out;
+    for (const [id, v] of Object.entries(raw)){
+        if (Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            break;
+        const n = Number(v);
+        if (id && id.length <= 100 && Number.isFinite(n) && n > 0)
+            out[id] = n;
+    }
+    return out;
+}
+
+// list the shop's products (offers) so the dashboard can attach per-product bonuses.
+// offer ids here are the same ids that appear in an order's offers[] lines.
+export async function fetchFourthwallProducts(session: TimerUserSession): Promise<{ id: string, name: string }[]> {
+    const fw = (session.connections && session.connections.fourthwall) || {};
+    if (!fw.username || !fw.password)
+        throw new Error("Fourthwall is not connected.");
+    const auth = "Basic " + Buffer.from(`${fw.username}:${fw.password}`).toString("base64");
+    const out: { id: string, name: string }[] = [];
+    for (let page = 0; page < 10; page++){ // hard page cap so a pathological shop can't loop us forever
+        const res = await axios.get(`${FW_API}/products`, {
+            headers: { Authorization: auth },
+            params: { page, size: 100 },
+            timeout: FW_HTTP_TIMEOUT,
+            paramsSerializer: (p: any) => new URLSearchParams(p).toString(),
+        });
+        const rows = (res.data && res.data.results) || [];
+        for (const r of rows)
+            if (r && r.id)
+                out.push({ id: String(r.id), name: String(r.name || r.slug || r.id) });
+        if (rows.length < 100)
+            break;
+    }
+    return out;
+}
+
 // turn a poll error into a short human message for the connections ui
-function describeError(err: any): string {
+export function describeError(err: any): string {
     const r = err && err.response;
     if (!r)
         return err && err.code === "ECONNABORTED"
@@ -78,6 +120,15 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             if (!usd) // adds no time -> likely a field-shape mismatch (e.g. amount vs value); surface it
                 diag(`FW-DIAG ${watching}: order ${o.id} parsed to $0 (check amounts.total field)`);
             emit({ platform: "fourthwall", kind: "money", usd, unit: "order", label: `order $${usd} from ${o.username || o.email || "someone"}` });
+            // per-product bonuses: flat seconds per item on top of the $-rate time, scaled by quantity
+            const offers = Array.isArray(o.offers) ? o.offers : [];
+            for (const line of offers){
+                const per = Number(line && line.id && session.fwProductBonuses && session.fwProductBonuses[line.id]) || 0;
+                if (!per)
+                    continue;
+                const qty = Math.max(1, Math.trunc(Number(line.variant && line.variant.quantity)) || 1);
+                emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${line.name || line.id} x${qty}` });
+            }
         }
         for (const o of rows) // advance cursor past the newest we saw
             if (o.createdAt && o.createdAt > ordersCursor)

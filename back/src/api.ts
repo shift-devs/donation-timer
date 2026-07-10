@@ -9,6 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
+import { normalizeFwProductBonuses, fetchFourthwallProducts, describeError as describeFwError } from "./platforms/fourthwall";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -55,7 +56,8 @@ function wsSync(ws: TimerWebSocket) {
                     lastOkAt: curSession.fourthwallLastOkAt || 0 // last successful credential-verifying poll
                 }
             },
-            merchValues: curSession.merchValues
+            merchValues: curSession.merchValues,
+            fwProductBonuses: curSession.fwProductBonuses || {}
         })
     );
 }
@@ -316,6 +318,21 @@ export function startApi(){
                 case "setTimerEvents":
                     curSession.timerEvents = normalizeTimerEvents(jData.timerEvents);
                     break;
+                case "setFwProductBonuses":
+                    curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);
+                    break;
+                case "getFwProducts":
+                    // fetched on demand with the stored credentials; reply only to the asking client
+                    fetchFourthwallProducts(curSession)
+                        .then((products) => {
+                            if (ws.readyState === WebSocket.OPEN)
+                                ws.send(JSON.stringify({ fwProducts: products }));
+                        })
+                        .catch((err) => {
+                            if (ws.readyState === WebSocket.OPEN)
+                                ws.send(JSON.stringify({ fwProducts: [], fwProductsError: err && err.response ? describeFwError(err) : (err && err.message) || "Failed to load products." }));
+                        });
+                    return;
                 case "testTimerEvent":
                     // play immediately on the /events source, bypassing the schedule + remaining-time window
                     testTimerEvent(curSession, typeof jData.id === "string" ? jData.id : "");
