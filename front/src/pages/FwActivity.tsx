@@ -18,8 +18,10 @@ interface Entry {
 	unit: string;
 }
 
+// dark theme: this page stays open all stream, so no white rectangle burning on a second monitor
 const CSS = `
-@keyframes fwa-flash { 0% { background: #dcfce7; } 100% { background: #ffffff; } }
+html, body { background: #0f1115; }
+@keyframes fwa-flash { 0% { background: #14532d; } 100% { background: #171a21; } }
 .fwa-row { animation: fwa-flash 2s ease-out both; }
 `;
 
@@ -86,11 +88,12 @@ const FwActivity: React.FC = () => {
 	}, []);
 
 	const page: React.CSSProperties = {
-		maxWidth: "720px",
+		maxWidth: "860px",
 		margin: "0 auto",
-		padding: "16px",
+		padding: "20px",
 		fontFamily: "Arial, sans-serif",
-		background: "#ffffff",
+		background: "#0f1115",
+		color: "#e5e7eb",
 		minHeight: "100vh",
 	};
 
@@ -100,10 +103,10 @@ const FwActivity: React.FC = () => {
 	return (
 		<div style={page}>
 			<style>{CSS}</style>
-			<h2 style={{ fontWeight: 900, margin: "0 0 16px 0" }}>Fourthwall activity</h2>
-			{entries === null && <div style={{ color: "#666" }}>Loading…</div>}
+			<h2 style={{ fontWeight: 900, fontSize: "28px", margin: "0 0 18px 0", color: "#f9fafb" }}>Fourthwall activity</h2>
+			{entries === null && <div style={{ color: "#9ca3af", fontSize: "18px" }}>Loading…</div>}
 			{entries !== null && entries.length === 0 && (
-				<div style={{ color: "#666" }}>Nothing yet — purchases will appear here as they happen.</div>
+				<div style={{ color: "#9ca3af", fontSize: "18px" }}>Nothing yet — purchases will appear here as they happen.</div>
 			)}
 			{(entries || []).map((e, i) => (
 				<div
@@ -111,28 +114,28 @@ const FwActivity: React.FC = () => {
 					className={i === 0 ? "fwa-row" : undefined}
 					style={{
 						display: "flex",
-						gap: "14px",
+						gap: "16px",
 						alignItems: "center",
 						border: "2px solid #22c55e",
-						borderRadius: "6px",
-						padding: "10px",
-						marginBottom: "12px",
-						background: "#ffffff",
+						borderRadius: "8px",
+						padding: "14px",
+						marginBottom: "14px",
+						background: "#171a21",
 					}}
 				>
 					{e.image ? (
-						<img src={e.image} alt='' style={{ width: "84px", height: "84px", objectFit: "cover", border: "3px solid #111", flexShrink: 0 }} />
+						<img src={e.image} alt='' style={{ width: "96px", height: "96px", objectFit: "cover", border: "3px solid #374151", borderRadius: "4px", flexShrink: 0 }} />
 					) : (
-						<div style={{ width: "84px", height: "84px", background: "#f0f0f0", border: "3px solid #111", flexShrink: 0 }} />
+						<div style={{ width: "96px", height: "96px", background: "#252a34", border: "3px solid #374151", borderRadius: "4px", flexShrink: 0 }} />
 					)}
 					<div style={{ minWidth: 0, flex: 1 }}>
-						<div style={{ fontWeight: 900, fontSize: "20px", color: "#111" }}>{e.product}</div>
-						<div style={{ fontWeight: 700, fontSize: "15px", color: "#222", marginTop: "2px" }}>{e.user}</div>
+						<div style={{ fontWeight: 900, fontSize: "26px", color: "#f9fafb" }}>{e.product}</div>
+						<div style={{ fontWeight: 700, fontSize: "20px", color: "#86efac", marginTop: "3px" }}>{e.user}</div>
 						{e.message && (
-							<div style={{ color: "#555", fontSize: "13px", marginTop: "2px", overflowWrap: "anywhere" }}>{e.message}</div>
+							<div style={{ color: "#c4c9d4", fontSize: "17px", marginTop: "4px", overflowWrap: "anywhere" }}>{e.message}</div>
 						)}
 					</div>
-					<div style={{ color: "#999", fontSize: "12px", flexShrink: 0, alignSelf: "flex-start" }}>{when(e.t)}</div>
+					<div style={{ color: "#6b7280", fontSize: "14px", flexShrink: 0, alignSelf: "flex-start" }}>{when(e.t)}</div>
 				</div>
 			))}
 		</div>
