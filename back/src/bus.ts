@@ -16,3 +16,13 @@ export function emitLog(userId: number, entry: any) {
 export function emitPlayEvent(userId: number, payload: any) {
     bus.emit("playEvent", userId, payload);
 }
+
+// purchase alert for this user's /fwalert browser source(s). api.ts routes it to page=fwalert clients only.
+export function emitFwAlert(userId: number, payload: any) {
+    bus.emit("fwAlert", userId, payload);
+}
+
+// live entry for this user's /fwactivity feed page(s). api.ts routes it to page=fwactivity clients only.
+export function emitFwActivity(userId: number, entry: any) {
+    bus.emit("fwActivityEntry", userId, entry);
+}

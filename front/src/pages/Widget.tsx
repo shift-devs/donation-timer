@@ -1,6 +1,7 @@
 import Timer from "../Timer";
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
+import { useCountdownSeconds } from "../useCountdown";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -9,14 +10,10 @@ let timer_color: string = "white";
 
 const Widget: React.FC = () => {
 	const token = new URLSearchParams(window.location.search).get("token");
-	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
-
-	const updateSeconds = (et: number) => {
-		setEndTime(et);
-		setSeconds(Math.round((et - Date.now()) / 1000));
-	};
+	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
+	const seconds = useCountdownSeconds(endTime);
 
 	const connectWs = () => {
 		// tear down any prior socket so handlers/reconnects can't stack
@@ -30,7 +27,9 @@ const Widget: React.FC = () => {
 			const response = JSON.parse(event.data);
 
 			if ("endTime" in response) {
-				updateSeconds(response.endTime);
+				setEndTime(response.endTime);
+				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
+					setBgColor(response.widgetSettings.bgColor);
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -65,19 +64,20 @@ const Widget: React.FC = () => {
 		};
 	}, []);
 
-	// single interval deriving seconds from endTime each tick — no per-tick re-arm, no drift over a weeks-long overlay
-	useEffect(() => {
-		const id = setInterval(() => {
-			const s = Math.round((endTime - Date.now()) / 1000);
-			setSeconds(s > 0 ? s : 0);
-		}, 1000);
-		return () => clearInterval(id);
-	}, [endTime]);
+	// full-viewport chroma key fill (color set in the dashboard's Settings tab; #00FF00 default) —
+	// OBS keys it out so only the timer shows
+	const wrap: React.CSSProperties = {
+		position: "fixed",
+		inset: 0,
+		margin: 0,
+		background: bgColor,
+		overflow: "hidden",
+	};
 
 	if (!fetched || !token)
 		return (
 			<div style={{
-				background:"#000000",
+				...wrap,
 				color: "white",
 				fontFamily: "'Staatliches', cursive",
 				fontSize: "128px",
@@ -89,8 +89,8 @@ const Widget: React.FC = () => {
 		);
 
 	return (
-		<div>
-			<Timer input_seconds={seconds} textAlign='start' color={timer_color} />
+		<div style={wrap}>
+			<Timer input_seconds={seconds} textAlign='start' color={timer_color} background={bgColor} />
 		</div>
 	);
 };

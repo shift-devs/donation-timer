@@ -13,4 +13,8 @@ USER node
 
 RUN npm install
 
-CMD npm run migrate && npm start
+# compile at build time: container start stays fast during live patches,
+# and a type error fails the build instead of the mid-stream restart
+RUN npx tsc
+
+CMD npm run migrate && node build/index.js

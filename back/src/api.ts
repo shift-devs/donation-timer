@@ -3,12 +3,14 @@ import axios, { AxiosResponse } from "axios";
 import WebSocket from "ws";
 import { WSS_PORT, WS_FORCE_SYNC_TIME, WS_HB_TIME, WS_MSG_BURST, WS_MSG_RATE, CLIENT_ID, ALLOWED_USERS } from "./config";
 import { TimerWebSocket } from "./types";
-import { bus, emitSync } from "./bus";
+import { bus, emitSync, emitFwAlert } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
+import { normalizeFwProductBonuses, normalizeFwProductSounds, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeWidgetSettings } from "./widgetSettings";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -55,7 +57,10 @@ function wsSync(ws: TimerWebSocket) {
                     lastOkAt: curSession.fourthwallLastOkAt || 0 // last successful credential-verifying poll
                 }
             },
-            merchValues: curSession.merchValues
+            merchValues: curSession.merchValues,
+            fwProductBonuses: curSession.fwProductBonuses || {},
+            fwProductSounds: curSession.fwProductSounds || {},
+            widgetSettings: curSession.widgetSettings || {}
         })
     );
 }
@@ -177,6 +182,36 @@ export function startApi(){
                 ws.send(JSON.stringify({ logEntry: entry }));
             } catch (err) {
                 console.log("Failed to send a log entry to a client:", err);
+            }
+        }
+    });
+
+    // live feed entries go ONLY to this user's /fwactivity page(s)
+    bus.on("fwActivityEntry", (id: number, entry: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.page !== "fwactivity" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            try {
+                ws.send(JSON.stringify({ fwActivityEntry: entry }));
+            } catch (err) {
+                console.log("Failed to send an activity entry to a client:", err);
+            }
+        }
+    });
+
+    // purchase alerts go ONLY to this user's /fwalert browser source(s)
+    bus.on("fwAlert", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.page !== "fwalert" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            try {
+                ws.send(JSON.stringify({ fwAlert: payload }));
+            } catch (err) {
+                console.log("Failed to send a purchase alert to a client:", err);
             }
         }
     });
@@ -316,10 +351,71 @@ export function startApi(){
                 case "setTimerEvents":
                     curSession.timerEvents = normalizeTimerEvents(jData.timerEvents);
                     break;
+                case "setFwProductBonuses":
+                    curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);
+                    break;
+                case "setFwProductSounds":
+                    curSession.fwProductSounds = normalizeFwProductSounds(jData.sounds);
+                    break;
+                case "setWidgetSettings":
+                    curSession.widgetSettings = normalizeWidgetSettings(jData.settings);
+                    break;
+                case "getFwActivity":
+                    // backlog for the /fwactivity page; live additions arrive as fwActivityEntry pushes
+                    ws.send(JSON.stringify({ fwActivity: curSession.fwActivity || [] }));
+                    return;
+                case "getFwProducts":
+                    // fetched on demand with the stored credentials; reply only to the asking client
+                    fetchFourthwallProducts(curSession)
+                        .then((products) => {
+                            if (ws.readyState === WebSocket.OPEN)
+                                ws.send(JSON.stringify({ fwProducts: products }));
+                        })
+                        .catch((err) => {
+                            if (ws.readyState === WebSocket.OPEN)
+                                ws.send(JSON.stringify({ fwProducts: [], fwProductsError: err && err.response ? describeFwError(err) : (err && err.message) || "Failed to load products." }));
+                        });
+                    return;
                 case "testTimerEvent":
                     // play immediately on the /events source, bypassing the schedule + remaining-time window
                     testTimerEvent(curSession, typeof jData.id === "string" ? jData.id : "");
                     return;
+                case "testFwPurchase": {
+                    // simulate a shop order from the dashboard: same rate + per-product-bonus path a real order
+                    // takes, but manual (command-capped, doesn't count as platform liveness). the price comes from
+                    // the product list the client loaded. future hook: also fire a browser-source notification here.
+                    const pid = typeof jData.id === "string" ? jData.id.slice(0, 100) : "";
+                    const pname = ((typeof jData.name === "string" && jData.name) ? jData.name : pid).slice(0, 200);
+                    const usd = Math.min(Math.max(Number(jData.usd) || 0, 0), 100000);
+                    if (!pid){
+                        ws.send(JSON.stringify({ commandResult: { ok: false, message: "Simulated purchase: missing product id." } }));
+                        return;
+                    }
+                    const beforeSim = curSession.endTime;
+                    handle(curSession, { platform: "fourthwall", kind: "money", usd, unit: "order", manual: true, label: `simulated order: ${pname} ($${usd})` });
+                    const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
+                    if (perItem)
+                        handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
+                    // feed + alert both fire, so a thumbnail click tests the full on-stream behavior
+                    pushFwActivity(curSession, { t: Date.now(), product: pname, user: "SIMULATED", message: "this is a test purchase", image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "", unit: "order" });
+                    const simSound = (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || null;
+                    emitFwAlert(id, {
+                        name: "SIMULATED",
+                        message: `purchased ${pname}`,
+                        image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
+                        sound: simSound && simSound.file ? simSound.file : "",
+                        volume: simSound && Number.isFinite(simSound.volume) ? simSound.volume : 1,
+                    });
+                    const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);
+                    ws.send(JSON.stringify({ commandResult: {
+                        ok: addedSim !== 0,
+                        message: addedSim !== 0
+                            ? `+${addedSim}s — simulated purchase: ${pname} ($${usd}${perItem ? `, +${perItem}s bonus` : ""})`
+                            : `no time added — order rate and product bonus are both 0 for ${pname}`,
+                    }}));
+                    emitSync(id);
+                    return;
+                }
                 case "setEndTime": {
                     const oldET = curSession.endTime;
                     setEndTime(curSession, Math.trunc(parseInt(jData.value) || 0));

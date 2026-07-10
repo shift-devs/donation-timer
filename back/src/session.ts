@@ -3,10 +3,11 @@ import { emitSync } from "./bus";
 import { normalizeRates } from "./rates";
 import { normalizeConnections } from "./connections";
 import { normalizeTimerEvents } from "./timerEvents";
+import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
-import { connectFourthwall } from "./platforms/fourthwall";
+import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwActivity } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
 
@@ -58,6 +59,10 @@ export function loginUser(inObj: Object){
     lvObj.rates = normalizeRates(lvObj.rates);
     lvObj.connections = normalizeConnections(lvObj.connections, lvObj.name, (lvObj as any).slToken);
     lvObj.timerEvents = normalizeTimerEvents(lvObj.timerEvents);
+    lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
+    lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
+    lvObj.widgetSettings = normalizeWidgetSettings(lvObj.widgetSettings);
+    lvObj.fwActivity = normalizeFwActivity(lvObj.fwActivity);
     lvObj.twitchStatus = false;
     lvObj.twitchError = "";
     lvObj.merchValues = {};

@@ -8,6 +8,8 @@ import {
 	Flex,
 	HStack,
 	Input,
+	NumberInput,
+	NumberInputField,
 	Select,
 	Slider,
 	SliderFilledTrack,
@@ -20,6 +22,11 @@ import {
 } from "@chakra-ui/react";
 import * as consts from "../../Consts";
 import { setTimerEvents, testTimerEvent } from "../../Api";
+
+// media files found in public/media at build time (vite.config.ts bakes the list in) — the
+// dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
+const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
+const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
 
 // ---- shape helpers -------------------------------------------------------------------------------------------------
 // canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings so
@@ -87,6 +94,8 @@ function canonFromServer(raw: any) {
 		mediaKind: r.mediaKind === "video" ? "video" : "audio",
 		mediaSrc: typeof r.mediaSrc === "string" ? r.mediaSrc : "",
 		volume: Number.isFinite(Number(r.volume)) ? Math.min(1, Math.max(0, Number(r.volume))) : 1,
+		cmdText: typeof r.cmdText === "string" ? r.cmdText : "",
+		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Math.round(Number(r.cmdDelaySec)) : 0,
 	};
 }
 
@@ -200,21 +209,19 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 				{/* media */}
 				<Box minW="240px" flex="1">
 					<Text fontSize="sm" fontWeight={600} mb={1}>Media</Text>
-					<HStack>
-						<Select
-							value={e.mediaKind}
-							onChange={(ev) => update(i, { mediaKind: ev.currentTarget.value })}
-							width="110px"
-						>
-							<option value="audio">Audio</option>
-							<option value="video">Video</option>
-						</Select>
-						<Input
-							value={e.mediaSrc}
-							placeholder="/media/clip.mp4  or  http://…"
-							onChange={(ev) => update(i, { mediaSrc: ev.currentTarget.value })}
-						/>
-					</HStack>
+					<Select
+						value={e.mediaSrc}
+						onChange={(ev) => {
+							const src = ev.currentTarget.value;
+							// kind follows the file: video extensions play in <video>, everything else in <audio>
+							update(i, { mediaSrc: src, mediaKind: VIDEO_RE.test(src) ? "video" : "audio" });
+						}}
+					>
+						<option value="">None</option>
+						{MEDIA_FILES.map((f) => (
+							<option key={f} value={`/media/${f}`}>{f}</option>
+						))}
+					</Select>
 					<HStack mt={2}>
 						<Text fontSize="sm" color="gray.600" minW="55px">volume</Text>
 						<Slider
@@ -230,6 +237,32 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						</Slider>
 						<Text fontSize="sm" color="gray.500" minW="40px">{Math.round(e.volume * 100)}%</Text>
 					</HStack>
+				</Box>
+
+				{/* delayed terminal command */}
+				<Box minW="240px" flex="1">
+					<Text fontSize="sm" fontWeight={600} mb={1}>Terminal command (optional)</Text>
+					<Input
+						value={e.cmdText}
+						placeholder='e.g.  time 300   or   twitch sub_t1 5'
+						onChange={(ev) => update(i, { cmdText: ev.currentTarget.value })}
+					/>
+					<HStack mt={2}>
+						<NumberInput
+							size="sm"
+							maxW="90px"
+							min={0}
+							value={e.cmdDelaySec}
+							onChange={(_str: string, n: number) => update(i, { cmdDelaySec: Number.isFinite(n) ? n : 0 })}
+						>
+							<NumberInputField />
+						</NumberInput>
+						<Text fontSize="sm" color="gray.600">seconds after the media starts</Text>
+					</HStack>
+					<Text fontSize="xs" color="gray.500" mt={1}>
+						Same syntax as the Terminal tab (type <Code fontSize="xs">help</Code> there for the list).
+						Runs on real fires and on Test.
+					</Text>
 				</Box>
 			</Flex>
 
@@ -289,9 +322,9 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					<Button size="sm" onClick={() => { try { navigator.clipboard.writeText(sourceUrl); } catch {} }}>Copy</Button>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
-					Media paths must be loadable over http from the page: drop files in the site's <Code fontSize="xs">media</Code> folder
-					and reference <Code fontSize="xs">/media/clip.mp4</Code>, or paste any <Code fontSize="xs">http(s)://</Code> URL.
-					Local <Code fontSize="xs">file://</Code> paths won't load.
+					The media dropdown lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder
+					(<Code fontSize="xs">front/public/media</Code>) and only those — drop files there and
+					rebuild/restart for them to appear. Whether a clip plays as video or audio follows its file type.
 				</Text>
 			</Box>
 		</Box>

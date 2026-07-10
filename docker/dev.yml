@@ -5,7 +5,6 @@ services:
     environment:
       - CLIENT_ID=${CLIENT_ID}
       - VITE_CLIENT_ID=${VITE_CLIENT_ID}
-      - VITE_WEBSOCKET_URL=${VITE_WEBSOCKET_URL}
       - VITE_REDIRECT_URL=${VITE_REDIRECT_URL}
       - VITE_BASE_URL=${VITE_BASE_URL}
     build:
@@ -13,6 +12,8 @@ services:
       dockerfile: docker/Dockerfile-dev-front
     ports:
       - "3080:5173"
+    networks:
+      - backnet
     volumes:
       - ../front/:/home/node/app/
       - front_node_modules:/home/node/app/node_modules

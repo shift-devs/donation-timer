@@ -8,7 +8,9 @@ import Controls from "./Settings/Controls";
 import Terminal from "./Settings/Terminal";
 import Connections from "./Settings/Connections";
 import TimerEvents from "./Settings/TimerEvents";
+import FourthwallProducts from "./Settings/FourthwallProducts";
 import { runCommand } from "../Api";
+import { useCountdownSeconds } from "../useCountdown";
 import { Navigate } from "react-router-dom";
 import {
 	Spinner,
@@ -29,25 +31,21 @@ const LOG_CAP = 2000; // keep the live feed bounded — a dashboard tab can stay
 const Settings: React.FC = () => {
 	const token = localStorage.getItem("identity");
 	const [settings, setSettings] = useState({ slStatus: false });
-	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
+	const seconds = useCountdownSeconds(endTime);
 	const [fetched, setFetched] = useState(false);
 	const [log, setLog] = useState<any[]>([]);
 	const [logHasMore, setLogHasMore] = useState(false);
 	const [tabIndex, setTabIndex] = useState(0);
+	const [fwProducts, setFwProducts] = useState<any[] | null>(null);
+	const [fwProductsError, setFwProductsError] = useState("");
 	const logLoadingRef = useRef(false);
 	const logRequestedRef = useRef(false);
+	const fwProductsRequestedRef = useRef(false);
 
 	const updateSeconds = (endTime: number) => {
-		let tempSeconds = Math.round((endTime - Date.now()) / 1000);
-		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
-		console.log(
-			`Force syncing endtime to ${endTime} and seconds to ${
-				tempSeconds
-			} `
-		);
+		console.log(`Force syncing endtime to ${endTime}`);
 		setEndTime(endTime);
-		setSeconds(tempSeconds);
 	};
 
 	const connectWs = () => {
@@ -81,6 +79,11 @@ const Settings: React.FC = () => {
 				setLog((prev) => [...prev, { t: Date.now(), line: cr.message, kind: cr.ok ? "ok" : "err" }].slice(-LOG_CAP));
 				return;
 			}
+			if ("fwProducts" in response) {
+				setFwProducts(Array.isArray(response.fwProducts) ? response.fwProducts : []);
+				setFwProductsError(response.fwProductsError || "");
+				return;
+			}
 
 			setSettings(response);
 
@@ -93,6 +96,11 @@ const Settings: React.FC = () => {
 					logRequestedRef.current = true;
 					ws.send(JSON.stringify({ event: "getLogPage" }));
 				}
+				// load the product list once per connection, and only when fourthwall creds exist
+				if (!fwProductsRequestedRef.current && response.connections && response.connections.fourthwall && response.connections.fourthwall.configured) {
+					fwProductsRequestedRef.current = true;
+					ws.send(JSON.stringify({ event: "getFwProducts" }));
+				}
 				// no separate force-sync interval needed: the 1s countdown derives from endTime each tick (below)
 			} else if ("error" in response) {
 				localStorage.removeItem("identity");
@@ -103,6 +111,7 @@ const Settings: React.FC = () => {
 		ws.onclose = (event) => {
 			setFetched(false);
 			logRequestedRef.current = false;
+			fwProductsRequestedRef.current = false;
 			console.log(
 				`socket closed, attempting reconnect in 5 seconds... (${event.reason})`
 			);
@@ -127,15 +136,6 @@ const Settings: React.FC = () => {
 			}
 		};
 	}, []);
-
-	// single interval that derives the displayed seconds from endTime each tick — no per-tick re-arm, no drift
-	useEffect(() => {
-		const id = setInterval(() => {
-			const s = Math.round((endTime - Date.now()) / 1000);
-			setSeconds(s > 0 ? s : 0);
-		}, 1000);
-		return () => clearInterval(id);
-	}, [endTime]);
 
 	const loadOlder = () => {
 		if (!logHasMore || logLoadingRef.current) return;
@@ -183,6 +183,7 @@ const Settings: React.FC = () => {
 						<Tab>Timer Events</Tab>
 						<Tab>Connections</Tab>
 						<Tab>Merch</Tab>
+						<Tab>Fourthwall</Tab>
 						<Tab>Change Time</Tab>
 						<Tab>Terminal</Tab>
 						<Tab>Settings</Tab>
@@ -201,13 +202,16 @@ const Settings: React.FC = () => {
 							<Merch ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
 						<TabPanel>
+							<FourthwallProducts ws={ws} settings={settings} products={fwProducts} error={fwProductsError} />
+						</TabPanel>
+						<TabPanel>
 							<ChangeTime ws={ws} endTime={endTime} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<Terminal
 								entries={log}
 								hasMore={logHasMore}
-								active={tabIndex === 5}
+								active={tabIndex === 6}
 								onLoadOlder={loadOlder}
 								onCommand={runTerminalCommand}
 							/>

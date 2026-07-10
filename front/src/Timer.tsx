@@ -53,7 +53,8 @@ const Timer: React.FC<{
 	input_seconds: number;
 	textAlign?: any;
 	color?: any;
-}> = ({ input_seconds, textAlign = "center", color = "black" }) => {
+	background?: string;
+}> = ({ input_seconds, textAlign = "center", color = "black", background = "#000000" }) => {
 
 	if (input_seconds > 0) {
 		let hour = Math.floor(input_seconds / 3600);
@@ -121,8 +122,8 @@ const Timer: React.FC<{
 		<div
 			className='Timer'
 			style={{
-				// ! We're just forcing this to white on black now.
-				background:"#000000",
+				// white text; black background by default (the /widget page overrides to chroma green)
+				background: background,
 				color: "white",
 
 				fontFamily: "'Staatliches', cursive",
