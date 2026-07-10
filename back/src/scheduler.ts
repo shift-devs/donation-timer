@@ -1,6 +1,8 @@
 import { TimerUserSession } from "./types";
 import { sessions } from "./session";
 import { emitPlayEvent } from "./bus";
+import { parseCommand } from "./commands";
+import { handle } from "./events";
 
 // drives timer events: at each tick, for every enabled event whose trigger instant has passed and hasn't fired yet,
 // check the remaining-countdown window and, if it matches, tell the user's /events browser source to play the clip.
@@ -70,6 +72,26 @@ function playPayload(ev: any) {
     return { id: ev.id, name: ev.name, kind: ev.mediaKind, src: ev.mediaSrc, volume: ev.volume };
 }
 
+// optional delayed terminal command: cmdDelaySec seconds into the clip, run ev.cmdText through the same
+// parser + central handler the dashboard terminal uses. timed from fire time on the backend, so it runs
+// even with no browser source open and can't double-fire from multiple sources. handle() drops it if the
+// session logged out in the meantime.
+function scheduleEventCommand(session: TimerUserSession, ev: any) {
+    const text = typeof ev.cmdText === "string" ? ev.cmdText.trim() : "";
+    if (!text)
+        return;
+    const delayMs = Math.max(0, Number(ev.cmdDelaySec) || 0) * 1000;
+    setTimeout(() => {
+        const parsed = parseCommand(text);
+        if (parsed.error || !parsed.event){
+            console.log(`Timer event "${ev.name || ev.id}" command "${text}" did not parse: ${parsed.error || "not a command"}`);
+            return;
+        }
+        parsed.event.label = `${parsed.event.label} (timer event: ${ev.name || ev.id})`;
+        handle(session, parsed.event);
+    }, delayMs);
+}
+
 function tickSession(session: TimerUserSession, now: number, liveKeys: Set<string>) {
     const events = Array.isArray(session.timerEvents) ? session.timerEvents : [];
     for (const ev of events) {
@@ -91,8 +113,10 @@ function tickSession(session: TimerUserSession, now: number, liveKeys: Set<strin
             continue;
         lastFired.set(key, instant); // one evaluation per trigger, whether or not the window matches
         const remaining = session.endTime - now;
-        if (windowMatches(ev, remaining))
+        if (windowMatches(ev, remaining)){
             emitPlayEvent(session.userId, playPayload(ev));
+            scheduleEventCommand(session, ev);
+        }
     }
 }
 
@@ -107,10 +131,13 @@ export function tickTimerEvents() {
             lastFired.delete(key);
 }
 
-// test playback from the dashboard: fire an event immediately, bypassing the schedule and the remaining-time window.
+// test playback from the dashboard: fire an event immediately, bypassing the schedule and the remaining-time
+// window. runs the delayed command too, so a test exercises the full behavior (it really adds time).
 export function testTimerEvent(session: TimerUserSession, id: string) {
     const events = Array.isArray(session.timerEvents) ? session.timerEvents : [];
     const ev = events.find((e: any) => e && e.id === id);
-    if (ev)
+    if (ev){
         emitPlayEvent(session.userId, playPayload(ev));
+        scheduleEventCommand(session, ev);
+    }
 }

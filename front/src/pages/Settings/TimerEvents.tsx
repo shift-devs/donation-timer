@@ -8,6 +8,8 @@ import {
 	Flex,
 	HStack,
 	Input,
+	NumberInput,
+	NumberInputField,
 	Select,
 	Slider,
 	SliderFilledTrack,
@@ -92,6 +94,8 @@ function canonFromServer(raw: any) {
 		mediaKind: r.mediaKind === "video" ? "video" : "audio",
 		mediaSrc: typeof r.mediaSrc === "string" ? r.mediaSrc : "",
 		volume: Number.isFinite(Number(r.volume)) ? Math.min(1, Math.max(0, Number(r.volume))) : 1,
+		cmdText: typeof r.cmdText === "string" ? r.cmdText : "",
+		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Math.round(Number(r.cmdDelaySec)) : 0,
 	};
 }
 
@@ -233,6 +237,32 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						</Slider>
 						<Text fontSize="sm" color="gray.500" minW="40px">{Math.round(e.volume * 100)}%</Text>
 					</HStack>
+				</Box>
+
+				{/* delayed terminal command */}
+				<Box minW="240px" flex="1">
+					<Text fontSize="sm" fontWeight={600} mb={1}>Terminal command (optional)</Text>
+					<Input
+						value={e.cmdText}
+						placeholder='e.g.  time 300   or   twitch sub_t1 5'
+						onChange={(ev) => update(i, { cmdText: ev.currentTarget.value })}
+					/>
+					<HStack mt={2}>
+						<NumberInput
+							size="sm"
+							maxW="90px"
+							min={0}
+							value={e.cmdDelaySec}
+							onChange={(_str: string, n: number) => update(i, { cmdDelaySec: Number.isFinite(n) ? n : 0 })}
+						>
+							<NumberInputField />
+						</NumberInput>
+						<Text fontSize="sm" color="gray.600">seconds after the media starts</Text>
+					</HStack>
+					<Text fontSize="xs" color="gray.500" mt={1}>
+						Same syntax as the Terminal tab (type <Code fontSize="xs">help</Code> there for the list).
+						Runs on real fires and on Test.
+					</Text>
 				</Box>
 			</Flex>
 
