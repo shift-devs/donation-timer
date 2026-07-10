@@ -25,6 +25,17 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 - **Windows:** `docker/wscripts/update.bat`
 - **Linux:** `docker/lscripts/update.sh`
 
+> [!WARNING]
+> `update` takes everything down and discards the built images before pulling — use it between streams, not during one.
+
+## Patching While Live
+
+Pulls and rebuilds while the old containers keep serving, then swaps only what changed.
+Downtime is a few seconds per changed service, and the timer keeps its end time (it lives in the database volume).
+
+- **Windows:** `docker/wscripts/patch.bat`
+- **Linux:** `docker/lscripts/patch.sh`
+
 ## Starting in Production Environments
 
 - **Windows:** `docker/wscripts/pro-start.bat`
