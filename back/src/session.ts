@@ -3,6 +3,7 @@ import { emitSync } from "./bus";
 import { normalizeRates } from "./rates";
 import { normalizeConnections } from "./connections";
 import { normalizeTimerEvents } from "./timerEvents";
+import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
@@ -60,6 +61,7 @@ export function loginUser(inObj: Object){
     lvObj.timerEvents = normalizeTimerEvents(lvObj.timerEvents);
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
+    lvObj.widgetSettings = normalizeWidgetSettings(lvObj.widgetSettings);
     lvObj.twitchStatus = false;
     lvObj.twitchError = "";
     lvObj.merchValues = {};

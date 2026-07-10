@@ -10,6 +10,7 @@ import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, fetchFourthwallProducts, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeWidgetSettings } from "./widgetSettings";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -58,7 +59,8 @@ function wsSync(ws: TimerWebSocket) {
             },
             merchValues: curSession.merchValues,
             fwProductBonuses: curSession.fwProductBonuses || {},
-            fwProductSounds: curSession.fwProductSounds || {}
+            fwProductSounds: curSession.fwProductSounds || {},
+            widgetSettings: curSession.widgetSettings || {}
         })
     );
 }
@@ -339,6 +341,9 @@ export function startApi(){
                     break;
                 case "setFwProductSounds":
                     curSession.fwProductSounds = normalizeFwProductSounds(jData.sounds);
+                    break;
+                case "setWidgetSettings":
+                    curSession.widgetSettings = normalizeWidgetSettings(jData.settings);
                     break;
                 case "getFwProducts":
                     // fetched on demand with the stored credentials; reply only to the asking client

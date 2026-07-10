@@ -12,6 +12,7 @@ const Widget: React.FC = () => {
 	const token = new URLSearchParams(window.location.search).get("token");
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
+	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
 	const seconds = useCountdownSeconds(endTime);
 
 	const connectWs = () => {
@@ -27,6 +28,8 @@ const Widget: React.FC = () => {
 
 			if ("endTime" in response) {
 				setEndTime(response.endTime);
+				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
+					setBgColor(response.widgetSettings.bgColor);
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -61,12 +64,13 @@ const Widget: React.FC = () => {
 		};
 	}, []);
 
-	// full-viewport chroma key fill: #00FF00 is keyed out in OBS (color key filter) so only the timer shows
+	// full-viewport chroma key fill (color set in the dashboard's Settings tab; #00FF00 default) —
+	// OBS keys it out so only the timer shows
 	const wrap: React.CSSProperties = {
 		position: "fixed",
 		inset: 0,
 		margin: 0,
-		background: "#00FF00",
+		background: bgColor,
 		overflow: "hidden",
 	};
 
@@ -86,7 +90,7 @@ const Widget: React.FC = () => {
 
 	return (
 		<div style={wrap}>
-			<Timer input_seconds={seconds} textAlign='start' color={timer_color} background='#00FF00' />
+			<Timer input_seconds={seconds} textAlign='start' color={timer_color} background={bgColor} />
 		</div>
 	);
 };
