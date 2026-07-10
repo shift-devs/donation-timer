@@ -61,10 +61,19 @@ const Widget: React.FC = () => {
 		};
 	}, []);
 
+	// full-viewport chroma key fill: #00FF00 is keyed out in OBS (color key filter) so only the timer shows
+	const wrap: React.CSSProperties = {
+		position: "fixed",
+		inset: 0,
+		margin: 0,
+		background: "#00FF00",
+		overflow: "hidden",
+	};
+
 	if (!fetched || !token)
 		return (
 			<div style={{
-				background:"#000000",
+				...wrap,
 				color: "white",
 				fontFamily: "'Staatliches', cursive",
 				fontSize: "128px",
@@ -76,8 +85,8 @@ const Widget: React.FC = () => {
 		);
 
 	return (
-		<div>
-			<Timer input_seconds={seconds} textAlign='start' color={timer_color} />
+		<div style={wrap}>
+			<Timer input_seconds={seconds} textAlign='start' color={timer_color} background='#00FF00' />
 		</div>
 	);
 };
