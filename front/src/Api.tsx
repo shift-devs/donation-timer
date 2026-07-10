@@ -77,6 +77,11 @@ export function setFwProductBonuses(ws: WebSocket, bonuses: any) {
 	return 1;
 }
 
+export function setFwProductSounds(ws: WebSocket, sounds: any) {
+	send(ws, { event: "setFwProductSounds", sounds: sounds });
+	return 1;
+}
+
 export function getFwProducts(ws: WebSocket) {
 	send(ws, { event: "getFwProducts" });
 	return 1;

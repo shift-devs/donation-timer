@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
-import { normalizeFwProductBonuses, fetchFourthwallProducts, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeFwProductBonuses, normalizeFwProductSounds, fetchFourthwallProducts, describeError as describeFwError } from "./platforms/fourthwall";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -57,7 +57,8 @@ function wsSync(ws: TimerWebSocket) {
                 }
             },
             merchValues: curSession.merchValues,
-            fwProductBonuses: curSession.fwProductBonuses || {}
+            fwProductBonuses: curSession.fwProductBonuses || {},
+            fwProductSounds: curSession.fwProductSounds || {}
         })
     );
 }
@@ -336,6 +337,9 @@ export function startApi(){
                 case "setFwProductBonuses":
                     curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);
                     break;
+                case "setFwProductSounds":
+                    curSession.fwProductSounds = normalizeFwProductSounds(jData.sounds);
+                    break;
                 case "getFwProducts":
                     // fetched on demand with the stored credentials; reply only to the asking client
                     fetchFourthwallProducts(curSession)
@@ -373,6 +377,7 @@ export function startApi(){
                         name: "SIMULATED",
                         message: `purchased ${pname}`,
                         image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
+                        sound: (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || "",
                     });
                     const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);
                     ws.send(JSON.stringify({ commandResult: {

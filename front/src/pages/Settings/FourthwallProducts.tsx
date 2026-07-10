@@ -7,12 +7,16 @@ import {
 	Image,
 	NumberInput,
 	NumberInputField,
+	Select,
 	Spacer,
 	Spinner,
 	Text,
 	useToast,
 } from "@chakra-ui/react";
-import { getFwProducts, setFwProductBonuses, testFwPurchase } from "../../Api";
+import { getFwProducts, setFwProductBonuses, setFwProductSounds, testFwPurchase } from "../../Api";
+
+// sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
+const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : [];
 
 // canonical view of the bonus map: only positive finite numbers survive (mirrors the backend normalizer),
 // so zeroing an input reads as "remove the bonus" for dirty-checking and saving alike
@@ -23,6 +27,15 @@ function normalize(raw: any): { [id: string]: number } {
 			const n = Number(v);
 			if (id && Number.isFinite(n) && n > 0) out[id] = n;
 		}
+	return out;
+}
+
+// same idea for the sound map: only non-empty filename strings survive ("None" = removed)
+function normalizeSounds(raw: any): { [id: string]: string } {
+	const out: { [id: string]: string } = {};
+	if (raw && typeof raw === "object" && !Array.isArray(raw))
+		for (const [id, v] of Object.entries(raw))
+			if (id && typeof v === "string" && v) out[id] = v;
 	return out;
 }
 
@@ -37,6 +50,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const savedStr = JSON.stringify(saved);
 	const [draft, setDraft] = useState<any>(saved);
 	const prevSavedRef = useRef(savedStr);
+	const savedSounds = normalizeSounds(settings.fwProductSounds);
+	const savedSoundsStr = JSON.stringify(savedSounds);
+	const [soundDraft, setSoundDraft] = useState<any>(savedSounds);
+	const prevSavedSoundsRef = useRef(savedSoundsStr);
 
 	// follow the server's values only when there are no unsaved local edits (same pattern as Time Per Action)
 	useEffect(() => {
@@ -44,8 +61,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		prevSavedRef.current = savedStr;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [savedStr]);
+	useEffect(() => {
+		setSoundDraft((prev: any) => (JSON.stringify(prev) === prevSavedSoundsRef.current ? savedSounds : prev));
+		prevSavedSoundsRef.current = savedSoundsStr;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [savedSoundsStr]);
 
-	const dirty = JSON.stringify(normalize(draft)) !== savedStr;
+	const dirty = JSON.stringify(normalize(draft)) !== savedStr || JSON.stringify(normalizeSounds(soundDraft)) !== savedSoundsStr;
 	const toast = useToast();
 
 	const simulate = (p: { id: string; name: string; usd: number; image?: string }) => {
@@ -64,46 +86,71 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	if (!configured)
 		return <Text color='gray.400'>Connect Fourthwall in the Connections tab to load your products.</Text>;
 
-	// bonuses saved for products the shop no longer lists — keep them visible so they can be zeroed out
-	const orphans = products === null ? [] : Object.keys(saved).filter((id) => !products.some((p) => p.id === id));
+	// config saved for products the shop no longer lists — keep it visible so it can be cleared
+	const orphans = products === null
+		? []
+		: Object.keys({ ...saved, ...savedSounds }).filter((id) => !products.some((p) => p.id === id));
+
+	const soundPicker = (id: string) => {
+		const value = soundDraft[id] ?? "";
+		return (
+			<Select
+				size='xs'
+				maxW='240px'
+				value={value}
+				onChange={(ev) => setSoundDraft((d: any) => ({ ...d, [id]: ev.currentTarget.value }))}
+			>
+				<option value=''>None</option>
+				{SOUNDS.map((f) => <option key={f} value={f}>{f}</option>)}
+				{/* a saved sound whose file has since been removed from fwsounds — keep it selectable so it's visible */}
+				{value && !SOUNDS.includes(value) && <option value={value}>(missing) {value}</option>}
+			</Select>
+		);
+	};
 
 	const row = (id: string, name: string, faded: boolean, image?: string, product?: { id: string; name: string; usd: number; image?: string }) => (
-		<Flex key={id} align='center' py={1.5} borderBottom='1px solid' borderColor='whiteAlpha.200'>
-			<Box
-				as={product ? "button" : "div"}
-				title={product ? "Click to simulate a purchase" : undefined}
-				cursor={product ? "pointer" : undefined}
-				onClick={product ? () => simulate(product) : undefined}
-				mr={3}
-				flexShrink={0}
-				borderRadius='md'
-				_hover={product ? { outline: "2px solid", outlineColor: "green.300" } : undefined}
-			>
-				{image ? (
-					<Image src={image} alt='' boxSize='36px' objectFit='cover' borderRadius='md' pointerEvents='none'
-						fallback={<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />} />
-				) : (
-					<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />
-				)}
-			</Box>
-			<Text noOfLines={1} color={faded ? "gray.500" : undefined}>{name}</Text>
-			{product && product.usd > 0 && (
-				<Text fontSize='sm' color='gray.400' ml={2} flexShrink={0}>${product.usd}</Text>
-			)}
-			<Spacer />
-			<HStack>
-				<NumberInput
-					size='sm'
-					maxW='110px'
-					min={0}
-					value={draft[id] ?? 0}
-					onChange={(_, n) => setDraft((d: any) => ({ ...d, [id]: Number.isFinite(n) ? n : 0 }))}
+		<Box key={id} py={1.5} borderBottom='1px solid' borderColor='whiteAlpha.200'>
+			<Flex align='center'>
+				<Box
+					as={product ? "button" : "div"}
+					title={product ? "Click to simulate a purchase" : undefined}
+					cursor={product ? "pointer" : undefined}
+					onClick={product ? () => simulate(product) : undefined}
+					mr={3}
+					flexShrink={0}
+					borderRadius='md'
+					_hover={product ? { outline: "2px solid", outlineColor: "green.300" } : undefined}
 				>
-					<NumberInputField />
-				</NumberInput>
-				<Text fontSize='sm' color='gray.400' w='70px'>sec / item</Text>
-			</HStack>
-		</Flex>
+					{image ? (
+						<Image src={image} alt='' boxSize='36px' objectFit='cover' borderRadius='md' pointerEvents='none'
+							fallback={<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />} />
+					) : (
+						<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />
+					)}
+				</Box>
+				<Text noOfLines={1} color={faded ? "gray.500" : undefined}>{name}</Text>
+				{product && product.usd > 0 && (
+					<Text fontSize='sm' color='gray.400' ml={2} flexShrink={0}>${product.usd}</Text>
+				)}
+				<Spacer />
+				<HStack>
+					<NumberInput
+						size='sm'
+						maxW='110px'
+						min={0}
+						value={draft[id] ?? 0}
+						onChange={(_, n) => setDraft((d: any) => ({ ...d, [id]: Number.isFinite(n) ? n : 0 }))}
+					>
+						<NumberInputField />
+					</NumberInput>
+					<Text fontSize='sm' color='gray.400' w='70px'>sec / item</Text>
+				</HStack>
+			</Flex>
+			<Flex align='center' mt={1.5} pl='48px' gap={2}>
+				<Text fontSize='xs' color='gray.500' flexShrink={0}>Alert sound</Text>
+				{soundPicker(id)}
+			</Flex>
+		</Box>
 	);
 
 	return (
@@ -129,7 +176,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 			{orphans.map((id) => row(id, `(no longer listed) ${id}`, true))}
 			<Flex mt={4}>
 				<Spacer />
-				<Button colorScheme='green' isDisabled={!dirty} onClick={() => setFwProductBonuses(ws, normalize(draft))}>
+				<Button
+					colorScheme='green'
+					isDisabled={!dirty}
+					onClick={() => {
+						setFwProductBonuses(ws, normalize(draft));
+						setFwProductSounds(ws, normalizeSounds(soundDraft));
+					}}
+				>
 					Save
 				</Button>
 			</Flex>
@@ -147,9 +201,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					4. The page is a solid green fill: on the source add Filters → Color Key, key color green
 					(#00FF00), so only the alert shows over your scene.
 				</Text>
-				<Text>
+				<Text mb={1}>
 					5. Every Fourthwall purchase plays an alert here — and clicking a product thumbnail above
 					simulates one, so you can test the source without spending money.
+				</Text>
+				<Text>
+					6. Alert sounds: drop mp3/wav/ogg files into the site&apos;s <Text as='code'>fwsounds</Text> folder
+					(<Text as='code'>front/public/fwsounds</Text>, needs a rebuild to appear here), then pick one per
+					product above. &quot;None&quot; keeps that product silent.
 				</Text>
 			</Box>
 		</Box>

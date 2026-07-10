@@ -23,6 +23,34 @@ export function normalizeFwProductBonuses(raw: any): { [id: string]: number } {
     return out;
 }
 
+// per-product alert sounds: { [offerId]: filename } under the site's /fwsounds/ folder.
+// bare filenames only — the alert page builds the url, so no paths/traversal can sneak in.
+export function normalizeFwProductSounds(raw: any): { [id: string]: string } {
+    const out: { [id: string]: string } = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return out;
+    for (const [id, v] of Object.entries(raw)){
+        if (Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            break;
+        if (!id || id.length > 100)
+            continue;
+        const f = typeof v === "string" ? v : "";
+        if (f && f.length <= 200 && !f.includes("/") && !f.includes("\\") && !f.includes(".."))
+            out[id] = f;
+    }
+    return out;
+}
+
+// first configured sound among an order's line items -> the alert's sound (one alert, one sound)
+export function soundForOffers(session: TimerUserSession, offers: any[]): string {
+    for (const line of offers){
+        const s = line && line.id && session.fwProductSounds && session.fwProductSounds[line.id];
+        if (s)
+            return s;
+    }
+    return "";
+}
+
 // list the shop's products (offers) so the dashboard can attach per-product bonuses.
 // offer ids here are the same ids that appear in an order's offers[] lines.
 export async function fetchFourthwallProducts(session: TimerUserSession): Promise<{ id: string, name: string, image: string, usd: number }[]> {
@@ -135,13 +163,14 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const qty = Math.max(1, Math.trunc(Number(line.variant && line.variant.quantity)) || 1);
                 emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${line.name || line.id} x${qty}` });
             }
-            // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image
+            // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound
             emitFwAlert(session.userId, {
                 name: o.username || "Someone",
                 message: offers.length
                     ? `purchased ${offers[0].name || "merch"}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
                     : "made a purchase",
                 image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
+                sound: soundForOffers(session, offers),
             });
         }
         for (const o of rows) // advance cursor past the newest we saw

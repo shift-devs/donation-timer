@@ -33,6 +33,7 @@ export interface TimerUserSession {
     timerEvents: any
     merchValues: any
     fwProductBonuses: any
+    fwProductSounds: any
     loggedOut?: boolean
     conTMI?: tmi.Client
     conSL?: any

@@ -6,7 +6,7 @@ import { normalizeTimerEvents } from "./timerEvents";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
-import { connectFourthwall, normalizeFwProductBonuses } from "./platforms/fourthwall";
+import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
 
@@ -59,6 +59,7 @@ export function loginUser(inObj: Object){
     lvObj.connections = normalizeConnections(lvObj.connections, lvObj.name, (lvObj as any).slToken);
     lvObj.timerEvents = normalizeTimerEvents(lvObj.timerEvents);
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
+    lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.twitchStatus = false;
     lvObj.twitchError = "";
     lvObj.merchValues = {};
