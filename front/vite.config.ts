@@ -9,6 +9,13 @@ export default defineConfig({
 		hmr: {
 			clientPort: 3080,
 		},
+		proxy: {
+			// same-origin websocket in dev, mirroring nginx's /ws proxy in production
+			"/ws": {
+				target: "http://dev-back:3003",
+				ws: true,
+			},
+		},
 	},
 	plugins: [react()],
 });

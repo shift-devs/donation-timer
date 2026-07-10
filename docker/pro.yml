@@ -2,17 +2,13 @@ name: donation-timer
 services:
   pro-front:
     restart: always
-    environment:
-      - CLIENT_ID=${CLIENT_ID}
-      - VITE_CLIENT_ID=${VITE_CLIENT_ID}
-      - VITE_WEBSOCKET_URL=${VITE_WEBSOCKET_URL}
-      - VITE_REDIRECT_URL=${VITE_REDIRECT_URL}
-      - VITE_BASE_URL=${VITE_BASE_URL}
     build:
       context: ..
       dockerfile: docker/Dockerfile-pro-front
     ports:
       - "3080:3080"
+    networks:
+      - backnet
   pro-back:
     restart: always
     environment:
@@ -24,8 +20,6 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile-pro-back
-    ports:
-      - "3003:3003"
     networks:
       - backnet
     depends_on:

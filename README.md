@@ -14,7 +14,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 > [!NOTE]
 > If you're using this in production, you might be changing the URLs in `.env` to point to an internet accessible domain.
-> If this is indeed the case, change them to use the HTTPS / WSS protocols.
+> If this is indeed the case, change them to use the HTTPS protocol.
 
 > [!NOTE]
 > If you're accessing this locally, but not on the same computer, skip steps 4-6, and leave CLIENT_ID and VITE_CLIENT_ID empty.
@@ -29,7 +29,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 - **Windows:** `docker/wscripts/pro-start.bat`
 - **Linux:** `docker/lscripts/pro-start.sh`
-- If internet accessible, reverse proxy on your domain to the `3080` (frontend) and `3003` (backend) ports
+- If internet accessible, reverse proxy on your domain to port `3080` (the WebSocket is served on the same port at `/ws`)
 
 ## Starting in Development Environments
 
@@ -42,5 +42,5 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 ## Using the Timer
 - You can access the timer at: http://localhost:3080
-- You can access the WebSocket backend on port `3003`
+- The WebSocket backend is served on the same port at `/ws` (also directly on port `3003` in the Development Environment)
 - You can access the PostgreSQL database on port `5432` (Development Environment Only)
