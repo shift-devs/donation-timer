@@ -85,9 +85,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	};
 
 	const alertUrl = `${window.location.origin}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
-	const copyAlertUrl = () => {
-		navigator.clipboard.writeText(alertUrl).then(
-			() => toast({ title: "Alert URL copied", status: "success", duration: 2000 }),
+	const activityUrl = `${window.location.origin}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
+	const copyUrl = (url: string, what: string) => {
+		navigator.clipboard.writeText(url).then(
+			() => toast({ title: `${what} URL copied`, status: "success", duration: 2000 }),
 			() => toast({ title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }),
 		);
 	};
@@ -220,7 +221,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				<Flex mb={1} align='center' gap={2} flexWrap='wrap'>
 					<Text flexShrink={0}>2. URL:</Text>
 					<Text as='code' bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all'>{alertUrl}</Text>
-					<Button size='xs' onClick={copyAlertUrl}>Copy</Button>
+					<Button size='xs' onClick={() => copyUrl(alertUrl, "Alert")}>Copy</Button>
 				</Flex>
 				<Text mb={1}>3. Width 1200, Height 220 (the alert is a ~125px banner), FPS 30.</Text>
 				<Text mb={1}>
@@ -235,6 +236,20 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					6. Alert sounds: drop mp3/wav/ogg files into the site&apos;s <Text as='code'>fwsounds</Text> folder
 					(<Text as='code'>front/public/fwsounds</Text>, needs a rebuild to appear here), then pick one per
 					product above. &quot;None&quot; keeps that product silent.
+				</Text>
+			</Box>
+
+			<Box mt={4} p={4} borderRadius='md' bg='whiteAlpha.100' fontSize='sm'>
+				<Text fontWeight='bold' mb={2}>Activity feed — thank-you tab</Text>
+				<Flex mb={1} align='center' gap={2} flexWrap='wrap'>
+					<Text flexShrink={0}>Keep this open in a browser tab:</Text>
+					<Text as='code' bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all'>{activityUrl}</Text>
+					<Button size='xs' onClick={() => copyUrl(activityUrl, "Activity")}>Copy</Button>
+				</Flex>
+				<Text>
+					Every purchase, donation, and membership appears live with the buyer&apos;s name and checkout
+					message — newest on top — so you can thank people as they come in. Simulated purchases show
+					up too.
 				</Text>
 			</Box>
 		</Box>

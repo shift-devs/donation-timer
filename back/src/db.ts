@@ -72,6 +72,11 @@ export const USER_TABLE = {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: {}
+    },
+    fwActivity: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: []
     }
 }
 
@@ -141,7 +146,8 @@ export async function dbCreate(inObj: Object){
         timerEvents: lvObj.timerEvents,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
-        widgetSettings: lvObj.widgetSettings
+        widgetSettings: lvObj.widgetSettings,
+        fwActivity: lvObj.fwActivity
     });
 }
 
@@ -172,6 +178,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 widgetSettings: curSession.widgetSettings,
+                fwActivity: curSession.fwActivity,
             },
             {
                 where: {

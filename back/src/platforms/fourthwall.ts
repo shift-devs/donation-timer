@@ -1,7 +1,7 @@
 import axios from "axios";
 import { TimerUserSession, TimerEvent } from "../types";
 import { FW_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
-import { emitSync, emitFwAlert } from "../bus";
+import { emitSync, emitFwAlert, emitFwActivity } from "../bus";
 import { diag } from "../diag";
 
 const FW_API = "https://api.fourthwall.com/open-api/v1.0";
@@ -42,6 +42,38 @@ export function normalizeFwProductSounds(raw: any): { [id: string]: { file: stri
         out[id] = { file, volume: Number.isFinite(volN) ? Math.min(1, Math.max(0, volN)) : 1 };
     }
     return out;
+}
+
+// rolling activity feed for the /fwactivity page: one entry per purchased product / donation / membership,
+// with the buyer and their checkout message. persisted on the session (jsonb column) so a restart keeps it.
+export const FW_ACTIVITY_CAP = 300;
+
+export function normalizeFwActivity(raw: any): any[] {
+    if (!Array.isArray(raw))
+        return [];
+    const out: any[] = [];
+    for (const e of raw.slice(-FW_ACTIVITY_CAP)){
+        if (!e || typeof e !== "object")
+            continue;
+        out.push({
+            t: Number(e.t) || 0,
+            product: typeof e.product === "string" ? e.product.slice(0, 200) : "",
+            user: typeof e.user === "string" ? e.user.slice(0, 100) : "",
+            message: typeof e.message === "string" ? e.message.slice(0, 1000) : "",
+            image: typeof e.image === "string" ? e.image.slice(0, 2000) : "",
+            unit: typeof e.unit === "string" ? e.unit.slice(0, 20) : "order",
+        });
+    }
+    return out;
+}
+
+export function pushFwActivity(session: TimerUserSession, entry: any){
+    if (!Array.isArray(session.fwActivity))
+        session.fwActivity = [];
+    session.fwActivity.push(entry);
+    if (session.fwActivity.length > FW_ACTIVITY_CAP)
+        session.fwActivity.splice(0, session.fwActivity.length - FW_ACTIVITY_CAP);
+    emitFwActivity(session.userId, entry);
 }
 
 // first configured sound among an order's line items -> the alert's sound (one alert, one sound)
@@ -166,6 +198,14 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const qty = Math.max(1, Math.trunc(Number(line.variant && line.variant.quantity)) || 1);
                 emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${line.name || line.id} x${qty}` });
             }
+            // activity feed: one row per purchased product, carrying the buyer + their checkout message
+            const buyer = o.username || "Someone";
+            const orderMsg = typeof o.message === "string" ? o.message : "";
+            if (offers.length)
+                for (const line of offers)
+                    pushFwActivity(session, { t: Date.now(), product: line.name || "merch", user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order" });
+            else
+                pushFwActivity(session, { t: Date.now(), product: "Purchase", user: buyer, message: orderMsg, image: "", unit: "order" });
             // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound
             const alertSound = soundForOffers(session, offers);
             emitFwAlert(session.userId, {
@@ -207,10 +247,12 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const usd = Number(d.amounts && d.amounts.total && d.amounts.total.value) || 0;
                 if (!usd)
                     diag(`FW-DIAG ${watching}: donation ${d.id} parsed to $0 (check amounts.total field)`);
+                pushFwActivity(session, { t: Date.now(), product: `Donation $${usd}`, user: d.username || d.email || "someone", message: typeof d.message === "string" ? d.message : "", image: "", unit: "donation" });
                 return { platform: "fourthwall", kind: "money", usd, unit: "donation", label: `donation $${usd} from ${d.username || d.email || "someone"}` };
             });
             await pollById("/memberships/members", seenMembers, (m) => {
                 // flat per new member (renewals reuse the same id so polling won't re-fire them; tiers TBD)
+                pushFwActivity(session, { t: Date.now(), product: "New membership", user: m.nickname || m.email || "someone", message: "", image: "", unit: "membership" });
                 return { platform: "fourthwall", kind: "member", count: 1, unit: "membership", label: `membership from ${m.nickname || m.email || "someone"}` };
             });
             if (!diagnosed){ // creds work (we got here), so dump real samples once

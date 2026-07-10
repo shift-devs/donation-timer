@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
-import { normalizeFwProductBonuses, normalizeFwProductSounds, fetchFourthwallProducts, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeFwProductBonuses, normalizeFwProductSounds, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
@@ -186,6 +186,21 @@ export function startApi(){
         }
     });
 
+    // live feed entries go ONLY to this user's /fwactivity page(s)
+    bus.on("fwActivityEntry", (id: number, entry: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.page !== "fwactivity" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            try {
+                ws.send(JSON.stringify({ fwActivityEntry: entry }));
+            } catch (err) {
+                console.log("Failed to send an activity entry to a client:", err);
+            }
+        }
+    });
+
     // purchase alerts go ONLY to this user's /fwalert browser source(s)
     bus.on("fwAlert", (id: number, payload: any) => {
         const clientsArr = Array.from(wss.clients);
@@ -345,6 +360,10 @@ export function startApi(){
                 case "setWidgetSettings":
                     curSession.widgetSettings = normalizeWidgetSettings(jData.settings);
                     break;
+                case "getFwActivity":
+                    // backlog for the /fwactivity page; live additions arrive as fwActivityEntry pushes
+                    ws.send(JSON.stringify({ fwActivity: curSession.fwActivity || [] }));
+                    return;
                 case "getFwProducts":
                     // fetched on demand with the stored credentials; reply only to the asking client
                     fetchFourthwallProducts(curSession)
@@ -377,7 +396,8 @@ export function startApi(){
                     const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
                     if (perItem)
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
-                    // drive the /fwalert browser source too, so a thumbnail click tests the full on-stream alert
+                    // feed + alert both fire, so a thumbnail click tests the full on-stream behavior
+                    pushFwActivity(curSession, { t: Date.now(), product: pname, user: "SIMULATED", message: "this is a test purchase", image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "", unit: "order" });
                     const simSound = (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || null;
                     emitFwAlert(id, {
                         name: "SIMULATED",

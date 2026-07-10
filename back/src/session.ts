@@ -7,7 +7,7 @@ import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
-import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds } from "./platforms/fourthwall";
+import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwActivity } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
 
@@ -62,6 +62,7 @@ export function loginUser(inObj: Object){
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.widgetSettings = normalizeWidgetSettings(lvObj.widgetSettings);
+    lvObj.fwActivity = normalizeFwActivity(lvObj.fwActivity);
     lvObj.twitchStatus = false;
     lvObj.twitchError = "";
     lvObj.merchValues = {};
