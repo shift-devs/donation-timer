@@ -21,11 +21,10 @@ import {
 import * as consts from "../../Consts";
 import { setTimerEvents, testTimerEvent } from "../../Api";
 
-// media files found in public/media at build time (vite.config.ts bakes the list in)
+// media files found in public/media at build time (vite.config.ts bakes the list in) — the
+// dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
 const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
 const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
-// dropdown entries matching the event's kind: video files for video, audio files for audio
-const mediaOptions = (kind: string) => MEDIA_FILES.filter((f) => VIDEO_RE.test(f) === (kind === "video"));
 
 // ---- shape helpers -------------------------------------------------------------------------------------------------
 // canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings so
@@ -206,30 +205,19 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 				{/* media */}
 				<Box minW="240px" flex="1">
 					<Text fontSize="sm" fontWeight={600} mb={1}>Media</Text>
-					<HStack>
-						<Select
-							value={e.mediaKind}
-							onChange={(ev) => update(i, { mediaKind: ev.currentTarget.value })}
-							width="110px"
-						>
-							<option value="audio">Audio</option>
-							<option value="video">Video</option>
-						</Select>
-						<Select
-							value={e.mediaSrc}
-							onChange={(ev) => update(i, { mediaSrc: ev.currentTarget.value })}
-							flex="1"
-						>
-							<option value="">None</option>
-							{mediaOptions(e.mediaKind).map((f) => (
-								<option key={f} value={`/media/${f}`}>{f}</option>
-							))}
-							{/* a saved src outside the media folder (old http:// link or removed file) stays selectable */}
-							{e.mediaSrc && !mediaOptions(e.mediaKind).some((f) => `/media/${f}` === e.mediaSrc) && (
-								<option value={e.mediaSrc}>(custom) {e.mediaSrc}</option>
-							)}
-						</Select>
-					</HStack>
+					<Select
+						value={e.mediaSrc}
+						onChange={(ev) => {
+							const src = ev.currentTarget.value;
+							// kind follows the file: video extensions play in <video>, everything else in <audio>
+							update(i, { mediaSrc: src, mediaKind: VIDEO_RE.test(src) ? "video" : "audio" });
+						}}
+					>
+						<option value="">None</option>
+						{MEDIA_FILES.map((f) => (
+							<option key={f} value={`/media/${f}`}>{f}</option>
+						))}
+					</Select>
 					<HStack mt={2}>
 						<Text fontSize="sm" color="gray.600" minW="55px">volume</Text>
 						<Slider
@@ -304,10 +292,9 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					<Button size="sm" onClick={() => { try { navigator.clipboard.writeText(sourceUrl); } catch {} }}>Copy</Button>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
-					The media dropdown lists the files in the site's <Code fontSize="xs">media</Code> folder
-					(<Code fontSize="xs">front/public/media</Code>) — drop clips there and rebuild/restart for them to
-					appear. Events saved with an external <Code fontSize="xs">http(s)://</Code> URL keep working via
-					their <Code fontSize="xs">(custom)</Code> entry.
+					The media dropdown lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder
+					(<Code fontSize="xs">front/public/media</Code>) and only those — drop files there and
+					rebuild/restart for them to appear. Whether a clip plays as video or audio follows its file type.
 				</Text>
 			</Box>
 		</Box>
