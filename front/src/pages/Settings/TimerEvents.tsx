@@ -21,6 +21,12 @@ import {
 import * as consts from "../../Consts";
 import { setTimerEvents, testTimerEvent } from "../../Api";
 
+// media files found in public/media at build time (vite.config.ts bakes the list in)
+const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
+const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
+// dropdown entries matching the event's kind: video files for video, audio files for audio
+const mediaOptions = (kind: string) => MEDIA_FILES.filter((f) => VIDEO_RE.test(f) === (kind === "video"));
+
 // ---- shape helpers -------------------------------------------------------------------------------------------------
 // canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings so
 // typing doesn't fight a re-padding formatter; we convert at the save/load boundary and compare canonical projections.
@@ -209,11 +215,20 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 							<option value="audio">Audio</option>
 							<option value="video">Video</option>
 						</Select>
-						<Input
+						<Select
 							value={e.mediaSrc}
-							placeholder="/media/clip.mp4  or  http://…"
 							onChange={(ev) => update(i, { mediaSrc: ev.currentTarget.value })}
-						/>
+							flex="1"
+						>
+							<option value="">None</option>
+							{mediaOptions(e.mediaKind).map((f) => (
+								<option key={f} value={`/media/${f}`}>{f}</option>
+							))}
+							{/* a saved src outside the media folder (old http:// link or removed file) stays selectable */}
+							{e.mediaSrc && !mediaOptions(e.mediaKind).some((f) => `/media/${f}` === e.mediaSrc) && (
+								<option value={e.mediaSrc}>(custom) {e.mediaSrc}</option>
+							)}
+						</Select>
 					</HStack>
 					<HStack mt={2}>
 						<Text fontSize="sm" color="gray.600" minW="55px">volume</Text>
@@ -289,9 +304,10 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					<Button size="sm" onClick={() => { try { navigator.clipboard.writeText(sourceUrl); } catch {} }}>Copy</Button>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
-					Media paths must be loadable over http from the page: drop files in the site's <Code fontSize="xs">media</Code> folder
-					and reference <Code fontSize="xs">/media/clip.mp4</Code>, or paste any <Code fontSize="xs">http(s)://</Code> URL.
-					Local <Code fontSize="xs">file://</Code> paths won't load.
+					The media dropdown lists the files in the site's <Code fontSize="xs">media</Code> folder
+					(<Code fontSize="xs">front/public/media</Code>) — drop clips there and rebuild/restart for them to
+					appear. Events saved with an external <Code fontSize="xs">http(s)://</Code> URL keep working via
+					their <Code fontSize="xs">(custom)</Code> entry.
 				</Text>
 			</Box>
 		</Box>
