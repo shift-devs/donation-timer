@@ -129,10 +129,10 @@ const FwActivity: React.FC = () => {
 						<div style={{ width: "96px", height: "96px", background: "#252a34", border: "3px solid #374151", borderRadius: "4px", flexShrink: 0 }} />
 					)}
 					<div style={{ minWidth: 0, flex: 1 }}>
-						<div style={{ fontWeight: 900, fontSize: "26px", color: "#f9fafb" }}>{e.product}</div>
-						<div style={{ fontWeight: 700, fontSize: "20px", color: "#86efac", marginTop: "3px" }}>{e.user}</div>
+						{/* no product name — the image is the identifier; title attr keeps it hoverable */}
+						<div title={e.product} style={{ fontWeight: 700, fontSize: "20px", color: "#86efac" }}>{e.user}</div>
 						{e.message && (
-							<div style={{ color: "#c4c9d4", fontSize: "17px", marginTop: "4px", overflowWrap: "anywhere" }}>{e.message}</div>
+							<div style={{ color: "#c4c9d4", fontSize: "20px", marginTop: "4px", overflowWrap: "anywhere" }}>{e.message}</div>
 						)}
 					</div>
 					<div style={{ color: "#6b7280", fontSize: "14px", flexShrink: 0, alignSelf: "flex-start" }}>{when(e.t)}</div>
