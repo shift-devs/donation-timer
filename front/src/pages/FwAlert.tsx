@@ -18,6 +18,7 @@ interface AlertItem {
 	message: string;
 	image: string;
 	sound: string; // bare filename under /fwsounds/, "" = silent
+	volume: number; // 0..1
 	nonce: number;
 	leaving?: boolean;
 }
@@ -165,6 +166,7 @@ const FwAlert: React.FC = () => {
 					message: typeof a.message === "string" && a.message ? a.message : "made a purchase",
 					image: typeof a.image === "string" ? a.image : "",
 					sound: typeof a.sound === "string" ? a.sound : "",
+					volume: typeof a.volume === "number" ? Math.min(1, Math.max(0, a.volume)) : 1,
 					nonce: nonceRef.current,
 				});
 				if (!busyRef.current) advance();
@@ -211,7 +213,11 @@ const FwAlert: React.FC = () => {
 			{token && alert && (
 				<div key={alert.nonce} className={`alertShift ${alert.leaving ? "slide-out-leftSHIFT" : ""}`}>
 					{alert.sound && (
-						<audio src={`/fwsounds/${encodeURIComponent(alert.sound)}`} autoPlay />
+						<audio
+							src={`/fwsounds/${encodeURIComponent(alert.sound)}`}
+							autoPlay
+							ref={(el) => { if (el) el.volume = alert.volume; }}
+						/>
 					)}
 					{/* FIRST BOX */}
 					<div className='entryBox slide-in-leftSHIFT'>

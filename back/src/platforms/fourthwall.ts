@@ -23,10 +23,11 @@ export function normalizeFwProductBonuses(raw: any): { [id: string]: number } {
     return out;
 }
 
-// per-product alert sounds: { [offerId]: filename } under the site's /fwsounds/ folder.
-// bare filenames only — the alert page builds the url, so no paths/traversal can sneak in.
-export function normalizeFwProductSounds(raw: any): { [id: string]: string } {
-    const out: { [id: string]: string } = {};
+// per-product alert sounds: { [offerId]: { file, volume } } — file is a bare name under the site's
+// /fwsounds/ folder (the alert page builds the url, so no paths/traversal can sneak in), volume 0..1.
+// a bare-string value is the legacy shape (filename only) and normalizes to volume 1.
+export function normalizeFwProductSounds(raw: any): { [id: string]: { file: string, volume: number } } {
+    const out: { [id: string]: { file: string, volume: number } } = {};
     if (!raw || typeof raw !== "object" || Array.isArray(raw))
         return out;
     for (const [id, v] of Object.entries(raw)){
@@ -34,21 +35,23 @@ export function normalizeFwProductSounds(raw: any): { [id: string]: string } {
             break;
         if (!id || id.length > 100)
             continue;
-        const f = typeof v === "string" ? v : "";
-        if (f && f.length <= 200 && !f.includes("/") && !f.includes("\\") && !f.includes(".."))
-            out[id] = f;
+        const file = typeof v === "string" ? v : (v && typeof (v as any).file === "string" ? (v as any).file : "");
+        if (!file || file.length > 200 || file.includes("/") || file.includes("\\") || file.includes(".."))
+            continue;
+        const volN = Number(v && (v as any).volume);
+        out[id] = { file, volume: Number.isFinite(volN) ? Math.min(1, Math.max(0, volN)) : 1 };
     }
     return out;
 }
 
 // first configured sound among an order's line items -> the alert's sound (one alert, one sound)
-export function soundForOffers(session: TimerUserSession, offers: any[]): string {
+export function soundForOffers(session: TimerUserSession, offers: any[]): { file: string, volume: number } | null {
     for (const line of offers){
         const s = line && line.id && session.fwProductSounds && session.fwProductSounds[line.id];
-        if (s)
+        if (s && s.file)
             return s;
     }
-    return "";
+    return null;
 }
 
 // list the shop's products (offers) so the dashboard can attach per-product bonuses.
@@ -164,13 +167,15 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${line.name || line.id} x${qty}` });
             }
             // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound
+            const alertSound = soundForOffers(session, offers);
             emitFwAlert(session.userId, {
                 name: o.username || "Someone",
                 message: offers.length
                     ? `purchased ${offers[0].name || "merch"}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
                     : "made a purchase",
                 image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
-                sound: soundForOffers(session, offers),
+                sound: alertSound ? alertSound.file : "",
+                volume: alertSound ? alertSound.volume : 1,
             });
         }
         for (const o of rows) // advance cursor past the newest we saw

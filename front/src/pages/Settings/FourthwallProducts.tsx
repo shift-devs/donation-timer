@@ -8,6 +8,10 @@ import {
 	NumberInput,
 	NumberInputField,
 	Select,
+	Slider,
+	SliderFilledTrack,
+	SliderThumb,
+	SliderTrack,
 	Spacer,
 	Spinner,
 	Text,
@@ -30,12 +34,17 @@ function normalize(raw: any): { [id: string]: number } {
 	return out;
 }
 
-// same idea for the sound map: only non-empty filename strings survive ("None" = removed)
-function normalizeSounds(raw: any): { [id: string]: string } {
-	const out: { [id: string]: string } = {};
+// same idea for the sound map: entries are { file, volume }, only kept with a non-empty file
+// ("None" = removed). a bare string is the legacy shape and reads as volume 1.
+function normalizeSounds(raw: any): { [id: string]: { file: string; volume: number } } {
+	const out: { [id: string]: { file: string; volume: number } } = {};
 	if (raw && typeof raw === "object" && !Array.isArray(raw))
-		for (const [id, v] of Object.entries(raw))
-			if (id && typeof v === "string" && v) out[id] = v;
+		for (const [id, v] of Object.entries(raw)) {
+			const file = typeof v === "string" ? v : (v && typeof (v as any).file === "string" ? (v as any).file : "");
+			if (!id || !file) continue;
+			const volN = Number(v && (v as any).volume);
+			out[id] = { file, volume: Number.isFinite(volN) ? Math.min(1, Math.max(0, volN)) : 1 };
+		}
 	return out;
 }
 
@@ -92,19 +101,36 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		: Object.keys({ ...saved, ...savedSounds }).filter((id) => !products.some((p) => p.id === id));
 
 	const soundPicker = (id: string) => {
-		const value = soundDraft[id] ?? "";
+		const entry = soundDraft[id];
+		const file = (entry && entry.file) || "";
+		const volume = entry && Number.isFinite(entry.volume) ? entry.volume : 1;
 		return (
-			<Select
-				size='xs'
-				maxW='240px'
-				value={value}
-				onChange={(ev) => setSoundDraft((d: any) => ({ ...d, [id]: ev.currentTarget.value }))}
-			>
-				<option value=''>None</option>
-				{SOUNDS.map((f) => <option key={f} value={f}>{f}</option>)}
-				{/* a saved sound whose file has since been removed from fwsounds — keep it selectable so it's visible */}
-				{value && !SOUNDS.includes(value) && <option value={value}>(missing) {value}</option>}
-			</Select>
+			<>
+				<Select
+					size='xs'
+					maxW='240px'
+					value={file}
+					onChange={(ev) => setSoundDraft((d: any) => ({ ...d, [id]: { file: ev.currentTarget.value, volume } }))}
+				>
+					<option value=''>None</option>
+					{SOUNDS.map((f) => <option key={f} value={f}>{f}</option>)}
+					{/* a saved sound whose file has since been removed from fwsounds — keep it selectable so it's visible */}
+					{file && !SOUNDS.includes(file) && <option value={file}>(missing) {file}</option>}
+				</Select>
+				<Slider
+					size='sm'
+					w='110px'
+					min={0}
+					max={100}
+					value={Math.round(volume * 100)}
+					isDisabled={!file}
+					onChange={(n) => setSoundDraft((d: any) => ({ ...d, [id]: { file, volume: n / 100 } }))}
+				>
+					<SliderTrack><SliderFilledTrack /></SliderTrack>
+					<SliderThumb />
+				</Slider>
+				<Text fontSize='xs' color='gray.500' w='38px' flexShrink={0}>{Math.round(volume * 100)}%</Text>
+			</>
 		);
 	};
 

@@ -373,11 +373,13 @@ export function startApi(){
                     if (perItem)
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
                     // drive the /fwalert browser source too, so a thumbnail click tests the full on-stream alert
+                    const simSound = (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || null;
                     emitFwAlert(id, {
                         name: "SIMULATED",
                         message: `purchased ${pname}`,
                         image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
-                        sound: (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || "",
+                        sound: simSound && simSound.file ? simSound.file : "",
+                        volume: simSound && Number.isFinite(simSound.volume) ? simSound.volume : 1,
                     });
                     const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);
                     ws.send(JSON.stringify({ commandResult: {
