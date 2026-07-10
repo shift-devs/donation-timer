@@ -25,12 +25,12 @@ export function normalizeFwProductBonuses(raw: any): { [id: string]: number } {
 
 // list the shop's products (offers) so the dashboard can attach per-product bonuses.
 // offer ids here are the same ids that appear in an order's offers[] lines.
-export async function fetchFourthwallProducts(session: TimerUserSession): Promise<{ id: string, name: string }[]> {
+export async function fetchFourthwallProducts(session: TimerUserSession): Promise<{ id: string, name: string, image: string }[]> {
     const fw = (session.connections && session.connections.fourthwall) || {};
     if (!fw.username || !fw.password)
         throw new Error("Fourthwall is not connected.");
     const auth = "Basic " + Buffer.from(`${fw.username}:${fw.password}`).toString("base64");
-    const out: { id: string, name: string }[] = [];
+    const out: { id: string, name: string, image: string }[] = [];
     for (let page = 0; page < 10; page++){ // hard page cap so a pathological shop can't loop us forever
         const res = await axios.get(`${FW_API}/products`, {
             headers: { Authorization: auth },
@@ -41,7 +41,11 @@ export async function fetchFourthwallProducts(session: TimerUserSession): Promis
         const rows = (res.data && res.data.results) || [];
         for (const r of rows)
             if (r && r.id)
-                out.push({ id: String(r.id), name: String(r.name || r.slug || r.id) });
+                out.push({
+                    id: String(r.id),
+                    name: String(r.name || r.slug || r.id),
+                    image: String((r.thumbnailImage && r.thumbnailImage.url) || ""), // fourthwall cdn url; "" = no photo
+                });
         if (rows.length < 100)
             break;
     }

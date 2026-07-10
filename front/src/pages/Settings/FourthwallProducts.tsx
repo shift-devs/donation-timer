@@ -4,6 +4,7 @@ import {
 	Button,
 	Flex,
 	HStack,
+	Image,
 	NumberInput,
 	NumberInputField,
 	Spacer,
@@ -51,8 +52,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// bonuses saved for products the shop no longer lists — keep them visible so they can be zeroed out
 	const orphans = products === null ? [] : Object.keys(saved).filter((id) => !products.some((p) => p.id === id));
 
-	const row = (id: string, name: string, faded: boolean) => (
+	const row = (id: string, name: string, faded: boolean, image?: string) => (
 		<Flex key={id} align='center' py={1.5} borderBottom='1px solid' borderColor='whiteAlpha.200'>
+			{image ? (
+				<Image src={image} alt='' boxSize='36px' objectFit='cover' borderRadius='md' mr={3} flexShrink={0}
+					fallback={<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' mr={3} flexShrink={0} />} />
+			) : (
+				<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' mr={3} flexShrink={0} />
+			)}
 			<Text noOfLines={1} color={faded ? "gray.500" : undefined}>{name}</Text>
 			<Spacer />
 			<HStack>
@@ -88,7 +95,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 			{products !== null && products.length === 0 && !error && (
 				<Text color='gray.400'>No products found in the shop.</Text>
 			)}
-			{(products || []).map((p) => row(p.id, p.name, false))}
+			{(products || []).map((p) => row(p.id, p.name, false, p.image))}
 			{orphans.map((id) => row(id, `(no longer listed) ${id}`, true))}
 			<Flex mt={4}>
 				<Spacer />
