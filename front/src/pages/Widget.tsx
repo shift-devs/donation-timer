@@ -1,6 +1,7 @@
 import Timer from "../Timer";
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
+import { useCountdownSeconds } from "../useCountdown";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -9,14 +10,9 @@ let timer_color: string = "white";
 
 const Widget: React.FC = () => {
 	const token = new URLSearchParams(window.location.search).get("token");
-	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
-
-	const updateSeconds = (et: number) => {
-		setEndTime(et);
-		setSeconds(Math.round((et - Date.now()) / 1000));
-	};
+	const seconds = useCountdownSeconds(endTime);
 
 	const connectWs = () => {
 		// tear down any prior socket so handlers/reconnects can't stack
@@ -30,7 +26,7 @@ const Widget: React.FC = () => {
 			const response = JSON.parse(event.data);
 
 			if ("endTime" in response) {
-				updateSeconds(response.endTime);
+				setEndTime(response.endTime);
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -64,15 +60,6 @@ const Widget: React.FC = () => {
 			}
 		};
 	}, []);
-
-	// single interval deriving seconds from endTime each tick — no per-tick re-arm, no drift over a weeks-long overlay
-	useEffect(() => {
-		const id = setInterval(() => {
-			const s = Math.round((endTime - Date.now()) / 1000);
-			setSeconds(s > 0 ? s : 0);
-		}, 1000);
-		return () => clearInterval(id);
-	}, [endTime]);
 
 	if (!fetched || !token)
 		return (

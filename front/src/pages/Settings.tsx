@@ -9,6 +9,7 @@ import Terminal from "./Settings/Terminal";
 import Connections from "./Settings/Connections";
 import TimerEvents from "./Settings/TimerEvents";
 import { runCommand } from "../Api";
+import { useCountdownSeconds } from "../useCountdown";
 import { Navigate } from "react-router-dom";
 import {
 	Spinner,
@@ -29,8 +30,8 @@ const LOG_CAP = 2000; // keep the live feed bounded — a dashboard tab can stay
 const Settings: React.FC = () => {
 	const token = localStorage.getItem("identity");
 	const [settings, setSettings] = useState({ slStatus: false });
-	const [seconds, setSeconds] = useState(0);
 	const [endTime, setEndTime] = useState(0);
+	const seconds = useCountdownSeconds(endTime);
 	const [fetched, setFetched] = useState(false);
 	const [log, setLog] = useState<any[]>([]);
 	const [logHasMore, setLogHasMore] = useState(false);
@@ -39,15 +40,8 @@ const Settings: React.FC = () => {
 	const logRequestedRef = useRef(false);
 
 	const updateSeconds = (endTime: number) => {
-		let tempSeconds = Math.round((endTime - Date.now()) / 1000);
-		tempSeconds = tempSeconds >= 0 ? tempSeconds : 0;
-		console.log(
-			`Force syncing endtime to ${endTime} and seconds to ${
-				tempSeconds
-			} `
-		);
+		console.log(`Force syncing endtime to ${endTime}`);
 		setEndTime(endTime);
-		setSeconds(tempSeconds);
 	};
 
 	const connectWs = () => {
@@ -127,15 +121,6 @@ const Settings: React.FC = () => {
 			}
 		};
 	}, []);
-
-	// single interval that derives the displayed seconds from endTime each tick — no per-tick re-arm, no drift
-	useEffect(() => {
-		const id = setInterval(() => {
-			const s = Math.round((endTime - Date.now()) / 1000);
-			setSeconds(s > 0 ? s : 0);
-		}, 1000);
-		return () => clearInterval(id);
-	}, [endTime]);
 
 	const loadOlder = () => {
 		if (!logHasMore || logLoadingRef.current) return;
