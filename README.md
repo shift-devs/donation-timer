@@ -24,6 +24,7 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 - **Windows:** `docker/wscripts/update.bat`
 - **Linux:** `docker/lscripts/update.sh`
+- **Podman + systemd (`donationtimer` user unit):** `./update.sh` in the repo root
 
 > [!WARNING]
 > `update` takes everything down and discards the built images before pulling — use it between streams, not during one.
