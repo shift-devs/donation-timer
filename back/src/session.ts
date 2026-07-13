@@ -1,5 +1,5 @@
 import { TimerUserSession, TimerEvent } from "./types";
-import { emitSync } from "./bus";
+import { emitSync, reportError } from "./bus";
 import { normalizeRates } from "./rates";
 import { normalizeConnections } from "./connections";
 import { normalizeTimerEvents } from "./timerEvents";
@@ -80,12 +80,25 @@ export function loginUser(inObj: Object){
 
     sessions.push(lvObj);
     const curSession = sessions[sessions.length - 1];
-    if (curSession.connections.twitch.channel)
-        curSession.conTMI = connectTwitchFor(curSession);
-    if (curSession.connections.streamlabs.token)
-        curSession.conSL = connectStreamlabsFor(curSession);
-    if (curSession.connections.fourthwall.username && curSession.connections.fourthwall.password)
-        curSession.conFW = connectFourthwallFor(curSession);
+    // one platform failing to spin up must not abort the login or the other platforms
+    try {
+        if (curSession.connections.twitch.channel)
+            curSession.conTMI = connectTwitchFor(curSession);
+    } catch (err) {
+        reportError(curSession.userId, `connecting Twitch for ${curSession.name}`, err);
+    }
+    try {
+        if (curSession.connections.streamlabs.token)
+            curSession.conSL = connectStreamlabsFor(curSession);
+    } catch (err) {
+        reportError(curSession.userId, `connecting Streamlabs for ${curSession.name}`, err);
+    }
+    try {
+        if (curSession.connections.fourthwall.username && curSession.connections.fourthwall.password)
+            curSession.conFW = connectFourthwallFor(curSession);
+    } catch (err) {
+        reportError(curSession.userId, `connecting Fourthwall for ${curSession.name}`, err);
+    }
     console.log(`${curSession.name} has logged in!`);
 }
 
@@ -96,14 +109,27 @@ export function logoutUser(id: number){
         console.log(`logoutUser: WARNING! Could not log out the user with userId ${id}. They are not registered as a logged in user!`);
         return;
     }
-    // mark detached so a late platform event (fired before the clients fully close) is dropped by the handler
+    // mark detached so a late platform event (fired before the clients fully close) is dropped by the handler.
+    // teardown is best-effort: one connector failing to close must not keep the session (or the others) alive.
     curSession.loggedOut = true;
-    if (curSession.conSL)
-        curSession.conSL.disconnect();
-    if (curSession.conTMI)
-        curSession.conTMI.disconnect();
-    if (curSession.conFW)
-        curSession.conFW.disconnect();
+    try {
+        if (curSession.conSL)
+            curSession.conSL.disconnect();
+    } catch (err) {
+        console.log("Streamlabs disconnect failed:", err);
+    }
+    try {
+        if (curSession.conTMI) // rejects if the client never connected — that's fine, just log it
+            curSession.conTMI.disconnect().catch((err: any)=>console.log("TMI disconnect failed:", err && err.message));
+    } catch (err) {
+        console.log("TMI disconnect failed:", err);
+    }
+    try {
+        if (curSession.conFW)
+            curSession.conFW.disconnect();
+    } catch (err) {
+        console.log("Fourthwall disconnect failed:", err);
+    }
     sessions.splice(curIndex,1);
     console.log(`${curSession.name} has logged out!`);
 }

@@ -26,3 +26,15 @@ export function emitFwAlert(userId: number, payload: any) {
 export function emitFwActivity(userId: number, entry: any) {
     bus.emit("fwActivityEntry", userId, entry);
 }
+
+// a line for this user's dashboard terminal. api.ts routes it to page=settings clients only.
+export function emitTerminal(userId: number, message: string) {
+    bus.emit("terminalLine", userId, message);
+}
+
+// the one way to report a recovered error: full detail to the server console, a short red line to the
+// dashboard terminal. used wherever a sub-event / timer-change failure must be visible to the operator.
+export function reportError(userId: number, context: string, err: any) {
+    console.log(`ERROR ${context}:`, err);
+    emitTerminal(userId, `ERROR ${context}: ${(err && err.message) || String(err)}`);
+}

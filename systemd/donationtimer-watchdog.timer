@@ -1,0 +1,11 @@
+# Fires the donationtimer watchdog once a minute. Installed by systemd/install-watchdog.sh.
+[Unit]
+Description=Donation Timer watchdog timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

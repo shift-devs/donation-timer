@@ -17,6 +17,11 @@ if ! git pull --ff-only; then
     exit 1
 fi
 
+echo "Installing/refreshing the watchdog..."
+if ! ./systemd/install-watchdog.sh; then
+    echo "!! watchdog install failed — the stack will still start, but auto-restart may be stale"
+fi
+
 echo "Starting donationtimer..."
 systemctl --user start donationtimer
 

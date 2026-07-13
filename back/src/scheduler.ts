@@ -1,6 +1,6 @@
 import { TimerUserSession } from "./types";
 import { sessions } from "./session";
-import { emitPlayEvent } from "./bus";
+import { emitPlayEvent, emitTerminal, reportError } from "./bus";
 import { parseCommand } from "./commands";
 import { handle } from "./events";
 
@@ -82,13 +82,21 @@ function scheduleEventCommand(session: TimerUserSession, ev: any) {
         return;
     const delayMs = Math.max(0, Number(ev.cmdDelaySec) || 0) * 1000;
     setTimeout(() => {
-        const parsed = parseCommand(text);
-        if (parsed.error || !parsed.event){
-            console.log(`Timer event "${ev.name || ev.id}" command "${text}" did not parse: ${parsed.error || "not a command"}`);
-            return;
+        // this runs later on a bare timer with nothing above it on the stack — any throw here must be
+        // contained locally and surfaced on the terminal, since it's a timer-change failure
+        try {
+            const parsed = parseCommand(text);
+            if (parsed.error || !parsed.event){
+                const msg = `Timer event "${ev.name || ev.id}" command "${text}" did not parse: ${parsed.error || "not a command"}`;
+                console.log(msg);
+                emitTerminal(session.userId, msg);
+                return;
+            }
+            parsed.event.label = `${parsed.event.label} (timer event: ${ev.name || ev.id})`;
+            handle(session, parsed.event);
+        } catch (err) {
+            reportError(session.userId, `running timer event "${ev.name || ev.id}" command`, err);
         }
-        parsed.event.label = `${parsed.event.label} (timer event: ${ev.name || ev.id})`;
-        handle(session, parsed.event);
     }, delayMs);
 }
 
@@ -123,8 +131,14 @@ function tickSession(session: TimerUserSession, now: number, liveKeys: Set<strin
 export function tickTimerEvents() {
     const now = Date.now();
     const liveKeys = new Set<string>();
-    for (const session of sessions)
-        tickSession(session, now, liveKeys);
+    for (const session of sessions){
+        // one session's bad event data must not stop other sessions' events; surface it on that user's terminal
+        try {
+            tickSession(session, now, liveKeys);
+        } catch (err) {
+            reportError(session.userId, "ticking timer events", err);
+        }
+    }
     // drop markers for events/sessions that no longer exist so the map can't grow unbounded over a long run
     for (const key of lastFired.keys())
         if (!liveKeys.has(key))

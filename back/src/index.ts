@@ -1,17 +1,28 @@
 import { CLIENT_ID, DB_UPDATE_TIME, LOG_RETENTION_MS, LOG_PRUNE_TIME, EVENT_TICK_TIME } from "./config";
 import { connectDb, dbUpdate, dbPruneLogs, usersModel } from "./db";
+import { emitTerminal } from "./bus";
 import { whSend } from "./notify";
 import { sessions, loginUser } from "./session";
 import { startApi } from "./api";
 import { tickTimerEvents } from "./scheduler";
 
 async function main(){
-    process.on("unhandledRejection", (reason) => {
-        console.log("Unhandled rejection:", reason);
-    });
-    process.on("uncaughtException", (err) => {
-        console.log("Uncaught exception:", err);
-    });
+    // last-resort nets: anything that slipped every local containment is logged (with stack) and echoed to
+    // each logged-in user's dashboard terminal — the process itself never dies to a recoverable error.
+    let reporting = false; // re-entrancy guard: a throw inside the reporter must not recurse into itself
+    const reportGlobal = (kind: string, err: any) => {
+        console.log(`${new Date().toISOString()} ${kind}:`, (err && err.stack) || err);
+        if (reporting)
+            return;
+        reporting = true;
+        try {
+            for (const s of sessions)
+                emitTerminal(s.userId, `SERVER ${kind} (recovered): ${(err && err.message) || err}`);
+        } catch {}
+        reporting = false;
+    };
+    process.on("unhandledRejection", (reason) => reportGlobal("unhandled rejection", reason));
+    process.on("uncaughtException", (err) => reportGlobal("uncaught exception", err));
     console.log(`Running in ${CLIENT_ID==""?"Una":"A"}uthorized Mode!`);
     whSend("**TIMER STARTED**");
 
@@ -25,14 +36,19 @@ async function main(){
 
     const users = await usersModel.findAll();
 
-    users.forEach(async (user: any) => {
-        if ((CLIENT_ID == "" && user.dataValues.userId != 1) || (CLIENT_ID != "" && user.dataValues.userId == 1)){
-            console.log(`Removing bad user with userId ${user.dataValues.userId} from the DB!`)
-            await user.destroy();
-            return;
+    // per-user containment: one corrupt row (bad jsonb, connector blowing up) must not block the other logins
+    for (const user of users){
+        try {
+            if ((CLIENT_ID == "" && user.dataValues.userId != 1) || (CLIENT_ID != "" && user.dataValues.userId == 1)){
+                console.log(`Removing bad user with userId ${user.dataValues.userId} from the DB!`)
+                await user.destroy();
+                continue;
+            }
+            loginUser(user.dataValues);
+        } catch (err) {
+            console.log(`Failed to log in userId ${user.dataValues && user.dataValues.userId} from the DB:`, err);
         }
-        loginUser(user.dataValues);
-    });
+    }
 
     startApi();
 

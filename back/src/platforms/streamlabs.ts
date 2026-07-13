@@ -2,7 +2,7 @@ import axios from "axios";
 import io from "socket.io-client";
 import { TimerUserSession, TimerEvent } from "../types";
 import { MERCH_UPDATE_TIME, WS_FORCE_SYNC_TIME } from "../config";
-import { emitSync } from "../bus";
+import { emitSync, reportError } from "../bus";
 import { whSend } from "../notify";
 // youtube + kick events ride this same socket; each platform owns its own translation in its file
 import { handleYoutubeStreamlabsEvent } from "./youtube";
@@ -55,13 +55,17 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
     });
 
     socket.on("connect", () => {
-        console.log(`Connected to ${watching}'s Streamlabs!`);
-        session.slStatus = true;
-        session.slError = "";
-        emitSync(session.userId);
-        slInstallMerch(session);
-        if (merchInterval == 0)
-            merchInterval = setInterval(()=>slInstallMerch(session), MERCH_UPDATE_TIME);
+        try {
+            console.log(`Connected to ${watching}'s Streamlabs!`);
+            session.slStatus = true;
+            session.slError = "";
+            emitSync(session.userId);
+            slInstallMerch(session);
+            if (merchInterval == 0)
+                merchInterval = setInterval(()=>slInstallMerch(session), MERCH_UPDATE_TIME);
+        } catch (err) {
+            console.log(`(${watching}) Streamlabs connect handler error:`, err);
+        }
     });
 
     socket.on("disconnect", () => {
@@ -151,7 +155,8 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
                 break;
         }
       } catch (err) {
-        console.log(`(${watching}) Streamlabs event handler error:`, err);
+        // donations/merch plus the relayed youtube/kick subs all land here — surface the failure on the terminal
+        reportError(session.userId, `streamlabs event (${watching})`, err);
       }
     });
 

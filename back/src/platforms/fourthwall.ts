@@ -233,7 +233,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             if (baselined)
                 emit(make(row));
         }
-        if (seen.size > 5000) // keep the dedup set bounded over a weeks-long run
+        while (seen.size > 5000) // keep the dedup set bounded over a weeks-long run (a page can add up to 50)
             seen.delete(seen.values().next().value);
     }
 

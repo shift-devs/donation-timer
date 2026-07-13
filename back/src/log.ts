@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { TimerUserSession, TimerWebSocket } from "./types";
 import { LOG_PAGE } from "./config";
 import { logsModel } from "./db";
-import { emitLog } from "./bus";
+import { emitLog, emitTerminal } from "./bus";
 
 export function logTimerEvent(session: TimerUserSession, action: string, oldEndTime: number, newEndTime: number){
     if (session.userId == 0)
@@ -13,7 +13,9 @@ export function logTimerEvent(session: TimerUserSession, action: string, oldEndT
     const newMs = Math.max(Math.round(newEndTime) - nowMs, 0);
     const entry = { t: nowMs, action, oldMs, newMs, addedMs: newMs - oldMs };
     logsModel.create({ userId: session.userId, action, oldMs, newMs, addedMs: entry.addedMs }).catch((err: any)=>{
+        // the time was already granted; tell the operator the audit row for it didn't persist
         console.log("Failed to write log:", err);
+        emitTerminal(session.userId, `ERROR writing timer log for "${action}": ${(err && err.message) || err}`);
     });
     emitLog(session.userId, entry);
 }

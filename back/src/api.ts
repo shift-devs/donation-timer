@@ -3,7 +3,7 @@ import axios, { AxiosResponse } from "axios";
 import WebSocket from "ws";
 import { WSS_PORT, WS_FORCE_SYNC_TIME, WS_HB_TIME, WS_MSG_BURST, WS_MSG_RATE, CLIENT_ID, ALLOWED_USERS } from "./config";
 import { TimerWebSocket } from "./types";
-import { bus, emitSync, emitFwAlert } from "./bus";
+import { bus, emitSync, emitFwAlert, reportError } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
@@ -20,13 +20,19 @@ import { CHAT_CMD_MAX_TIME } from "./config";
 let wss: WebSocket.Server;
 
 function wsCloseError(ws: TimerWebSocket, reason: string){
-    ws.send(
-        JSON.stringify({
-            success: false,
-            error: reason,
-        })
-    );
-    ws.close();
+    // the socket may already be closing/broken (heartbeat timeout races the close) — never let that throw
+    try {
+        if (ws.readyState === WebSocket.OPEN)
+            ws.send(
+                JSON.stringify({
+                    success: false,
+                    error: reason,
+                })
+            );
+        ws.close();
+    } catch (err) {
+        console.log("Failed to close a client socket cleanly:", err);
+    }
 }
 
 function wsSync(ws: TimerWebSocket) {
@@ -71,14 +77,24 @@ async function wsLogin(ws: TimerWebSocket, accessToken: string){
     ws.msgTokens = WS_MSG_BURST;
     ws.msgLast = Date.now();
     ws.msgWarnAt = 0;
-    ws.forceSyncInterval = setInterval(()=>wsSync(ws),WS_FORCE_SYNC_TIME);
+    ws.forceSyncInterval = setInterval(()=>{
+        try {
+            wsSync(ws);
+        } catch (err) {
+            console.log("Periodic sync failed for a client:", err);
+        }
+    },WS_FORCE_SYNC_TIME);
     ws.hbInterval = setInterval(()=>{
         if (ws.isAlive == false){
             wsCloseError(ws, "Did not heartbeat in time!");
             return;
         }
         ws.isAlive = false;
-        ws.ping();
+        try {
+            ws.ping(); // throws if the socket died between ticks
+        } catch (err) {
+            console.log("Heartbeat ping failed for a client:", err);
+        }
     }, WS_HB_TIME);
 
     if (!accessToken){
@@ -156,6 +172,26 @@ async function wsLogin(ws: TimerWebSocket, accessToken: string){
 
 export function startApi(){
     wss = new WebSocket.Server({port: WSS_PORT});
+
+    // a server-level socket error (EMFILE, EADDRINUSE after a rebind, ...) must be logged, never thrown
+    wss.on("error", (err) => {
+        console.log("WebSocket server error:", err);
+    });
+
+    // server-side error lines land in the dashboard terminal (page=settings) as red commandResult lines
+    bus.on("terminalLine", (id: number, message: string) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.page !== "settings" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            try {
+                ws.send(JSON.stringify({ commandResult: { ok: false, message } }));
+            } catch (err) {
+                console.log("Failed to send a terminal line to a client:", err);
+            }
+        }
+    });
 
     bus.on("sync", (id: number) => {
         const clientsArr = Array.from(wss.clients);
@@ -251,6 +287,12 @@ export function startApi(){
             ws.isAlive = true;
         });
 
+        // without a listener, a socket error (client vanished mid-write, protocol violation) is re-thrown
+        // by the emitter and would only be saved by the process-level net — handle it here instead
+        ws.on("error", (err)=>{
+            console.log("Client socket error:", err);
+        });
+
         ws.on('close',()=>{
             console.log("A client has disconnected from the WSS backend!");
             clearInterval(ws.forceSyncInterval);
@@ -282,6 +324,9 @@ export function startApi(){
                 return;
             }
 
+            // one containment for every inbound message: a throw inside any case (setConnection teardown,
+            // runCommand, setEndTime, ...) is logged + surfaced on the dashboard terminal, never fatal
+            try {
             switch (jData.event) {
                 case "getTime":
                     break;
@@ -314,8 +359,8 @@ export function startApi(){
                     if (platform === "twitch") {
                         const channel = (typeof config.channel === "string" ? config.channel : "").trim().toLowerCase();
                         curSession.connections.twitch.channel = channel;
-                        if (curSession.conTMI)
-                            curSession.conTMI.disconnect();
+                        if (curSession.conTMI) // rejects if the client never connected — that's fine, just log it
+                            curSession.conTMI.disconnect().catch((err: any)=>console.log("TMI disconnect failed:", err && err.message));
                         curSession.twitchStatus = false;
                         curSession.conTMI = channel ? connectTwitchFor(curSession) : undefined;
                     } else if (platform === "streamlabs") {
@@ -431,6 +476,9 @@ export function startApi(){
                     break;
             }
             emitSync(id);
+            } catch (err) {
+                reportError(id, `handling "${jData.event}" message`, err);
+            }
         });
     });
 }
