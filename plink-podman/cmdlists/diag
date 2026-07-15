@@ -1,0 +1,3 @@
+cd /home/arch/donation-timer
+git pull --ff-only
+./systemd/collect-diagnostics.sh

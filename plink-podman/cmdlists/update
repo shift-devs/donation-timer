@@ -1,3 +1,2 @@
-systemctl --user stop donationtimer
 cd /home/arch/donation-timer/
-git pull
+./update.sh
