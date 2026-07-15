@@ -19,6 +19,7 @@ import {
 } from "@chakra-ui/react";
 import { getFwProducts, setFwProductBonuses, setFwProductSounds, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
+import MaskedUrl from "../../MaskedUrl";
 
 // sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
 const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : [];
@@ -221,7 +222,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				<Text mb={1}>1. In OBS: Sources → + → Browser.</Text>
 				<Flex mb={1} align='center' gap={2} flexWrap='wrap'>
 					<Text flexShrink={0}>2. URL:</Text>
-					<Text as='code' bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all'>{alertUrl}</Text>
+					<MaskedUrl url={alertUrl} bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all' />
 					<Button size='xs' onClick={() => copyUrl(alertUrl, "Alert")}>Copy</Button>
 				</Flex>
 				<Text mb={1}>3. Width 1200, Height 220 (the alert is a ~125px banner), FPS 30.</Text>
@@ -244,7 +245,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				<Text fontWeight='bold' mb={2}>Activity feed — thank-you tab</Text>
 				<Flex mb={1} align='center' gap={2} flexWrap='wrap'>
 					<Text flexShrink={0}>Keep this open in a browser tab:</Text>
-					<Text as='code' bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all'>{activityUrl}</Text>
+					<MaskedUrl url={activityUrl} bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all' />
 					<Button size='xs' onClick={() => copyUrl(activityUrl, "Activity")}>Copy</Button>
 				</Flex>
 				<Text>

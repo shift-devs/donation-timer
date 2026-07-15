@@ -22,6 +22,7 @@ import {
 } from "@chakra-ui/react";
 import { setTimerEvents, testTimerEvent } from "../../Api";
 import { copyText } from "../../copy";
+import MaskedUrl from "../../MaskedUrl";
 
 // media files found in public/media at build time (vite.config.ts bakes the list in) — the
 // dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
@@ -318,7 +319,7 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					shows, and audio plays through the source. Use a clip's <b>Test</b> button to confirm it's wired up before going live.
 				</Text>
 				<HStack>
-					<Code p={2} fontSize="xs" maxW="100%" overflowX="auto" whiteSpace="nowrap">{sourceUrl}</Code>
+					<MaskedUrl url={sourceUrl} p={2} fontSize="xs" maxW="100%" overflowX="auto" whiteSpace="nowrap" />
 					<Button size="sm" onClick={() => copyText(sourceUrl)}>Copy</Button>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
