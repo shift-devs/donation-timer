@@ -57,12 +57,30 @@ podman info --format 'runRoot={{.Store.RunRoot}} tmpDir={{.Host.OS}}' 2>/dev/nul
 podman info 2>/dev/null | grep -iE 'runroot|tmpdir|graphroot'
 ls -ld /tmp/podman-run-* /tmp/containers-user-* 2>/dev/null
 
+section "NETWORK CONFIG (SSH dies with the app -> guest-wide network loss is a suspect)"
+ip addr 2>&1
+ip route 2>&1
+echo "-- who manages the network? nothing enabled = DHCP lease silently expires ~24h after boot --"
+systemctl list-unit-files --no-pager 2>/dev/null | grep -iE 'dhcpcd|networkd|NetworkManager|connman|iwd|netctl'
+networkctl status --no-pager 2>/dev/null
+resolvectl status --no-pager 2>/dev/null | head -15
+echo "-- socket pressure (a guest-side leak shows up here long before things die) --"
+ss -s 2>&1
+cat /proc/sys/net/netfilter/nf_conntrack_count /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null
+
 section "REBOOTS (did the VM itself go down?)"
 journalctl --list-boots --no-pager 2>&1 | tail -10
 
-section "OOM / KERNEL KILLS"
-journalctl -k --no-pager --since "7 days ago" 2>/dev/null | grep -iE 'out of memory|oom|killed process' | tail -40
+section "OOM / KERNEL KILLS (all boots — journalctl -k alone only covers the current boot)"
+journalctl _TRANSPORT=kernel --no-pager --since "7 days ago" 2>/dev/null | grep -iE 'out of memory|oom|killed process' | tail -40
 echo "(empty = no OOM kills in the kernel log for 7 days, or no permission to read it)"
+
+section "PREVIOUS BOOT — LAST GASP (what the VM logged right before the restart that 'fixed' it)"
+journalctl -b -1 --no-pager 2>/dev/null | tail -120
+echo "(empty = no previous boot in the journal, or journal not persistent — check /var/log/journal exists)"
+
+section "PREVIOUS BOOT — NETWORK/DHCP EVENTS"
+journalctl -b -1 --no-pager 2>/dev/null | grep -iE 'dhcp|lease|carrier|link (up|down)|eth0|enp|network' | tail -60
 
 section "DONATIONTIMER JOURNAL (last 3 days, tail)"
 journalctl --user -u donationtimer --no-pager --since "3 days ago" 2>&1 | tail -300
