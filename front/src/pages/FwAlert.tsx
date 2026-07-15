@@ -169,6 +169,10 @@ const FwAlert: React.FC = () => {
 					volume: typeof a.volume === "number" ? Math.min(1, Math.max(0, a.volume)) : 1,
 					nonce: nonceRef.current,
 				});
+				// a purchase flood queues faster than alerts drain (one every SHOW+EXIT ms) — during a
+				// big rush, showing the 50 most recent beats replaying hours of backlog on stream
+				if (queueRef.current.length > 50)
+					queueRef.current.splice(0, queueRef.current.length - 50);
 				if (!busyRef.current) advance();
 			}
 		};
