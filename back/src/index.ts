@@ -1,3 +1,6 @@
+import http from "http";
+import https from "https";
+import axios from "axios";
 import { CLIENT_ID, DB_UPDATE_TIME, LOG_RETENTION_MS, LOG_PRUNE_TIME, EVENT_TICK_TIME } from "./config";
 import { connectDb, dbUpdate, dbPruneLogs, usersModel } from "./db";
 import { emitTerminal } from "./bus";
@@ -5,6 +8,12 @@ import { whSend } from "./notify";
 import { sessions, loginUser } from "./session";
 import { startApi } from "./api";
 import { tickTimerEvents } from "./scheduler";
+
+// reuse TCP connections for every outbound API call (all modules share the default axios instance).
+// Node 18's default agent opens a fresh TLS connection per request; at the 5s fourthwall polling
+// cadence that's ~17k connections/day of NAT churn — enough to wedge VirtualBox's NAT engine.
+axios.defaults.httpAgent = new http.Agent({ keepAlive: true });
+axios.defaults.httpsAgent = new https.Agent({ keepAlive: true });
 
 async function main(){
     // last-resort nets: anything that slipped every local containment is logged (with stack) and echoed to
