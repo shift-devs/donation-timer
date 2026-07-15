@@ -25,6 +25,11 @@ fi
 echo "Starting donationtimer..."
 systemctl --user start donationtimer
 
+# rebuilds leave the previous image layers behind as dangling; without this they pile up on the VM
+# until the disk fills. -f only removes untagged layers — never touches images in use.
+echo "Pruning dangling images..."
+podman image prune -f > /dev/null || true
+
 echo ""
 echo "Deployed: $(git log --oneline -1)"
 echo "Containers (may take a minute to finish npm install on first boot):"

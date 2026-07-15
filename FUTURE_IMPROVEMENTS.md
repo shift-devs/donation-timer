@@ -6,15 +6,6 @@ Context: the VM currently runs `docker/dev.yml` under the `donationtimer` system
 
 ## In the repo
 
-1. **Container log caps** — neither compose file sets `logging:` limits, so container logs grow
-   unbounded and can fill the VM disk over a weeks-long run (which takes down postgres and
-   everything else). Add `max-size` / `max-file` log options to every service.
-2. **Per-container memory limits** — a leaking node/Vite process currently drags the whole VM into
-   swap-thrash (kills SSH too). With a cgroup limit the leaker alone is OOM-killed and
-   `restart: always` revives it in seconds. Caveat: rootless podman needs cgroup-v2 delegation for
-   memory limits — confirm via `systemd/collect-diagnostics.sh` output first.
-3. **`podman image prune` in `update.sh`** — every update rebuilds images and the old layers
-   accumulate forever on the VM; another slow-motion disk filler.
 4. **Nightly `pg_dump` backup timer** — the timer's end time lives only in the `pgdata` volume;
    dump daily, keep ~7 days.
 5. **SSH keys for the plink scripts** — replace the password auth used by `plink-podman/`
@@ -46,10 +37,15 @@ Context: the VM currently runs `docker/dev.yml` under the `donationtimer` system
 
 ## Priority
 
-`1, 3, 5` are pure wins with zero behavior risk; `4` close behind; `2` and `6` are small but want
-the diagnostics dump / a test pass first.
+`5` is a pure win with zero behavior risk; `4` close behind; `6` is small but wants a test pass
+first.
 
 ## Done already (for context)
+
+- Container log caps (`max-size`) and per-container memory limits in both compose files, image
+  pruning in `update.sh`. Note on the memory limits: rootless podman needs cgroup-v2 delegation —
+  standard on current Arch, but if containers fail to start after pulling this, that's the first
+  thing to check in the diagnostics dump.
 
 - Global crash containment + port-probing watchdog (`266e608`)
 - plink `update` restarting the stack again; exec bits on `systemd/*.sh` (`68f080c`)
