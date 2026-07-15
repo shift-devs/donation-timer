@@ -21,6 +21,7 @@ import {
 	VStack,
 } from "@chakra-ui/react";
 import { setTimerEvents, testTimerEvent } from "../../Api";
+import { copyText } from "../../copy";
 
 // media files found in public/media at build time (vite.config.ts bakes the list in) — the
 // dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
@@ -318,7 +319,7 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 				</Text>
 				<HStack>
 					<Code p={2} fontSize="xs" maxW="100%" overflowX="auto" whiteSpace="nowrap">{sourceUrl}</Code>
-					<Button size="sm" onClick={() => { try { navigator.clipboard.writeText(sourceUrl); } catch {} }}>Copy</Button>
+					<Button size="sm" onClick={() => copyText(sourceUrl)}>Copy</Button>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
 					The media dropdown lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder

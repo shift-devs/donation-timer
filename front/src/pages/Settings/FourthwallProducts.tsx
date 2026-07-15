@@ -18,6 +18,7 @@ import {
 	useToast,
 } from "@chakra-ui/react";
 import { getFwProducts, setFwProductBonuses, setFwProductSounds, testFwPurchase } from "../../Api";
+import { copyText } from "../../copy";
 
 // sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
 const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : [];
@@ -87,10 +88,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const alertUrl = `${window.location.origin}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const activityUrl = `${window.location.origin}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const copyUrl = (url: string, what: string) => {
-		navigator.clipboard.writeText(url).then(
-			() => toast({ title: `${what} URL copied`, status: "success", duration: 2000 }),
-			() => toast({ title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }),
-		);
+		copyText(url).then((ok) =>
+			ok
+				? toast({ title: `${what} URL copied`, status: "success", duration: 2000 })
+				: toast({ title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }));
 	};
 
 	if (!configured)

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Button, Code, Divider, HStack, Input, Text, VStack, useToast } from "@chakra-ui/react";
 import { setCap, setAnon, setWidgetSettings } from "../../Api";
+import { copyText } from "../../copy";
 
 const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	ws,
@@ -30,8 +31,10 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			<Button
 				colorScheme="purple"
 				onClick={() => {
-					navigator.clipboard.writeText(`${window.location.origin}/widget?token=${token}`);
-					toast({ title: "Widget URL copied", status: "success", duration: 1500 });
+					copyText(`${window.location.origin}/widget?token=${token}`).then((ok) =>
+						toast(ok
+							? { title: "Widget URL copied", status: "success", duration: 1500 }
+							: { title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }));
 				}}
 			>
 				Copy widget URL
