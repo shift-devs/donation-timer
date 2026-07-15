@@ -22,7 +22,6 @@ import {
 } from "@chakra-ui/react";
 
 const WS_URL = consts.WS_URL;
-const BASE_URL = consts.BASE_URL;
 
 let ws: WebSocket;
 let reconnectTimer: any;
@@ -217,7 +216,7 @@ const Settings: React.FC = () => {
 							/>
 						</TabPanel>
 						<TabPanel>
-							<Controls ws={ws} token={token} baseUrl={BASE_URL} settings={settings} />
+							<Controls ws={ws} token={token} settings={settings} />
 						</TabPanel>
 					</TabPanels>
 				</Tabs>

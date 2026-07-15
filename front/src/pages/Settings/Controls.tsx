@@ -2,10 +2,9 @@ import React, { useRef, useState } from "react";
 import { Button, Code, Divider, HStack, Input, Text, VStack, useToast } from "@chakra-ui/react";
 import { setCap, setAnon, setWidgetSettings } from "../../Api";
 
-const Controls: React.FC<{ ws: any; token: string | null; baseUrl: string; settings: any }> = ({
+const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	ws,
 	token,
-	baseUrl,
 	settings,
 }) => {
 	const toast = useToast();
@@ -31,7 +30,7 @@ const Controls: React.FC<{ ws: any; token: string | null; baseUrl: string; setti
 			<Button
 				colorScheme="purple"
 				onClick={() => {
-					navigator.clipboard.writeText(`${baseUrl}/widget?token=${token}`);
+					navigator.clipboard.writeText(`${window.location.origin}/widget?token=${token}`);
 					toast({ title: "Widget URL copied", status: "success", duration: 1500 });
 				}}
 			>

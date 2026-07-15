@@ -20,7 +20,6 @@ import {
 	Text,
 	VStack,
 } from "@chakra-ui/react";
-import * as consts from "../../Consts";
 import { setTimerEvents, testTimerEvent } from "../../Api";
 
 // media files found in public/media at build time (vite.config.ts bakes the list in) — the
@@ -133,7 +132,7 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 	const add = () => setDraft((d) => [...d, defaultEdit()]);
 
 	const token = localStorage.getItem("identity") || "";
-	const sourceUrl = `${consts.BASE_URL}/events?token=${encodeURIComponent(token)}`;
+	const sourceUrl = `${window.location.origin}/events?token=${encodeURIComponent(token)}`;
 
 	const card = (e: any, i: number) => (
 		<Box key={e.id} borderWidth="1px" borderRadius="md" p={4} mb={3} bg={e.enabled ? "white" : "gray.50"}>
