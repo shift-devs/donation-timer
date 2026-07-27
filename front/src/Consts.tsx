@@ -1,6 +1,6 @@
-// always same-origin: nginx (pro) / the vite dev server (dev) proxy /ws to the backend. Derived
-// from the page origin only — deliberately no env override, so stale config on a host can never
-// point the socket at a dead address (VITE_WEBSOCKET_URL from any source is ignored).
-export const WS_URL = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
-export const CLIENT_ID = import.meta.env.VITE_CLIENT_ID;
-export const REDIRECT_URL = import.meta.env.VITE_REDIRECT_URL;
+// Single fixed deployment: the app is served from one static LAN address, so the base URL is a
+// hardcoded constant instead of an env var. Change this one line if the host ever moves — every
+// widget/source/socket URL derives from it. The socket scheme tracks the base (http→ws, https→wss);
+// nginx (pro) / the vite dev server (dev) proxy /ws to the backend.
+export const BASE_URL = "http://192.168.1.5:3080";
+export const WS_URL = `${BASE_URL.replace(/^http/, "ws")}/ws`;

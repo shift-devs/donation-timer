@@ -10,11 +10,6 @@ services:
       driver: json-file
       options:
         max-size: 10m
-    environment:
-      - CLIENT_ID=${CLIENT_ID}
-      - VITE_CLIENT_ID=${VITE_CLIENT_ID}
-      - VITE_REDIRECT_URL=${VITE_REDIRECT_URL}
-      - VITE_BASE_URL=${VITE_BASE_URL}
     build:
       context: ..
       dockerfile: docker/Dockerfile-dev-front

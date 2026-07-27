@@ -5,8 +5,6 @@ USER root
 ENV HOME_DIR "/home/node/app"
 WORKDIR $HOME_DIR
 COPY front/ .
-# Required in Production Compiled Vite
-COPY docker/.env .
 
 RUN chown -R node:node .
 RUN chmod -R 700 .

@@ -20,6 +20,7 @@ import {
 import { getFwProducts, setFwProductBonuses, setFwProductSounds, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
+import { BASE_URL } from "../../Consts";
 
 // sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
 const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : [];
@@ -86,8 +87,8 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		toast({ title: `Simulated purchase: ${p.name}`, status: "info", duration: 2500, isClosable: true });
 	};
 
-	const alertUrl = `${window.location.origin}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
-	const activityUrl = `${window.location.origin}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
+	const alertUrl = `${BASE_URL}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
+	const activityUrl = `${BASE_URL}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const copyUrl = (url: string, what: string) => {
 		copyText(url).then((ok) =>
 			ok
