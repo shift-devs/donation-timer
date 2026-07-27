@@ -205,7 +205,13 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 							width="110px"
 						/>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mt={1}>Leave a box blank for no limit on that side.</Text>
+					<Text fontSize="xs" color="gray.500" mt={1}>
+						Both ends are inclusive. Leave a box blank for no limit on that side. The check
+						uses the exact countdown, while the on-screen clock rounds to whole seconds — so a
+						max of <Code fontSize="xs">0:09:59</Code> only catches the lower half of the second
+						shown as "9:59". Add a second of margin (e.g. <Code fontSize="xs">0:10:00</Code>) to
+						catch the whole displayed second.
+					</Text>
 				</Box>
 
 				{/* media */}
