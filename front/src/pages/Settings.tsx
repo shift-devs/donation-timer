@@ -9,6 +9,7 @@ import Terminal from "./Settings/Terminal";
 import Connections from "./Settings/Connections";
 import TimerEvents from "./Settings/TimerEvents";
 import FourthwallProducts from "./Settings/FourthwallProducts";
+import SubCounts from "./Settings/SubCounts";
 import { runCommand } from "../Api";
 import { useCountdownSeconds } from "../useCountdown";
 import { Navigate } from "react-router-dom";
@@ -186,6 +187,7 @@ const Settings: React.FC = () => {
 						<Tab>Change Time</Tab>
 						<Tab>Terminal</Tab>
 						<Tab>Settings</Tab>
+						<Tab>Subcounts</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
@@ -217,6 +219,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />
+						</TabPanel>
+						<TabPanel>
+							<SubCounts ws={ws} token={token} settings={settings} />
 						</TabPanel>
 					</TabPanels>
 				</Tabs>

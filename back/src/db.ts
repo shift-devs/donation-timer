@@ -77,6 +77,22 @@ export const USER_TABLE = {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: []
+    },
+    // all-time per-service sub tallies backing the /subcount browser sources (see migration add-sub-counts)
+    subCountTwitch: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
+    },
+    subCountYoutube: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
+    },
+    subCountKick: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
     }
 }
 
@@ -147,7 +163,10 @@ export async function dbCreate(inObj: Object){
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         widgetSettings: lvObj.widgetSettings,
-        fwActivity: lvObj.fwActivity
+        fwActivity: lvObj.fwActivity,
+        subCountTwitch: lvObj.subCountTwitch,
+        subCountYoutube: lvObj.subCountYoutube,
+        subCountKick: lvObj.subCountKick
     });
 }
 
@@ -179,6 +198,9 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 fwProductSounds: curSession.fwProductSounds,
                 widgetSettings: curSession.widgetSettings,
                 fwActivity: curSession.fwActivity,
+                subCountTwitch: curSession.subCountTwitch,
+                subCountYoutube: curSession.subCountYoutube,
+                subCountKick: curSession.subCountKick,
             },
             {
                 where: {

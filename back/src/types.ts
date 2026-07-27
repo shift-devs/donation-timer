@@ -36,6 +36,10 @@ export interface TimerUserSession {
     fwProductSounds: any
     widgetSettings: any
     fwActivity: any
+    // all-time per-service sub tallies driving the /subcount browser sources
+    subCountTwitch: number
+    subCountYoutube: number
+    subCountKick: number
     loggedOut?: boolean
     conTMI?: tmi.Client
     conSL?: any

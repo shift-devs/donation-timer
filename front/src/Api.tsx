@@ -57,6 +57,12 @@ export function setAnon(ws: WebSocket, value: boolean) {
 	return 1;
 }
 
+export function setSubCount(ws: WebSocket, platform: "twitch" | "youtube" | "kick", value: number) {
+	if (!Number.isFinite(value)) return 1; // empty/NaN field — ignore
+	send(ws, { event: "setSubCount", platform: platform, value: Math.max(0, Math.trunc(value)) });
+	return 1;
+}
+
 export function setRates(ws: WebSocket, rates: any) {
 	send(ws, { event: "setRates", rates: rates });
 	return 1;

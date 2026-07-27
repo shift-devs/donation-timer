@@ -66,7 +66,13 @@ function wsSync(ws: TimerWebSocket) {
             merchValues: curSession.merchValues,
             fwProductBonuses: curSession.fwProductBonuses || {},
             fwProductSounds: curSession.fwProductSounds || {},
-            widgetSettings: curSession.widgetSettings || {}
+            widgetSettings: curSession.widgetSettings || {},
+            // all-time per-service sub tallies for the dashboard + /subcount browser sources
+            subCounts: {
+                twitch: curSession.subCountTwitch || 0,
+                youtube: curSession.subCountYoutube || 0,
+                kick: curSession.subCountKick || 0
+            }
         })
     );
 }
@@ -474,6 +480,14 @@ export function startApi(){
                 case "setAnon":
                     curSession.ignoreAnon = Boolean(jData.value) || false;
                     break;
+                case "setSubCount": {
+                    // dashboard reconciles a service's tally to its real current number (drift correction)
+                    const v = Math.max(0, Math.trunc(Number(jData.value) || 0));
+                    if (jData.platform === "twitch") curSession.subCountTwitch = v;
+                    else if (jData.platform === "youtube") curSession.subCountYoutube = v;
+                    else if (jData.platform === "kick") curSession.subCountKick = v;
+                    break;
+                }
             }
             emitSync(id);
             } catch (err) {

@@ -63,6 +63,10 @@ export function loginUser(inObj: Object){
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.widgetSettings = normalizeWidgetSettings(lvObj.widgetSettings);
     lvObj.fwActivity = normalizeFwActivity(lvObj.fwActivity);
+    // all-time sub tallies: coerce (pg may hand back strings; a brand-new user has none yet -> 0)
+    lvObj.subCountTwitch = Math.max(0, Math.trunc(Number(lvObj.subCountTwitch) || 0));
+    lvObj.subCountYoutube = Math.max(0, Math.trunc(Number(lvObj.subCountYoutube) || 0));
+    lvObj.subCountKick = Math.max(0, Math.trunc(Number(lvObj.subCountKick) || 0));
     lvObj.twitchStatus = false;
     lvObj.twitchError = "";
     lvObj.merchValues = {};
