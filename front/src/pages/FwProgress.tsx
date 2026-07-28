@@ -9,12 +9,14 @@ let reconnectTimer: any;
 // one page, one OBS URL per product. the units-sold count rides the normal sync (fwUnitsSold, keyed by
 // offer id) and refreshes as the backend polls the report. URL params (all built by the dashboard wizard):
 //   product=<offerId>  max=<goal>  title=<text left of the bar>
+//   offset=<units already sold before this goal started, subtracted from the count>
 //   fill=<progress color>  track=<empty-bar color>  text=<title + number color>
 const FwProgress: React.FC = () => {
 	const params = new URLSearchParams(window.location.search);
 	const token = params.get("token");
 	const product = params.get("product") || "";
 	const max = Math.max(1, Math.trunc(Number(params.get("max")) || 100)); // avoid divide-by-zero
+	const offset = Math.max(0, Math.trunc(Number(params.get("offset")) || 0));
 	const title = params.get("title") || "";
 	const textColor = params.get("text") || "#ffffff";
 	const fillColor = params.get("fill") || "#22c55e";
@@ -72,7 +74,8 @@ const FwProgress: React.FC = () => {
 	}, []);
 
 	const ready = fetched && token && product;
-	const pct = Math.min(100, Math.max(0, (sold / max) * 100));
+	const count = Math.max(0, sold - offset); // all-time units minus what was already sold when the goal started
+	const pct = Math.min(100, Math.max(0, (count / max) * 100));
 
 	// full-viewport chroma key fill — OBS keys it out so only the row shows
 	const wrap: React.CSSProperties = {
@@ -132,7 +135,7 @@ const FwProgress: React.FC = () => {
 					}}
 				/>
 				<div style={barText}>{title}</div>
-				<div style={barText}>{ready ? `${sold.toLocaleString()} / ${max.toLocaleString()}` : "—"}</div>
+				<div style={barText}>{ready ? `${count.toLocaleString()} / ${max.toLocaleString()}` : "—"}</div>
 			</div>
 		</div>
 	);

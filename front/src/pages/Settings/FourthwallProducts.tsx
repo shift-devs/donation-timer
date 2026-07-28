@@ -185,6 +185,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// /fwprogress url. everything lives in the url (no saved state) — changing it just re-copies the url.
 	const [progressProduct, setProgressProduct] = useState("");
 	const [progressMax, setProgressMax] = useState(1000);
+	const [progressOffset, setProgressOffset] = useState(0);
 	const [progressTitle, setProgressTitle] = useState("");
 	const [progressFill, setProgressFill] = useState("#22c55e");
 	const [progressTrack, setProgressTrack] = useState("#111827");
@@ -342,6 +343,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 						onChange={(ev) => {
 							const id = ev.currentTarget.value;
 							setProgressProduct(id);
+							setProgressOffset(0); // the offset belongs to whichever product it was set from
 							// prefill the title with the product name (still editable)
 							const p = (products || []).find((x) => x.id === id);
 							setProgressTitle(p ? p.name : "");
@@ -359,6 +361,22 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					</NumberInput>
 					<Text color='gray.400'>sold</Text>
 				</Flex>
+				<Flex align='center' gap={2} mb={2} flexWrap='wrap'>
+					<Text w='52px' flexShrink={0}>Offset</Text>
+					<NumberInput size='sm' maxW='110px' min={0} value={progressOffset} onChange={(_, n) => setProgressOffset(Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0)}>
+						<NumberInputField />
+					</NumberInput>
+					{progressProduct && (
+						<Button
+							size='xs'
+							variant='outline'
+							onClick={() => setProgressOffset(Number(settings.fwUnitsSold && settings.fwUnitsSold[progressProduct]) || 0)}
+						>
+							Start from now
+						</Button>
+					)}
+					<Text color='gray.400'>subtracted from the all-time count, so the bar starts at 0 for this goal</Text>
+				</Flex>
 				<Flex align='center' gap={5} mb={3} flexWrap='wrap'>
 					<HStack><Text>Fill</Text><Input type='color' w='42px' p={1} value={progressFill} onChange={(ev) => setProgressFill(ev.currentTarget.value)} /></HStack>
 					<HStack><Text>Bar Background</Text><Input type='color' w='42px' p={1} value={progressTrack} onChange={(ev) => setProgressTrack(ev.currentTarget.value)} /></HStack>
@@ -367,12 +385,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				{progressProduct ? (
 					(() => {
 						const sold = Number(settings.fwUnitsSold && settings.fwUnitsSold[progressProduct]) || 0;
+						const counted = Math.max(0, sold - progressOffset); // what the bar will actually show
 						const pct = 50; // preview always shows a half-full bar so colors/layout are easy to judge
 						const previewBg = (settings.widgetSettings && settings.widgetSettings.bgColor) || "#00FF00";
 						const p = new URLSearchParams({
 							token: localStorage.getItem("identity") || "",
 							product: progressProduct,
 							max: String(progressMax),
+							offset: String(progressOffset),
 							title: progressTitle,
 							fill: progressFill,
 							track: progressTrack,
@@ -382,12 +402,12 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 						const barText: React.CSSProperties = { position: "relative", zIndex: 1, color: progressText, fontFamily: "'Staatliches', sans-serif", fontSize: "20px", lineHeight: 1, whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.6)" };
 						return (
 							<>
-								<Text fontSize='xs' color='gray.500' mb={1}>Preview (live sold count — {sold.toLocaleString()} so far):</Text>
+								<Text fontSize='xs' color='gray.500' mb={1}>Preview (live sold count — {sold.toLocaleString()} all-time{progressOffset > 0 ? `, ${counted.toLocaleString()} after the offset` : ""}):</Text>
 								<Box borderRadius='md' p={3} mb={3} style={{ background: previewBg }}>
 									<Box position='relative' h='38px' borderRadius='full' overflow='hidden' display='flex' alignItems='center' justifyContent='space-between' px='18px' style={{ background: progressTrack, border: `2px solid ${progressText}` }}>
 										<Box position='absolute' left={0} top={0} h='100%' zIndex={0} style={{ width: `${pct}%`, background: progressFill, transition: "width 0.4s ease" }} />
 										<Box style={barText}>{progressTitle}</Box>
-										<Box style={barText}>{sold.toLocaleString()} / {progressMax.toLocaleString()}</Box>
+										<Box style={barText}>{counted.toLocaleString()} / {progressMax.toLocaleString()}</Box>
 									</Box>
 								</Box>
 								<Flex align='center' gap={2} flexWrap='wrap'>
@@ -402,7 +422,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				)}
 				<Text color='gray.400' mt={3}>
 					The page background is the timer widget&apos;s chroma color (set in the Settings tab) — add a
-					Color Key filter in OBS so only the row shows. The sold count refreshes about once a minute.
+					Color Key filter in OBS so only the row shows.
 				</Text>
 			</Box>
 		</Box>

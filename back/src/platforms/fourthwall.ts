@@ -348,8 +348,9 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
         }
     }
 
-    // refresh the per-product units-sold tallies for the /fwprogress bars. runs on its own slower cadence
-    // and never touches the order poll's status/error — a hiccup here shouldn't flap the connection light.
+    // refresh the per-product units-sold tallies for the /fwprogress bars. runs on its own timer (guarded by
+    // pollingUnits so a slow report can't stack) and never touches the order poll's status/error — a hiccup
+    // here shouldn't flap the connection light.
     async function pollUnits(){
         if (pollingUnits)
             return;
