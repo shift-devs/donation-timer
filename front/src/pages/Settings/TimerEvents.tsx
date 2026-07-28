@@ -31,8 +31,10 @@ const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_F
 const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
 
 // ---- shape helpers -------------------------------------------------------------------------------------------------
-// canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings so
-// typing doesn't fight a re-padding formatter; we convert at the save/load boundary and compare canonical projections.
+// canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings and
+// the command delay as raw text so typing doesn't fight a formatter — a half-typed "1." parses to 1 and a numeric
+// value prop would rewrite the box mid-keystroke, eating the dot. we convert at the save/load boundary and compare
+// canonical projections.
 
 const uid = () =>
 	(typeof crypto !== "undefined" && (crypto as any).randomUUID)
@@ -55,6 +57,13 @@ function parseHMS(s: string): number | null {
 	else if (parts.length === 1) [sec] = parts;
 	else return null;
 	return ((h * 3600) + (m * 60) + sec) * 1000;
+}
+
+// command delay text -> seconds. decimals allowed (the backend takes them); junk/blank reads as 0 and the
+// 24h ceiling mirrors the server's clamp
+function parseDelaySec(s: string): number {
+	const n = Number((s || "").trim());
+	return Number.isFinite(n) && n > 0 ? Math.min(86400, n) : 0;
 }
 
 function fmtHMS(ms: number | null): string {
@@ -101,10 +110,23 @@ function canonFromServer(raw: any) {
 	};
 }
 
-const toEdit = (c: any) => ({ ...c, minRemaining: fmtHMS(c.minRemainingMs), maxRemaining: fmtHMS(c.maxRemainingMs) });
+const toEdit = (c: any) => {
+	const { cmdDelaySec, ...rest } = c;
+	return {
+		...rest,
+		minRemaining: fmtHMS(c.minRemainingMs),
+		maxRemaining: fmtHMS(c.maxRemainingMs),
+		cmdDelay: String(cmdDelaySec ?? 0),
+	};
+};
 function toCanon(e: any) {
-	const { minRemaining, maxRemaining, ...rest } = e;
-	return { ...rest, minRemainingMs: parseHMS(minRemaining), maxRemainingMs: parseHMS(maxRemaining) };
+	const { minRemaining, maxRemaining, cmdDelay, ...rest } = e;
+	return {
+		...rest,
+		minRemainingMs: parseHMS(minRemaining),
+		maxRemainingMs: parseHMS(maxRemaining),
+		cmdDelaySec: parseDelaySec(cmdDelay),
+	};
 }
 
 function defaultEdit() {
@@ -261,8 +283,8 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 							maxW="90px"
 							min={0}
 							step={0.1}
-							value={e.cmdDelaySec}
-							onChange={(_str: string, n: number) => update(i, { cmdDelaySec: Number.isFinite(n) ? n : 0 })}
+							value={e.cmdDelay}
+							onChange={(str: string) => update(i, { cmdDelay: str })}
 						>
 							<NumberInputField />
 						</NumberInput>
