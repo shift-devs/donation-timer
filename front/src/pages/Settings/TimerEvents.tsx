@@ -97,7 +97,7 @@ function canonFromServer(raw: any) {
 		mediaSrc: typeof r.mediaSrc === "string" ? r.mediaSrc : "",
 		volume: Number.isFinite(Number(r.volume)) ? Math.min(1, Math.max(0, Number(r.volume))) : 1,
 		cmdText: typeof r.cmdText === "string" ? r.cmdText : "",
-		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Math.round(Number(r.cmdDelaySec)) : 0,
+		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Number(r.cmdDelaySec) : 0,
 	};
 }
 
@@ -260,6 +260,7 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 							size="sm"
 							maxW="90px"
 							min={0}
+							step={0.1}
 							value={e.cmdDelaySec}
 							onChange={(_str: string, n: number) => update(i, { cmdDelaySec: Number.isFinite(n) ? n : 0 })}
 						>

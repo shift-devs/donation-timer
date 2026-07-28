@@ -28,7 +28,7 @@ function normalizeOne(raw: any, i: number): any | null {
     // optional terminal command fired cmdDelaySec seconds after the media starts (same grammar as the dashboard terminal)
     const cmdText = typeof raw.cmdText === "string" ? raw.cmdText.slice(0, 500).trim() : "";
     const cdN = Number(raw.cmdDelaySec);
-    const cmdDelaySec = Number.isFinite(cdN) && cdN >= 0 ? Math.min(86400, Math.round(cdN)) : 0;
+    const cmdDelaySec = Number.isFinite(cdN) && cdN >= 0 ? Math.min(86400, cdN) : 0;
     const id = typeof raw.id === "string" && raw.id ? raw.id.slice(0, 100) : `e${i}`;
     const name = typeof raw.name === "string" ? raw.name.slice(0, 200) : "";
     // iana zone for the DAILY trigger (the dashboard sends its browser zone). the container clock is usually UTC, so we
