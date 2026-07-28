@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
-import { normalizeFwProductBonuses, normalizeFwProductSounds, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
@@ -48,7 +48,7 @@ function wsSync(ws: TimerWebSocket) {
             slStatus: curSession.slStatus,
             twitchStatus: curSession.twitchStatus,
             fourthwallStatus: curSession.fourthwallStatus,
-            cap: curSession.shouldCap,
+            capSeconds: curSession.capSeconds,
             anon: curSession.ignoreAnon,
             rates: curSession.rates,
             // last genuine event per platform (ms) — lets the ui prove data is flowing, esp. youtube/kick which only relay
@@ -66,6 +66,9 @@ function wsSync(ws: TimerWebSocket) {
             merchValues: curSession.merchValues,
             fwProductBonuses: curSession.fwProductBonuses || {},
             fwProductSounds: curSession.fwProductSounds || {},
+            fwProductAlerts: curSession.fwProductAlerts || {},
+            // { [offerId]: units sold } powering the /fwprogress sales-progress browser sources
+            fwUnitsSold: curSession.fwUnitsSold || {},
             widgetSettings: curSession.widgetSettings || {},
             // all-time per-service sub tallies for the dashboard + /subcount browser sources
             subCounts: {
@@ -147,7 +150,7 @@ async function wsLogin(ws: TimerWebSocket, accessToken: string){
             subTime: USER_TABLE.subTime.defaultValue,
             dollarTime: USER_TABLE.dollarTime.defaultValue,
             endTime: USER_TABLE.endTime.defaultValue,
-            shouldCap: USER_TABLE.shouldCap.defaultValue,
+            capSeconds: USER_TABLE.capSeconds.defaultValue,
             ignoreAnon: USER_TABLE.ignoreAnon.defaultValue,
             rates: DEFAULT_RATES,
             connections: { twitch: { channel: userName }, streamlabs: { token: "" } }
@@ -408,6 +411,9 @@ export function startApi(){
                 case "setFwProductSounds":
                     curSession.fwProductSounds = normalizeFwProductSounds(jData.sounds);
                     break;
+                case "setFwProductAlerts":
+                    curSession.fwProductAlerts = normalizeFwProductAlerts(jData.alerts);
+                    break;
                 case "setWidgetSettings":
                     curSession.widgetSettings = normalizeWidgetSettings(jData.settings);
                     break;
@@ -447,16 +453,19 @@ export function startApi(){
                     const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
                     if (perItem)
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
-                    // feed + alert both fire, so a thumbnail click tests the full on-stream behavior
+                    // feed always fires; the alert respects the per-product toggle so a simulated purchase
+                    // reflects exactly what a real one would show
                     pushFwActivity(curSession, { t: Date.now(), product: pname, user: "SIMULATED", message: "this is a test purchase", image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "", unit: "order" });
-                    const simSound = (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || null;
-                    emitFwAlert(id, {
-                        name: "SIMULATED",
-                        message: `purchased ${pname}`,
-                        image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
-                        sound: simSound && simSound.file ? simSound.file : "",
-                        volume: simSound && Number.isFinite(simSound.volume) ? simSound.volume : 1,
-                    });
+                    if (alertsEnabledFor(curSession, pid)){
+                        const simSound = (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || null;
+                        emitFwAlert(id, {
+                            name: "SIMULATED",
+                            message: `purchased ${pname}`,
+                            image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
+                            sound: simSound && simSound.file ? simSound.file : "",
+                            volume: simSound && Number.isFinite(simSound.volume) ? simSound.volume : 1,
+                        });
+                    }
                     const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);
                     ws.send(JSON.stringify({ commandResult: {
                         ok: addedSim !== 0,
@@ -473,8 +482,9 @@ export function startApi(){
                     logTimerEvent(curSession, "Manual change", oldET, curSession.endTime);
                     break;
                 }
-                case "setCap":
-                    curSession.shouldCap = Boolean(jData.value) || false;
+                case "setCapSeconds":
+                    // user-set max timer length in seconds; 0 = no cap. re-clamp the current timer right away.
+                    curSession.capSeconds = Math.max(0, Math.trunc(Number(jData.value) || 0));
                     setEndTime(curSession, curSession.endTime);
                     break;
                 case "setAnon":

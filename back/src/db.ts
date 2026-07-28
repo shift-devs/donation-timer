@@ -35,9 +35,10 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: 0
     },
-    shouldCap: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false
+    capSeconds: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
     },
     ignoreAnon: {
         type: DataTypes.BOOLEAN,
@@ -64,6 +65,11 @@ export const USER_TABLE = {
         defaultValue: {}
     },
     fwProductSounds: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    fwProductAlerts: {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: {}
@@ -155,13 +161,14 @@ export async function dbCreate(inObj: Object){
         dollarTime: lvObj.dollarTime,
         slToken: lvObj.slToken,
         endTime: lvObj.endTime,
-        shouldCap: lvObj.shouldCap,
+        capSeconds: lvObj.capSeconds,
         ignoreAnon: lvObj.ignoreAnon,
         rates: lvObj.rates,
         connections: lvObj.connections,
         timerEvents: lvObj.timerEvents,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
+        fwProductAlerts: lvObj.fwProductAlerts,
         widgetSettings: lvObj.widgetSettings,
         fwActivity: lvObj.fwActivity,
         subCountTwitch: lvObj.subCountTwitch,
@@ -189,13 +196,14 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 dollarTime: curSession.dollarTime,
                 slToken: curSession.slToken,
                 endTime: Math.round(curSession.endTime),
-                shouldCap: curSession.shouldCap,
+                capSeconds: curSession.capSeconds,
                 ignoreAnon: curSession.ignoreAnon,
                 rates: curSession.rates,
                 connections: curSession.connections,
                 timerEvents: curSession.timerEvents,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
+                fwProductAlerts: curSession.fwProductAlerts,
                 widgetSettings: curSession.widgetSettings,
                 fwActivity: curSession.fwActivity,
                 subCountTwitch: curSession.subCountTwitch,

@@ -1,5 +1,4 @@
 import { TimerUserSession } from "./types";
-import { CAP_TIME } from "./config";
 import { emitSync } from "./bus";
 import { logTimerEvent } from "./log";
 
@@ -10,8 +9,10 @@ export function setEndTime(session: TimerUserSession, newEndTime: number){
     }
     const nowMs = Date.now();
     const deltaTime = newEndTime - nowMs;
-    if (session.shouldCap && deltaTime > CAP_TIME)
-        newEndTime = CAP_TIME + nowMs;
+    // user-set cap: 0 = no cap. clamp the remaining time to capSeconds when it would exceed it.
+    const capMs = session.capSeconds * 1000;
+    if (capMs > 0 && deltaTime > capMs)
+        newEndTime = capMs + nowMs;
     newEndTime = Math.round(newEndTime);
     console.log(`Setting ${session.name}'s endTime to ${newEndTime}!`);
     session.endTime = newEndTime;

@@ -44,9 +44,9 @@ export function setEndTime(ws: WebSocket, endTime: number) {
 	return 1;
 }
 
-export function setCap(ws: WebSocket, value: boolean) {
-	console.log(`Setting shouldCap to: ${value}`);
-	send(ws, { event: "setCap", value: value });
+export function setCapSeconds(ws: WebSocket, value: number) {
+	console.log(`Setting capSeconds to: ${value}`);
+	send(ws, { event: "setCapSeconds", value: value });
 	return 1;
 }
 
@@ -90,6 +90,11 @@ export function setWidgetSettings(ws: WebSocket, settings: any) {
 
 export function setFwProductSounds(ws: WebSocket, sounds: any) {
 	send(ws, { event: "setFwProductSounds", sounds: sounds });
+	return 1;
+}
+
+export function setFwProductAlerts(ws: WebSocket, alerts: any) {
+	send(ws, { event: "setFwProductAlerts", alerts: alerts });
 	return 1;
 }
 

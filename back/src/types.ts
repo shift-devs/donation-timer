@@ -17,7 +17,7 @@ export interface TimerUserSession {
     dollarTime: number
     slToken?: string
     endTime: number
-    shouldCap: boolean
+    capSeconds: number // max timer length in seconds; 0 = no cap
     ignoreAnon: boolean
     slStatus: boolean
     slError?: string
@@ -34,8 +34,13 @@ export interface TimerUserSession {
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any
+    // { [offerId]: false } for products whose on-stream purchase alert is turned off; absent = on
+    fwProductAlerts: any
     widgetSettings: any
     fwActivity: any
+    // { [offerId]: all-time units sold } from the fourthwall units-sold report, driving the /fwprogress bars.
+    // transient: re-derived from the api each poll, never persisted.
+    fwUnitsSold?: { [id: string]: number }
     // all-time per-service sub tallies driving the /subcount browser sources
     subCountTwitch: number
     subCountYoutube: number

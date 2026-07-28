@@ -14,10 +14,11 @@ import {
 	SliderTrack,
 	Spacer,
 	Spinner,
+	Switch,
 	Text,
 	useToast,
 } from "@chakra-ui/react";
-import { getFwProducts, setFwProductBonuses, setFwProductSounds, testFwPurchase } from "../../Api";
+import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import { BASE_URL } from "../../Consts";
@@ -51,6 +52,17 @@ function normalizeSounds(raw: any): { [id: string]: { file: string; volume: numb
 	return out;
 }
 
+// alert toggles: default on, so we only keep the products explicitly turned off ({ [id]: false }) —
+// mirrors the backend normalizer. any absent id reads as "alerts on".
+function normalizeAlerts(raw: any): { [id: string]: boolean } {
+	const out: { [id: string]: boolean } = {};
+	if (raw && typeof raw === "object" && !Array.isArray(raw))
+		for (const [id, v] of Object.entries(raw)) {
+			if (id && v === false) out[id] = false;
+		}
+	return out;
+}
+
 const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | null; error: string }> = ({
 	ws,
 	settings,
@@ -66,6 +78,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const savedSoundsStr = JSON.stringify(savedSounds);
 	const [soundDraft, setSoundDraft] = useState<any>(savedSounds);
 	const prevSavedSoundsRef = useRef(savedSoundsStr);
+	const savedAlerts = normalizeAlerts(settings.fwProductAlerts);
+	const savedAlertsStr = JSON.stringify(savedAlerts);
+	const [alertDraft, setAlertDraft] = useState<any>(savedAlerts);
+	const prevSavedAlertsRef = useRef(savedAlertsStr);
 
 	// follow the server's values only when there are no unsaved local edits (same pattern as Time Per Action)
 	useEffect(() => {
@@ -78,9 +94,21 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		prevSavedSoundsRef.current = savedSoundsStr;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [savedSoundsStr]);
+	useEffect(() => {
+		setAlertDraft((prev: any) => (JSON.stringify(prev) === prevSavedAlertsRef.current ? savedAlerts : prev));
+		prevSavedAlertsRef.current = savedAlertsStr;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [savedAlertsStr]);
 
-	const dirty = JSON.stringify(normalize(draft)) !== savedStr || JSON.stringify(normalizeSounds(soundDraft)) !== savedSoundsStr;
+	const dirty = JSON.stringify(normalize(draft)) !== savedStr
+		|| JSON.stringify(normalizeSounds(soundDraft)) !== savedSoundsStr
+		|| JSON.stringify(normalizeAlerts(alertDraft)) !== savedAlertsStr;
 	const toast = useToast();
+
+	// progress-bar browser source builder: pick a product + a goal, get a copyable /fwprogress url.
+	// the goal (max) lives entirely in the url — no saved state — so changing it just re-copies the url.
+	const [progressProduct, setProgressProduct] = useState("");
+	const [progressMax, setProgressMax] = useState(1000);
 
 	const simulate = (p: { id: string; name: string; usd: number; image?: string }) => {
 		testFwPurchase(ws, p);
@@ -102,9 +130,9 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// config saved for products the shop no longer lists — keep it visible so it can be cleared
 	const orphans = products === null
 		? []
-		: Object.keys({ ...saved, ...savedSounds }).filter((id) => !products.some((p) => p.id === id));
+		: Object.keys({ ...saved, ...savedSounds, ...savedAlerts }).filter((id) => !products.some((p) => p.id === id));
 
-	const soundPicker = (id: string) => {
+	const soundPicker = (id: string, disabled?: boolean) => {
 		const entry = soundDraft[id];
 		const file = (entry && entry.file) || "";
 		const volume = entry && Number.isFinite(entry.volume) ? entry.volume : 1;
@@ -114,6 +142,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					size='xs'
 					maxW='240px'
 					value={file}
+					isDisabled={disabled}
 					onChange={(ev) => setSoundDraft((d: any) => ({ ...d, [id]: { file: ev.currentTarget.value, volume } }))}
 				>
 					<option value=''>None</option>
@@ -127,7 +156,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					min={0}
 					max={100}
 					value={Math.round(volume * 100)}
-					isDisabled={!file}
+					isDisabled={disabled || !file}
 					onChange={(n) => setSoundDraft((d: any) => ({ ...d, [id]: { file, volume: n / 100 } }))}
 				>
 					<SliderTrack><SliderFilledTrack /></SliderTrack>
@@ -177,8 +206,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				</HStack>
 			</Flex>
 			<Flex align='center' mt={1.5} pl='48px' gap={2}>
-				<Text fontSize='xs' color='gray.500' flexShrink={0}>Alert sound</Text>
-				{soundPicker(id)}
+				<Text fontSize='xs' color='gray.500' flexShrink={0}>Alert</Text>
+				<Switch
+					size='sm'
+					isChecked={alertDraft[id] !== false}
+					onChange={(ev) => setAlertDraft((d: any) => ({ ...d, [id]: ev.target.checked }))}
+				/>
+				<Text fontSize='xs' color='gray.500' flexShrink={0} ml={2}>sound</Text>
+				{soundPicker(id, alertDraft[id] === false)}
 			</Flex>
 		</Box>
 	);
@@ -212,6 +247,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					onClick={() => {
 						setFwProductBonuses(ws, normalize(draft));
 						setFwProductSounds(ws, normalizeSounds(soundDraft));
+						setFwProductAlerts(ws, normalizeAlerts(alertDraft));
 					}}
 				>
 					Save
@@ -232,8 +268,9 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					(#00FF00), so only the alert shows over your scene.
 				</Text>
 				<Text mb={1}>
-					5. Every Fourthwall purchase plays an alert here — and clicking a product thumbnail above
-					simulates one, so you can test the source without spending money.
+					5. Each purchase plays an alert here unless that product&apos;s <b>Alert</b> toggle above is off.
+					Clicking a product thumbnail simulates one (respecting the toggle), so you can test the source
+					without spending money.
 				</Text>
 				<Text>
 					6. Alert sounds: drop mp3/wav/ogg files into the site&apos;s <Text as='code'>fwsounds</Text> folder
@@ -253,6 +290,52 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					Every purchase, donation, and membership appears live with the buyer&apos;s name and checkout
 					message — newest on top — so you can thank people as they come in. Simulated purchases show
 					up too.
+				</Text>
+			</Box>
+
+			<Box mt={4} p={4} borderRadius='md' bg='whiteAlpha.100' fontSize='sm'>
+				<Text fontWeight='bold' mb={2}>Sales progress bar — OBS browser source</Text>
+				<Text color='gray.400' mb={3}>
+					A live &quot;X of N sold&quot; bar for one product, counting its all-time units sold from
+					Fourthwall. Pick a product and a goal, then copy the URL into an OBS browser source.
+				</Text>
+				<Flex align='center' gap={2} mb={2} flexWrap='wrap'>
+					<Text flexShrink={0}>Product:</Text>
+					<Select
+						size='sm'
+						maxW='300px'
+						placeholder='Select a product…'
+						value={progressProduct}
+						onChange={(ev) => setProgressProduct(ev.currentTarget.value)}
+					>
+						{(products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+					</Select>
+					<Text flexShrink={0} ml={2}>Goal:</Text>
+					<NumberInput size='sm' maxW='110px' min={1} value={progressMax} onChange={(_, n) => setProgressMax(Number.isFinite(n) && n > 0 ? Math.trunc(n) : 1)}>
+						<NumberInputField />
+					</NumberInput>
+					<Text fontSize='sm' color='gray.400'>sold</Text>
+				</Flex>
+				{progressProduct ? (
+					(() => {
+						const name = ((products || []).find((p) => p.id === progressProduct) || {}).name || "";
+						const progressUrl = `${BASE_URL}/fwprogress?token=${encodeURIComponent(localStorage.getItem("identity") || "")}&product=${encodeURIComponent(progressProduct)}&max=${progressMax}${name ? `&label=${encodeURIComponent(name)}` : ""}`;
+						return (
+							<Flex align='center' gap={2} flexWrap='wrap'>
+								<MaskedUrl url={progressUrl} bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all' />
+								<Button size='xs' onClick={() => copyUrl(progressUrl, "Progress bar")}>Copy</Button>
+							</Flex>
+						);
+					})()
+				) : (
+					<Text color='gray.500'>Pick a product above to get its browser-source URL.</Text>
+				)}
+				<Text color='gray.400' mt={3}>
+					The page is a chroma-key fill (same green as the timer widget) — add a Color Key filter in OBS so
+					only the bar shows. The count refreshes about once a minute. Optional URL tweaks:
+					<Text as='code'> &amp;bar=</Text> fill color,
+					<Text as='code'> &amp;color=</Text> text color,
+					<Text as='code'> &amp;label=</Text> caption.
 				</Text>
 			</Box>
 		</Box>

@@ -1,6 +1,6 @@
 import axios from "axios";
 import { TimerUserSession, TimerEvent } from "../types";
-import { FW_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
+import { FW_POLL_TIME, FW_UNITS_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
 import { emitSync, emitFwAlert, emitFwActivity } from "../bus";
 import { diag } from "../diag";
 
@@ -42,6 +42,27 @@ export function normalizeFwProductSounds(raw: any): { [id: string]: { file: stri
         out[id] = { file, volume: Number.isFinite(volN) ? Math.min(1, Math.max(0, volN)) : 1 };
     }
     return out;
+}
+
+// per-product alert toggle: { [offerId]: false } for products whose on-stream purchase alert is off.
+// absent = on (the default), so we only ever store the disabled ones — mirrors the bonuses normalizer
+// dropping zeros. this owns validating untrusted client input.
+export function normalizeFwProductAlerts(raw: any): { [id: string]: boolean } {
+    const out: { [id: string]: boolean } = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return out;
+    for (const [id, v] of Object.entries(raw)){
+        if (Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            break;
+        if (id && id.length <= 100 && v === false) // only the "off" entries are meaningful
+            out[id] = false;
+    }
+    return out;
+}
+
+// is the on-stream alert enabled for this product? default on unless explicitly turned off.
+export function alertsEnabledFor(session: TimerUserSession, id: string): boolean {
+    return !(id && session.fwProductAlerts && session.fwProductAlerts[id] === false);
 }
 
 // rolling activity feed for the /fwactivity page: one entry per purchased product / donation / membership,
@@ -117,6 +138,38 @@ export async function fetchFourthwallProducts(session: TimerUserSession): Promis
     return out;
 }
 
+// all-time units-sold per product via the reports engine, keyed by offerId (the same id used for
+// product bonuses/sounds and in order lines). feeds the /fwprogress "X of N sold" browser sources.
+// `from` = epoch so the count is cumulative; the report needs a timezone + precision even though we
+// only want one aggregated row per product (precision doesn't bucket this particular report).
+export async function fetchFourthwallUnitsSold(session: TimerUserSession): Promise<{ [id: string]: number }> {
+    const fw = (session.connections && session.connections.fourthwall) || {};
+    if (!fw.username || !fw.password)
+        throw new Error("Fourthwall is not connected.");
+    const auth = "Basic " + Buffer.from(`${fw.username}:${fw.password}`).toString("base64");
+    const res = await axios.get(`${FW_API}/reports/top_products_by_units_sold`, {
+        headers: { Authorization: auth },
+        params: {
+            from: "2000-01-01T00:00:00Z",
+            to: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), // +1d guards against clock skew hiding a fresh sale
+            aggregationTimezone: "UTC",
+            aggregationPrecision: "YEAR",
+        },
+        timeout: FW_HTTP_TIMEOUT,
+        paramsSerializer: (p: any) => new URLSearchParams(p).toString(),
+    });
+    const rows = (res.data && res.data.rows) || [];
+    const out: { [id: string]: number } = {};
+    for (const r of rows){
+        const id = r && r.metadata && r.metadata.offerId;      // keyed by offer id, not name (names can collide)
+        const n = Math.max(0, Math.trunc(Number(r && r.unitsSold) || 0));
+        if (typeof id !== "string" || !id || Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            continue;
+        out[id] = (out[id] || 0) + n; // sum defensively in case the report ever splits a product across rows
+    }
+    return out;
+}
+
 // turn a poll error into a short human message for the connections ui
 export function describeError(err: any): string {
     const r = err && err.response;
@@ -146,6 +199,8 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
     let polling = false;   // in-flight guard: a slow cycle must not let the interval stack up overlapping polls
     let diagnosed = false; // one-time payload dump (grep FW-DIAG) to confirm field shapes/sort/status on real data
     let timer: NodeJS.Timeout | number = 0;
+    let unitsTimer: NodeJS.Timeout | number = 0;
+    let pollingUnits = false; // in-flight guard for the slower units-sold report poll
 
     async function get(path: string, params: any){
         // axios's default serializer leaves [ ] literal, which fourthwall's tomcat rejects with a 400; encode them
@@ -206,17 +261,22 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                     pushFwActivity(session, { t: Date.now(), product: line.name || "merch", user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order" });
             else
                 pushFwActivity(session, { t: Date.now(), product: "Purchase", user: buyer, message: orderMsg, image: "", unit: "order" });
-            // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound
-            const alertSound = soundForOffers(session, offers);
-            emitFwAlert(session.userId, {
-                name: o.username || "Someone",
-                message: offers.length
-                    ? `purchased ${offers[0].name || "merch"}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
-                    : "made a purchase",
-                image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
-                sound: alertSound ? alertSound.file : "",
-                volume: alertSound ? alertSound.volume : 1,
-            });
+            // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound.
+            // gated on the shown product's toggle — if its alert is turned off, stay silent (orders with no
+            // product line can't be toggled, so those always alert).
+            const shownId = offers.length ? offers[0].id : "";
+            if (!shownId || alertsEnabledFor(session, shownId)){
+                const alertSound = soundForOffers(session, offers);
+                emitFwAlert(session.userId, {
+                    name: o.username || "Someone",
+                    message: offers.length
+                        ? `purchased ${offers[0].name || "merch"}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
+                        : "made a purchase",
+                    image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
+                    sound: alertSound ? alertSound.file : "",
+                    volume: alertSound ? alertSound.volume : 1,
+                });
+            }
         }
         for (const o of rows) // advance cursor past the newest we saw
             if (o.createdAt && o.createdAt > ordersCursor)
@@ -284,14 +344,38 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
         }
     }
 
+    // refresh the per-product units-sold tallies for the /fwprogress bars. runs on its own slower cadence
+    // and never touches the order poll's status/error — a hiccup here shouldn't flap the connection light.
+    async function pollUnits(){
+        if (pollingUnits)
+            return;
+        pollingUnits = true;
+        try {
+            const map = await fetchFourthwallUnitsSold(session);
+            session.fwUnitsSold = map;
+            emitSync(session.userId); // push the fresh counts to any open progress-bar browser source
+        } catch (err: any) {
+            const r = err && err.response;
+            diag(`FW-DIAG ${watching}: units-sold report poll failed: ${r ? `${r.status} ${JSON.stringify(r.data)}` : (err && err.message)}`);
+        } finally {
+            pollingUnits = false;
+        }
+    }
+
     poll();
     timer = setInterval(poll, FW_POLL_TIME);
+    pollUnits();
+    unitsTimer = setInterval(pollUnits, FW_UNITS_POLL_TIME);
 
     return {
         disconnect(){
             if (timer){
                 clearInterval(timer);
                 timer = 0;
+            }
+            if (unitsTimer){
+                clearInterval(unitsTimer);
+                unitsTimer = 0;
             }
             session.fourthwallStatus = false;
         }

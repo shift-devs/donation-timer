@@ -186,8 +186,8 @@ const Settings: React.FC = () => {
 						<Tab>Fourthwall</Tab>
 						<Tab>Change Time</Tab>
 						<Tab>Terminal</Tab>
-						<Tab>Settings</Tab>
 						<Tab>Subcounts</Tab>
+						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
@@ -218,10 +218,10 @@ const Settings: React.FC = () => {
 							/>
 						</TabPanel>
 						<TabPanel>
-							<Controls ws={ws} token={token} settings={settings} />
+							<SubCounts ws={ws} token={token} settings={settings} />
 						</TabPanel>
 						<TabPanel>
-							<SubCounts ws={ws} token={token} settings={settings} />
+							<Controls ws={ws} token={token} settings={settings} />
 						</TabPanel>
 					</TabPanels>
 				</Tabs>
