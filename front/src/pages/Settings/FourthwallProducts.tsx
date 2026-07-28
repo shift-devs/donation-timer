@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
 	Box,
 	Button,
 	Flex,
 	HStack,
 	Image,
+	Input,
 	NumberInput,
 	NumberInputField,
 	Select,
@@ -63,6 +64,81 @@ function normalizeAlerts(raw: any): { [id: string]: boolean } {
 	return out;
 }
 
+// one product's row: thumbnail (click = simulate), per-item bonus, alert toggle + sound. memoized and
+// compared by value so a shop of 50 products doesn't re-render every row on each keystroke / color drag /
+// 5s sync — only the row whose own data changed re-renders. this is the difference between a snappy tab
+// and a laggy one.
+type RowProps = {
+	id: string; name: string; faded: boolean; image: string; usd: number; simulatable: boolean;
+	bonus: number; sound?: { file: string; volume: number }; alertOn: boolean;
+	onBonus: (id: string, n: number) => void;
+	onSound: (id: string, entry: { file: string; volume: number }) => void;
+	onAlert: (id: string, checked: boolean) => void;
+	onSimulate: (p: { id: string; name: string; usd: number; image: string }) => void;
+};
+
+function rowsEqual(a: RowProps, b: RowProps): boolean {
+	return a.id === b.id && a.name === b.name && a.faded === b.faded && a.image === b.image && a.usd === b.usd
+		&& a.simulatable === b.simulatable && a.bonus === b.bonus && a.alertOn === b.alertOn
+		&& (a.sound && a.sound.file) === (b.sound && b.sound.file)
+		&& (a.sound && a.sound.volume) === (b.sound && b.sound.volume)
+		&& a.onBonus === b.onBonus && a.onSound === b.onSound && a.onAlert === b.onAlert && a.onSimulate === b.onSimulate;
+}
+
+const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd, simulatable, bonus, sound, alertOn, onBonus, onSound, onAlert, onSimulate }) => {
+	const file = (sound && sound.file) || "";
+	const volume = sound && Number.isFinite(sound.volume) ? sound.volume : 1;
+	const soundOff = !alertOn;
+	return (
+		<Box py={1.5} borderBottom='1px solid' borderColor='whiteAlpha.200'>
+			<Flex align='center'>
+				<Box
+					as={simulatable ? "button" : "div"}
+					title={simulatable ? "Click to simulate a purchase" : undefined}
+					cursor={simulatable ? "pointer" : undefined}
+					onClick={simulatable ? () => onSimulate({ id, name, usd, image }) : undefined}
+					mr={3}
+					flexShrink={0}
+					borderRadius='md'
+					_hover={simulatable ? { outline: "2px solid", outlineColor: "green.300" } : undefined}
+				>
+					{image ? (
+						<Image src={image} alt='' boxSize='36px' objectFit='cover' borderRadius='md' pointerEvents='none'
+							fallback={<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />} />
+					) : (
+						<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />
+					)}
+				</Box>
+				<Text noOfLines={1} color={faded ? "gray.500" : undefined}>{name}</Text>
+				{usd > 0 && <Text fontSize='sm' color='gray.400' ml={2} flexShrink={0}>${usd}</Text>}
+				<Spacer />
+				<HStack>
+					<NumberInput size='sm' maxW='110px' min={0} value={bonus} onChange={(_, n) => onBonus(id, Number.isFinite(n) ? n : 0)}>
+						<NumberInputField />
+					</NumberInput>
+					<Text fontSize='sm' color='gray.400' w='70px'>sec / item</Text>
+				</HStack>
+			</Flex>
+			<Flex align='center' mt={1.5} pl='48px' gap={2}>
+				<Text fontSize='xs' color='gray.500' flexShrink={0}>Alert</Text>
+				<Switch size='sm' isChecked={alertOn} onChange={(ev) => onAlert(id, ev.target.checked)} />
+				<Text fontSize='xs' color='gray.500' flexShrink={0} ml={2}>sound</Text>
+				<Select size='xs' maxW='240px' value={file} isDisabled={soundOff} onChange={(ev) => onSound(id, { file: ev.currentTarget.value, volume })}>
+					<option value=''>None</option>
+					{SOUNDS.map((f) => <option key={f} value={f}>{f}</option>)}
+					{/* a saved sound whose file has since been removed from fwsounds — keep it selectable so it's visible */}
+					{file && !SOUNDS.includes(file) && <option value={file}>(missing) {file}</option>}
+				</Select>
+				<Slider size='sm' w='110px' min={0} max={100} value={Math.round(volume * 100)} isDisabled={soundOff || !file} onChange={(n) => onSound(id, { file, volume: n / 100 })}>
+					<SliderTrack><SliderFilledTrack /></SliderTrack>
+					<SliderThumb />
+				</Slider>
+				<Text fontSize='xs' color='gray.500' w='38px' flexShrink={0}>{Math.round(volume * 100)}%</Text>
+			</Flex>
+		</Box>
+	);
+}, rowsEqual);
+
 const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | null; error: string }> = ({
 	ws,
 	settings,
@@ -105,15 +181,24 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		|| JSON.stringify(normalizeAlerts(alertDraft)) !== savedAlertsStr;
 	const toast = useToast();
 
-	// progress-bar browser source builder: pick a product + a goal, get a copyable /fwprogress url.
-	// the goal (max) lives entirely in the url — no saved state — so changing it just re-copies the url.
+	// progress-bar browser source builder: pick a product + goal + look, preview it, get a copyable
+	// /fwprogress url. everything lives in the url (no saved state) — changing it just re-copies the url.
 	const [progressProduct, setProgressProduct] = useState("");
 	const [progressMax, setProgressMax] = useState(1000);
+	const [progressTitle, setProgressTitle] = useState("");
+	const [progressFill, setProgressFill] = useState("#22c55e");
+	const [progressTrack, setProgressTrack] = useState("#111827");
+	const [progressText, setProgressText] = useState("#ffffff");
 
-	const simulate = (p: { id: string; name: string; usd: number; image?: string }) => {
+	// stable row callbacks (functional setState) so every ProductRow keeps the same prop identities across
+	// renders — that's what lets React.memo skip the 50 rows when unrelated state (wizard, colors) changes.
+	const onSimulate = useCallback((p: { id: string; name: string; usd: number; image: string }) => {
 		testFwPurchase(ws, p);
 		toast({ title: `Simulated purchase: ${p.name}`, status: "info", duration: 2500, isClosable: true });
-	};
+	}, [ws, toast]);
+	const onBonus = useCallback((id: string, n: number) => setDraft((d: any) => ({ ...d, [id]: n })), []);
+	const onSound = useCallback((id: string, entry: { file: string; volume: number }) => setSoundDraft((d: any) => ({ ...d, [id]: entry })), []);
+	const onAlert = useCallback((id: string, checked: boolean) => setAlertDraft((d: any) => ({ ...d, [id]: checked })), []);
 
 	const alertUrl = `${BASE_URL}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const activityUrl = `${BASE_URL}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
@@ -131,92 +216,6 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const orphans = products === null
 		? []
 		: Object.keys({ ...saved, ...savedSounds, ...savedAlerts }).filter((id) => !products.some((p) => p.id === id));
-
-	const soundPicker = (id: string, disabled?: boolean) => {
-		const entry = soundDraft[id];
-		const file = (entry && entry.file) || "";
-		const volume = entry && Number.isFinite(entry.volume) ? entry.volume : 1;
-		return (
-			<>
-				<Select
-					size='xs'
-					maxW='240px'
-					value={file}
-					isDisabled={disabled}
-					onChange={(ev) => setSoundDraft((d: any) => ({ ...d, [id]: { file: ev.currentTarget.value, volume } }))}
-				>
-					<option value=''>None</option>
-					{SOUNDS.map((f) => <option key={f} value={f}>{f}</option>)}
-					{/* a saved sound whose file has since been removed from fwsounds — keep it selectable so it's visible */}
-					{file && !SOUNDS.includes(file) && <option value={file}>(missing) {file}</option>}
-				</Select>
-				<Slider
-					size='sm'
-					w='110px'
-					min={0}
-					max={100}
-					value={Math.round(volume * 100)}
-					isDisabled={disabled || !file}
-					onChange={(n) => setSoundDraft((d: any) => ({ ...d, [id]: { file, volume: n / 100 } }))}
-				>
-					<SliderTrack><SliderFilledTrack /></SliderTrack>
-					<SliderThumb />
-				</Slider>
-				<Text fontSize='xs' color='gray.500' w='38px' flexShrink={0}>{Math.round(volume * 100)}%</Text>
-			</>
-		);
-	};
-
-	const row = (id: string, name: string, faded: boolean, image?: string, product?: { id: string; name: string; usd: number; image?: string }) => (
-		<Box key={id} py={1.5} borderBottom='1px solid' borderColor='whiteAlpha.200'>
-			<Flex align='center'>
-				<Box
-					as={product ? "button" : "div"}
-					title={product ? "Click to simulate a purchase" : undefined}
-					cursor={product ? "pointer" : undefined}
-					onClick={product ? () => simulate(product) : undefined}
-					mr={3}
-					flexShrink={0}
-					borderRadius='md'
-					_hover={product ? { outline: "2px solid", outlineColor: "green.300" } : undefined}
-				>
-					{image ? (
-						<Image src={image} alt='' boxSize='36px' objectFit='cover' borderRadius='md' pointerEvents='none'
-							fallback={<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />} />
-					) : (
-						<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />
-					)}
-				</Box>
-				<Text noOfLines={1} color={faded ? "gray.500" : undefined}>{name}</Text>
-				{product && product.usd > 0 && (
-					<Text fontSize='sm' color='gray.400' ml={2} flexShrink={0}>${product.usd}</Text>
-				)}
-				<Spacer />
-				<HStack>
-					<NumberInput
-						size='sm'
-						maxW='110px'
-						min={0}
-						value={draft[id] ?? 0}
-						onChange={(_, n) => setDraft((d: any) => ({ ...d, [id]: Number.isFinite(n) ? n : 0 }))}
-					>
-						<NumberInputField />
-					</NumberInput>
-					<Text fontSize='sm' color='gray.400' w='70px'>sec / item</Text>
-				</HStack>
-			</Flex>
-			<Flex align='center' mt={1.5} pl='48px' gap={2}>
-				<Text fontSize='xs' color='gray.500' flexShrink={0}>Alert</Text>
-				<Switch
-					size='sm'
-					isChecked={alertDraft[id] !== false}
-					onChange={(ev) => setAlertDraft((d: any) => ({ ...d, [id]: ev.target.checked }))}
-				/>
-				<Text fontSize='xs' color='gray.500' flexShrink={0} ml={2}>sound</Text>
-				{soundPicker(id, alertDraft[id] === false)}
-			</Flex>
-		</Box>
-	);
 
 	return (
 		<Box maxW='700px' mx='auto' textAlign='left'>
@@ -237,8 +236,42 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 			{products !== null && products.length === 0 && !error && (
 				<Text color='gray.400'>No products found in the shop.</Text>
 			)}
-			{(products || []).map((p) => row(p.id, p.name, false, p.image, { id: p.id, name: p.name, usd: Number(p.usd) || 0, image: p.image || "" }))}
-			{orphans.map((id) => row(id, `(no longer listed) ${id}`, true))}
+			{(products || []).map((p) => (
+				<ProductRow
+					key={p.id}
+					id={p.id}
+					name={p.name}
+					faded={false}
+					image={p.image || ""}
+					usd={Number(p.usd) || 0}
+					simulatable
+					bonus={draft[p.id] ?? 0}
+					sound={soundDraft[p.id]}
+					alertOn={alertDraft[p.id] !== false}
+					onBonus={onBonus}
+					onSound={onSound}
+					onAlert={onAlert}
+					onSimulate={onSimulate}
+				/>
+			))}
+			{orphans.map((id) => (
+				<ProductRow
+					key={id}
+					id={id}
+					name={`(no longer listed) ${id}`}
+					faded
+					image=''
+					usd={0}
+					simulatable={false}
+					bonus={draft[id] ?? 0}
+					sound={soundDraft[id]}
+					alertOn={alertDraft[id] !== false}
+					onBonus={onBonus}
+					onSound={onSound}
+					onAlert={onAlert}
+					onSimulate={onSimulate}
+				/>
+			))}
 			<Flex mt={4}>
 				<Spacer />
 				<Button
@@ -296,46 +329,80 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 			<Box mt={4} p={4} borderRadius='md' bg='whiteAlpha.100' fontSize='sm'>
 				<Text fontWeight='bold' mb={2}>Sales progress bar — OBS browser source</Text>
 				<Text color='gray.400' mb={3}>
-					A live &quot;X of N sold&quot; bar for one product, counting its all-time units sold from
-					Fourthwall. Pick a product and a goal, then copy the URL into an OBS browser source.
+					A live &quot;title — bar — X / N&quot; row for one product, counting its all-time units sold from
+					Fourthwall. Set it up below, check the preview, then copy the URL into an OBS browser source.
 				</Text>
 				<Flex align='center' gap={2} mb={2} flexWrap='wrap'>
-					<Text flexShrink={0}>Product:</Text>
+					<Text w='52px' flexShrink={0}>Product</Text>
 					<Select
 						size='sm'
 						maxW='300px'
 						placeholder='Select a product…'
 						value={progressProduct}
-						onChange={(ev) => setProgressProduct(ev.currentTarget.value)}
+						onChange={(ev) => {
+							const id = ev.currentTarget.value;
+							setProgressProduct(id);
+							// prefill the title with the product name (still editable)
+							const p = (products || []).find((x) => x.id === id);
+							setProgressTitle(p ? p.name : "");
+						}}
 					>
 						{(products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
 					</Select>
-					<Text flexShrink={0} ml={2}>Goal:</Text>
+				</Flex>
+				<Flex align='center' gap={2} mb={2} flexWrap='wrap'>
+					<Text w='52px' flexShrink={0}>Title</Text>
+					<Input size='sm' maxW='300px' placeholder='shown to the left of the bar' value={progressTitle} onChange={(ev) => setProgressTitle(ev.currentTarget.value)} />
+					<Text flexShrink={0} ml={2}>Goal</Text>
 					<NumberInput size='sm' maxW='110px' min={1} value={progressMax} onChange={(_, n) => setProgressMax(Number.isFinite(n) && n > 0 ? Math.trunc(n) : 1)}>
 						<NumberInputField />
 					</NumberInput>
-					<Text fontSize='sm' color='gray.400'>sold</Text>
+					<Text color='gray.400'>sold</Text>
+				</Flex>
+				<Flex align='center' gap={5} mb={3} flexWrap='wrap'>
+					<HStack><Text>Fill</Text><Input type='color' w='42px' p={1} value={progressFill} onChange={(ev) => setProgressFill(ev.currentTarget.value)} /></HStack>
+					<HStack><Text>Bar Background</Text><Input type='color' w='42px' p={1} value={progressTrack} onChange={(ev) => setProgressTrack(ev.currentTarget.value)} /></HStack>
+					<HStack><Text>Text</Text><Input type='color' w='42px' p={1} value={progressText} onChange={(ev) => setProgressText(ev.currentTarget.value)} /></HStack>
 				</Flex>
 				{progressProduct ? (
 					(() => {
-						const name = ((products || []).find((p) => p.id === progressProduct) || {}).name || "";
-						const progressUrl = `${BASE_URL}/fwprogress?token=${encodeURIComponent(localStorage.getItem("identity") || "")}&product=${encodeURIComponent(progressProduct)}&max=${progressMax}${name ? `&label=${encodeURIComponent(name)}` : ""}`;
+						const sold = Number(settings.fwUnitsSold && settings.fwUnitsSold[progressProduct]) || 0;
+						const pct = 50; // preview always shows a half-full bar so colors/layout are easy to judge
+						const previewBg = (settings.widgetSettings && settings.widgetSettings.bgColor) || "#00FF00";
+						const p = new URLSearchParams({
+							token: localStorage.getItem("identity") || "",
+							product: progressProduct,
+							max: String(progressMax),
+							title: progressTitle,
+							fill: progressFill,
+							track: progressTrack,
+							text: progressText,
+						});
+						const progressUrl = `${BASE_URL}/fwprogress?${p.toString()}`;
+						const barText: React.CSSProperties = { position: "relative", zIndex: 1, color: progressText, fontFamily: "'Staatliches', sans-serif", fontSize: "20px", lineHeight: 1, whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.6)" };
 						return (
-							<Flex align='center' gap={2} flexWrap='wrap'>
-								<MaskedUrl url={progressUrl} bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all' />
-								<Button size='xs' onClick={() => copyUrl(progressUrl, "Progress bar")}>Copy</Button>
-							</Flex>
+							<>
+								<Text fontSize='xs' color='gray.500' mb={1}>Preview (live sold count — {sold.toLocaleString()} so far):</Text>
+								<Box borderRadius='md' p={3} mb={3} style={{ background: previewBg }}>
+									<Box position='relative' h='38px' borderRadius='full' overflow='hidden' display='flex' alignItems='center' justifyContent='space-between' px='18px' style={{ background: progressTrack, border: `2px solid ${progressText}` }}>
+										<Box position='absolute' left={0} top={0} h='100%' zIndex={0} style={{ width: `${pct}%`, background: progressFill, transition: "width 0.4s ease" }} />
+										<Box style={barText}>{progressTitle}</Box>
+										<Box style={barText}>{sold.toLocaleString()} / {progressMax.toLocaleString()}</Box>
+									</Box>
+								</Box>
+								<Flex align='center' gap={2} flexWrap='wrap'>
+									<MaskedUrl url={progressUrl} bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all' />
+									<Button size='xs' onClick={() => copyUrl(progressUrl, "Progress bar")}>Copy</Button>
+								</Flex>
+							</>
 						);
 					})()
 				) : (
-					<Text color='gray.500'>Pick a product above to get its browser-source URL.</Text>
+					<Text color='gray.500'>Pick a product above to preview it and get its browser-source URL.</Text>
 				)}
 				<Text color='gray.400' mt={3}>
-					The page is a chroma-key fill (same green as the timer widget) — add a Color Key filter in OBS so
-					only the bar shows. The count refreshes about once a minute. Optional URL tweaks:
-					<Text as='code'> &amp;bar=</Text> fill color,
-					<Text as='code'> &amp;color=</Text> text color,
-					<Text as='code'> &amp;label=</Text> caption.
+					The page background is the timer widget&apos;s chroma color (set in the Settings tab) — add a
+					Color Key filter in OBS so only the row shows. The sold count refreshes about once a minute.
 				</Text>
 			</Box>
 		</Box>
