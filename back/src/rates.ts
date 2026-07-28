@@ -10,7 +10,8 @@ export const DEFAULT_RATES = {
         membership_enjoyer: 70, membership_full: 70, membership_quickster: 70,
         membership_gift_enjoyer: 70, membership_gift_full: 70, membership_gift_quickster: 70,
     },
-    fourthwall: { order: 14, donation: 14, membership: 70 },
+    // order = seconds per $ of the order total; orderFlat = flat seconds granted once per order (default off)
+    fourthwall: { order: 14, orderFlat: 0, donation: 14, membership: 70 },
     kick: { subscription: 70, gift: 70 },
 };
 
@@ -44,6 +45,7 @@ export function normalizeRates(raw: any){
         },
         fourthwall: {
             order: num(f.order, DEFAULT_RATES.fourthwall.order),
+            orderFlat: num(f.orderFlat, DEFAULT_RATES.fourthwall.orderFlat),
             donation: num(f.donation, DEFAULT_RATES.fourthwall.donation),
             membership: num(f.membership, DEFAULT_RATES.fourthwall.membership),
         },

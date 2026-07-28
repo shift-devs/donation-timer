@@ -63,6 +63,7 @@ const PLATFORMS = [
 		gated: true,
 		actions: [
 			{ key: "order", label: "Purchase (order total)", unit: "per $", test: 25 },
+			{ key: "orderFlat", label: "Purchase (flat per order)", unit: "per order", test: 1 },
 			{ key: "donation", label: "Donation", unit: "per $", test: 5 },
 			{ key: "membership", label: "Membership", unit: "per member", test: 1 },
 		],
@@ -104,7 +105,7 @@ const DEFAULTS: any = {
 		membership_enjoyer: 70, membership_full: 70, membership_quickster: 70,
 		membership_gift_enjoyer: 70, membership_gift_full: 70, membership_gift_quickster: 70,
 	},
-	fourthwall: { order: 14, donation: 14, membership: 70 },
+	fourthwall: { order: 14, orderFlat: 0, donation: 14, membership: 70 },
 	kick: { subscription: 70, gift: 70 },
 };
 
@@ -138,6 +139,7 @@ function normalize(raw: any) {
 		},
 		fourthwall: {
 			order: num(f.order, DEFAULTS.fourthwall.order),
+			orderFlat: num(f.orderFlat, DEFAULTS.fourthwall.orderFlat),
 			donation: num(f.donation, DEFAULTS.fourthwall.donation),
 			membership: num(f.membership, DEFAULTS.fourthwall.membership),
 		},

@@ -450,6 +450,9 @@ export function startApi(){
                     }
                     const beforeSim = curSession.endTime;
                     handle(curSession, { platform: "fourthwall", kind: "money", usd, unit: "order", manual: true, label: `simulated order: ${pname} ($${usd})` });
+                    const orderFlat = Number(curSession.rates && curSession.rates.fourthwall && curSession.rates.fourthwall.orderFlat) || 0;
+                    if (orderFlat > 0)
+                        handle(curSession, { platform: "fourthwall", kind: "time", seconds: orderFlat, manual: true, label: `simulated order bonus` });
                     const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
                     if (perItem)
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });

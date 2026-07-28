@@ -244,6 +244,10 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             if (!usd) // adds no time -> likely a field-shape mismatch (e.g. amount vs value); surface it
                 diag(`FW-DIAG ${watching}: order ${o.id} parsed to $0 (check amounts.total field)`);
             emit({ platform: "fourthwall", kind: "money", usd, unit: "order", label: `order $${usd} from ${o.username || o.email || "someone"}` });
+            // flat per-order bonus: granted once per whole order (any # of items), on top of the $-rate time
+            const orderFlat = Number(session.rates && session.rates.fourthwall && session.rates.fourthwall.orderFlat) || 0;
+            if (orderFlat > 0)
+                emit({ platform: "fourthwall", kind: "time", seconds: orderFlat, label: `order bonus from ${o.username || o.email || "someone"}` });
             // per-product bonuses: flat seconds per item on top of the $-rate time, scaled by quantity
             const offers = Array.isArray(o.offers) ? o.offers : [];
             for (const line of offers){
