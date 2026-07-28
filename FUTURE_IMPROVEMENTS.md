@@ -18,10 +18,11 @@ Context: the VM currently runs `docker/dev.yml` under the `donationtimer` system
 
 ## On the VM (one-time settings)
 
-7. **Run the production stack** — the unit runs `dev.yml` in production: Vite dev server, watch
+7. **A lighter production runtime** — the unit runs `dev.yml` in production: Vite dev server, watch
    mode, and `npm install` on every boot (the reason the watchdog needs a 10-minute grace window).
-   `pro.yml` runs built images behind nginx: a fraction of the RAM, boots in seconds, no dependency
-   surprises on unattended restarts.
+   Serving pre-built images behind a reverse proxy would use a fraction of the RAM, boot in seconds,
+   and avoid dependency surprises on unattended restarts. (A prior built-image + nginx compose stack
+   was removed as unused — this would be rebuilt from scratch if pursued.)
 8. **Persistent, capped journal** — `Storage=persistent`, `SystemMaxUse=200M` in
    `/etc/systemd/journald.conf`, so post-mortems survive the reboot that "fixes" an outage.
 9. **Time sync** — `systemctl enable --now systemd-timesyncd`. VirtualBox guests drift, especially

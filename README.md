@@ -22,12 +22,12 @@ A timer controlled by Twitch / Streamlabs donations. It is intended for use in s
 
 ## Updating
 
-- **Windows:** `docker/wscripts/update.bat`
-- **Linux:** `docker/lscripts/update.sh`
-- **Podman + systemd (`donationtimer` user unit):** `./update.sh` in the repo root
+Deploy the latest code to the server (podman + systemd, the `donationtimer` user unit): run
+`./update.sh` in the repo root. It stops the stack, pulls, refreshes the watchdog, and starts it
+again (migrations and `npm install` run on startup).
 
 > [!WARNING]
-> `update` takes everything down and discards the built images before pulling — use it between streams, not during one.
+> `update.sh` restarts the stack, so there's a short downtime — run it between streams, not during one.
 
 ## Auto-Restart (Podman + systemd)
 
@@ -44,28 +44,22 @@ starts a unit that was stopped on purpose. New starts get a 10 minute grace wind
 since `npm install` on first boot can be slow. Watch it work with:
 `journalctl --user -u donationtimer-watchdog -f`
 
-## Patching While Live
-
-Pulls and rebuilds while the old containers keep serving, then swaps only what changed.
-Downtime is a few seconds per changed service, and the timer keeps its end time (it lives in the database volume).
-
-- **Windows:** `docker/wscripts/patch.bat`
-- **Linux:** `docker/lscripts/patch.sh`
-
-## Starting in Production Environments
-
-- **Windows:** `docker/wscripts/pro-start.bat`
-- **Linux:** `docker/lscripts/pro-start.sh`
-- If internet accessible, reverse proxy on your domain to port `3080` (the WebSocket is served on the same port at `/ws`)
-
 ## Starting in Development Environments
 
 > The development environment uses Docker Volumes and Vite without building.\
 > This will allow you to make edits to the source code without needing to rebuild the images.\
 > However, this may result in much slower startup times.
 
-- **Windows:** `docker/wscripts/dev-start.bat`
-- **Linux:** `docker/lscripts/dev-start.sh`
+From the repo root (needs a `.env` there — copy `docker/.env_template`):
+
+```
+docker compose up        # start everything
+docker compose down      # stop
+```
+
+The root `compose.yaml` just includes `docker/dev.yml`, so it's the same stack and shares the
+`pgdata` volume. To wipe the local dev database and start fresh, use `docker/lscripts/reset-db.sh`
+(or `docker/wscripts/reset-db.bat`).
 
 ## Using the Timer
 - You can access the timer at: http://localhost:3080

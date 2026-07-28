@@ -1,0 +1,5 @@
+# local dev entrypoint: `docker compose up` from the repo root brings up postgres, the backend and the
+# frontend. it just pulls in the real dev stack from docker/dev.yml (the same file production runs), so
+# there's a single source of truth for the service definitions and the pgdata volume is shared.
+include:
+  - docker/dev.yml

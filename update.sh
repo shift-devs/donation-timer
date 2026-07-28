@@ -1,7 +1,6 @@
 #!/bin/bash
 # Update for the podman + systemd setup (the `donationtimer` user unit running docker/dev.yml).
 # Stops the stack, pulls, and starts it again — migrations and npm install run on startup.
-# For the docker setup use docker/lscripts/patch.sh (live) or update.sh (full teardown) instead.
 cd "$(dirname "$0")"
 
 echo "Stopping donationtimer..."
