@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
+import { useCountdownSeconds } from "./useCountdown";
 
 var timer_text: string;
 var timer_color: string;
@@ -50,11 +51,14 @@ let postBeepClarity = 0;
 let obsDumbFix = true;
 
 const Timer: React.FC<{
-	input_seconds: number;
+	endTime: number;
 	textAlign?: any;
 	color?: any;
 	background?: string;
-}> = ({ input_seconds, textAlign = "center", color = "black", background = "#000000" }) => {
+}> = ({ endTime, textAlign = "center", color = "black", background = "#000000" }) => {
+	// the countdown state lives here (the only thing that changes every second) so the pages that mount
+	// the timer don't re-render — and drag their whole tree along — on every tick.
+	const input_seconds = useCountdownSeconds(endTime);
 
 	if (input_seconds > 0) {
 		let hour = Math.floor(input_seconds / 3600);

@@ -11,7 +11,6 @@ import TimerEvents from "./Settings/TimerEvents";
 import FourthwallProducts from "./Settings/FourthwallProducts";
 import SubCounts from "./Settings/SubCounts";
 import { runCommand } from "../Api";
-import { useCountdownSeconds } from "../useCountdown";
 import { Navigate } from "react-router-dom";
 import {
 	Spinner,
@@ -32,7 +31,6 @@ const Settings: React.FC = () => {
 	const token = localStorage.getItem("identity");
 	const [settings, setSettings] = useState({ slStatus: false });
 	const [endTime, setEndTime] = useState(0);
-	const seconds = useCountdownSeconds(endTime);
 	const [fetched, setFetched] = useState(false);
 	const [log, setLog] = useState<any[]>([]);
 	const [logHasMore, setLogHasMore] = useState(false);
@@ -44,7 +42,6 @@ const Settings: React.FC = () => {
 	const fwProductsRequestedRef = useRef(false);
 
 	const updateSeconds = (endTime: number) => {
-		console.log(`Force syncing endtime to ${endTime}`);
 		setEndTime(endTime);
 	};
 
@@ -58,7 +55,6 @@ const Settings: React.FC = () => {
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
-			console.log(`received ${event.data}`);
 
 			if ("logPage" in response) {
 				logLoadingRef.current = false;
@@ -167,11 +163,13 @@ const Settings: React.FC = () => {
 					overflow: "hidden",
 				}}
 			>
-				<Timer input_seconds={seconds} textAlign='center' />
+				<Timer endTime={endTime} textAlign='center' />
 				<br />
 				<Tabs
 					index={tabIndex}
 					onChange={setTabIndex}
+					isLazy
+					lazyBehavior='keepMounted'
 					display='flex'
 					flexDirection='column'
 					flex='1'

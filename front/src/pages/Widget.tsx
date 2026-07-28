@@ -1,7 +1,6 @@
 import Timer from "../Timer";
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
-import { useCountdownSeconds } from "../useCountdown";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -13,7 +12,6 @@ const Widget: React.FC = () => {
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
 	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
-	const seconds = useCountdownSeconds(endTime);
 
 	const connectWs = () => {
 		// tear down any prior socket so handlers/reconnects can't stack
@@ -90,7 +88,7 @@ const Widget: React.FC = () => {
 
 	return (
 		<div style={wrap}>
-			<Timer input_seconds={seconds} textAlign='start' color={timer_color} background={bgColor} />
+			<Timer endTime={endTime} textAlign='start' color={timer_color} background={bgColor} />
 		</div>
 	);
 };
