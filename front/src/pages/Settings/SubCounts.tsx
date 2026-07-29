@@ -19,6 +19,7 @@ import { BASE_URL } from "../../Consts";
 import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
 import { parseSourceUrl, hexParam, oneOfParam, intParam, textParam } from "../../wizardUrl";
+import { TEXT_EFFECTS, MAX_EFFECT_WIDTH, textEffectStyle } from "../../textEffect";
 
 type Platform = "twitch" | "youtube" | "kick";
 const SERVICES: { key: Platform; label: string }[] = [
@@ -74,7 +75,64 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 		toast({ title: "Loaded — edit and copy the new URL", status: "success", duration: 2000 });
 	};
 
-	const srcUrl = (platform: string) => `${BASE_URL}/subcount?token=${token}&platform=${platform}`;
+	// look shared by every counter source below, carried in each url. transparent is url-only here: the synced
+	// widget colour is also read by the progress sources, which don't clear the body background.
+	const syncBg = (settings.widgetSettings && settings.widgetSettings.bgColor) || "#00FF00";
+	const [cntBg, setCntBg] = useState<string | null>(null);
+	const [cntBgHex, setCntBgHex] = useState("#00FF00");
+	const [cntColor, setCntColor] = useState("#ffffff");
+	const [cntEffect, setCntEffect] = useState("none");
+	const [cntEffectColor, setCntEffectColor] = useState("#000000");
+	const [cntEffectW, setCntEffectW] = useState(4);
+	const cntBgValue = cntBg ?? syncBg;
+	const cntTransparent = cntBgValue === "transparent";
+	const pickCntBg = (v: string) => {
+		setCntBg(v);
+		if (v !== "transparent")
+			setCntBgHex(v);
+	};
+
+	const srcUrl = (platform: string) => {
+		const p = new URLSearchParams({ token: token || "", platform, bg: cntBgValue, color: cntColor });
+		if (cntEffect !== "none" && cntEffectW > 0) {
+			p.set("effect", cntEffect);
+			p.set("effectColor", cntEffectColor);
+			p.set("effectWidth", String(cntEffectW));
+		}
+		return `${BASE_URL}/subcount?${p.toString()}`;
+	};
+
+	// paste any counter url back in to recover its look (the tally comes from whichever row you copy)
+	const [cntPaste, setCntPaste] = useState("");
+	const loadCntUrl = () => {
+		const sp = parseSourceUrl(cntPaste, "/subcount");
+		if (!sp) {
+			toast({ title: "That doesn't look like a subcount URL", status: "error", duration: 3000 });
+			return;
+		}
+		const bg = hexParam(sp, "bg", cntBgValue, "transparent");
+		setCntBg(bg);
+		if (bg !== "transparent")
+			setCntBgHex(bg);
+		setCntColor(hexParam(sp, "color", cntColor));
+		const effect = oneOfParam(sp, "effect", TEXT_EFFECTS, "none");
+		setCntEffect(effect);
+		if (effect !== "none") {
+			setCntEffectColor(hexParam(sp, "effectColor", cntEffectColor));
+			setCntEffectW(intParam(sp, "effectWidth", 0, MAX_EFFECT_WIDTH, cntEffectW));
+		}
+		setCntPaste("");
+		toast({ title: "Loaded — the URLs above now carry that look", status: "success", duration: 2000 });
+	};
+	// so a transparent preview reads as see-through rather than as the dashboard's own background
+	const checker: React.CSSProperties = {
+		backgroundColor: "#2b2b2b",
+		backgroundImage:
+			"linear-gradient(45deg,#3d3d3d 25%,transparent 25%,transparent 75%,#3d3d3d 75%)," +
+			"linear-gradient(45deg,#3d3d3d 25%,transparent 25%,transparent 75%,#3d3d3d 75%)",
+		backgroundSize: "18px 18px",
+		backgroundPosition: "0 0, 9px 9px",
+	};
 
 	const copy = (url: string, name: string) =>
 		copyText(url).then((ok) =>
@@ -144,10 +202,68 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				</HStack>
 			</Box>
 
+			<Box borderWidth="1px" borderRadius="md" p={3}>
+				<Text fontSize="sm" fontWeight={600} mb={2}>Counter appearance</Text>
+				<Text fontSize="xs" color="gray.500" mb={3}>
+					Applies to every counter URL above &mdash; set it here, then copy the ones you want. Re-copy after
+					changing anything, since the look travels in the URL.
+				</Text>
+				<Flex align="center" gap={2} mb={2} wrap="wrap">
+					<Text fontSize="sm" w="80px" flexShrink={0}>Background</Text>
+					<Input type="color" w="42px" p={1} cursor="pointer" value={cntTransparent ? cntBgHex : cntBgValue}
+						opacity={cntTransparent ? 0.4 : 1} onChange={(e) => pickCntBg(e.currentTarget.value)} />
+					<Text as="code" fontSize="xs">{cntBgValue}</Text>
+					<Button size="xs" onClick={() => pickCntBg("transparent")} isDisabled={cntTransparent}>transparent</Button>
+					<Button size="xs" onClick={() => pickCntBg("#00FF00")} isDisabled={cntBgValue.toUpperCase() === "#00FF00"}>chroma green</Button>
+				</Flex>
+				<Flex align="center" gap={2} mb={2} wrap="wrap">
+					<Text fontSize="sm" w="80px" flexShrink={0}>Text</Text>
+					<Input type="color" w="42px" p={1} cursor="pointer" value={cntColor} onChange={(e) => setCntColor(e.currentTarget.value)} />
+					<Text as="code" fontSize="xs">{cntColor}</Text>
+				</Flex>
+				<Flex align="center" gap={2} mb={2} wrap="wrap">
+					<Text fontSize="sm" w="80px" flexShrink={0}>Effect</Text>
+					<Select size="sm" w="130px" value={cntEffect} onChange={(e) => setCntEffect(e.currentTarget.value)}>
+						<option value="none">None</option>
+						<option value="stroke">Stroke</option>
+						<option value="shadow">Drop shadow</option>
+					</Select>
+					{cntEffect !== "none" && (
+						<>
+							<Input type="color" w="42px" p={1} cursor="pointer" value={cntEffectColor} onChange={(e) => setCntEffectColor(e.currentTarget.value)} />
+							<NumberInput size="sm" maxW="90px" min={0} max={MAX_EFFECT_WIDTH} value={cntEffectW}
+								onChange={(_, n) => setCntEffectW(Number.isFinite(n) ? Math.min(MAX_EFFECT_WIDTH, Math.max(0, Math.trunc(n))) : 0)}>
+								<NumberInputField />
+							</NumberInput>
+							<Text fontSize="sm" color="gray.500">
+								{cntEffectW <= 0 ? "px — off" : cntEffect === "stroke" ? "px outline" : "px blur"}
+							</Text>
+						</>
+					)}
+				</Flex>
+				<Text fontSize="xs" color="gray.500" mb={1}>Preview:</Text>
+				<Box borderRadius="md" overflow="hidden" mb={2} style={cntTransparent ? checker : undefined}>
+					<Box p={3} textAlign="center" style={{
+						background: cntTransparent ? "transparent" : cntBgValue,
+						fontFamily: "'Staatliches', cursive",
+						color: cntColor,
+						...textEffectStyle(cntEffect, cntEffectColor, cntEffectW),
+					}}>
+						<Box fontSize="44px" lineHeight={1}>1,234</Box>
+					</Box>
+				</Box>
+				<HStack spacing={2}>
+					<Input size="xs" placeholder="…or paste an existing counter URL to load its look"
+						value={cntPaste} onChange={(e) => setCntPaste(e.currentTarget.value)}
+						onKeyDown={(e) => { if (e.key === "Enter") loadCntUrl(); }} />
+					<Button size="xs" isDisabled={!cntPaste.trim()} onClick={loadCntUrl}>Load</Button>
+				</HStack>
+			</Box>
+
 			<Text fontSize="xs" color="gray.400">
-				Add each URL as a Browser source in OBS. The page fills with the widget's chroma-key background
-				(set on the Settings tab) so it keys out cleanly. Optional URL tweaks: <b>&amp;label=Subs</b> prints
-				a caption above the number, <b>&amp;color=%23ffffff</b> sets the number color.
+				Add each URL as a Browser source in OBS. A transparent background needs no Color Key filter at all;
+				any other colour does. One more optional tweak per URL: <b>&amp;label=Subs</b> prints a caption above
+				the number.
 			</Text>
 
 			<Divider />

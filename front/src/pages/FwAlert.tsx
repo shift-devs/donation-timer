@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as consts from "../Consts";
+import { TRANSPARENT_BODY_CSS } from "../textEffect";
 
 // OBS browser source for fourthwall purchase alerts (SHIFT slide-in template). the page is a solid
 // #00FF00 fill for chroma keying; the backend pushes {fwAlert} messages for real orders and for
@@ -32,9 +33,7 @@ interface AlertItem {
 // - .firstBox is position:relative so the logo anchors to its box, not the viewport
 // - the original's 6s animation-delay + undefined slide-out class are replaced by js timing
 const CSS = `
-/* chakra's global styles paint body white, which would show through a transparent fill — the wrap div
-   below owns the background instead, so nothing underneath it paints one */
-html, body, #root { background: transparent !important; }
+${TRANSPARENT_BODY_CSS}
 .alertShift {
   color: white;
   font-family: 'Normative Pro', 'Arial Black', Arial, sans-serif;

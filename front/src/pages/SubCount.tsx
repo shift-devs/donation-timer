@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
+import { TEXT_EFFECTS, MAX_EFFECT_WIDTH, textEffectStyle, TRANSPARENT_BODY_CSS } from "../textEffect";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -13,7 +14,10 @@ const PLATFORMS: Platform[] = ["twitch", "youtube", "kick", "all", "activesubs",
 
 // one page, six OBS URLs: /subcount?platform=twitch|youtube|kick|all|activesubs|subpoints. renders the live
 // tally over a chroma-key fill (color shared with the timer widget) so it drops straight into a scene.
-// optional ?label=... prints a caption above the number; ?color=... overrides the number color (white).
+// optional ?label=... prints a caption above the number; ?color=... overrides the number color (white);
+// ?bg=... overrides the fill (hex, or "transparent" so OBS needs no colour key at all); ?effect=stroke|shadow
+// with ?effectColor= and ?effectWidth= outlines the text so it survives a busy scene.
+const HEX = /^#[0-9a-fA-F]{6}$/;
 const SubCount: React.FC = () => {
 	const params = new URLSearchParams(window.location.search);
 	const token = params.get("token");
@@ -21,13 +25,21 @@ const SubCount: React.FC = () => {
 	const platform: Platform = (PLATFORMS as string[]).includes(raw) ? (raw as Platform) : "all";
 	const label = params.get("label") || "";
 	const textColor = params.get("color") || "white";
+	// the fill: a url value wins, otherwise the live-synced widget colour, so urls copied before this existed
+	// keep following the Settings tab. "transparent" is url-only — the synced value is shared with the
+	// progress sources, which don't clear the body background.
+	const qpBg = (params.get("bg") || "").trim();
+	const effect = TEXT_EFFECTS.includes((params.get("effect") || "").trim()) ? (params.get("effect") || "").trim() : "none";
+	const effectColor = HEX.test((params.get("effectColor") || "").trim()) ? (params.get("effectColor") || "").trim() : "";
+	const effectWidthRaw = Number(params.get("effectWidth"));
+	const effectWidth = Number.isFinite(effectWidthRaw) ? Math.min(MAX_EFFECT_WIDTH, Math.max(0, effectWidthRaw)) : 0;
 
 	const [counts, setCounts] = useState({ twitch: 0, youtube: 0, kick: 0 });
 	// tracked apart from the all-time tallies: ok=false means the twitch read is failing, and a stale
 	// "active" number on stream is worse than showing nothing
 	const [active, setActive] = useState({ count: 0, points: 0, ok: false });
 	const [fetched, setFetched] = useState(false);
-	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
+	const [syncBg, setSyncBg] = useState("#00FF00"); // chroma green until the sync says otherwise
 
 	const connectWs = () => {
 		// tear down any prior socket so handlers/reconnects can't stack
@@ -53,7 +65,7 @@ const SubCount: React.FC = () => {
 						ok: !!response.activeSubs.ok,
 					});
 				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
-					setBgColor(response.widgetSettings.bgColor);
+					setSyncBg(response.widgetSettings.bgColor);
 				if (!fetched)
 					setFetched(true);
 			} else if ("error" in response) {
@@ -98,7 +110,11 @@ const SubCount: React.FC = () => {
 				: counts[platform as "twitch" | "youtube" | "kick"];
 	const haveValue = fetched && !!token && (!live || active.ok);
 
-	// full-viewport chroma key fill — OBS keys it out so only the number shows
+	const bgColor = qpBg === "transparent" || HEX.test(qpBg) ? qpBg : syncBg;
+
+	// full-viewport fill — OBS keys it out so only the number shows, or composites directly when transparent.
+	// the effect goes on the wrapper because text-shadow and -webkit-text-stroke inherit, so the label and the
+	// number are treated alike without repeating it.
 	const wrap: React.CSSProperties = {
 		position: "fixed",
 		inset: 0,
@@ -111,10 +127,12 @@ const SubCount: React.FC = () => {
 		justifyContent: "center",
 		fontFamily: "'Staatliches', cursive",
 		color: textColor,
+		...textEffectStyle(effect, effectColor, effectWidth),
 	};
 
 	return (
 		<div style={wrap}>
+			<style>{TRANSPARENT_BODY_CSS}</style>
 			{label && (
 				<div style={{ fontSize: "48px", fontWeight: 400, lineHeight: 1, marginBottom: "8px" }}>
 					{label}

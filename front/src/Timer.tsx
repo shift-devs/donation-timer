@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { useCountdownSeconds } from "./useCountdown";
+import { textEffectStyle } from "./textEffect";
 
 var timer_text: string;
 var timer_color: string;
@@ -91,8 +92,7 @@ export function timerTextStyle(o: {
 	effectWidth?: number;
 }): React.CSSProperties {
 	const face = TIMER_FONTS[o.font || ""] || TIMER_FONTS.display;
-	const w = o.effectWidth && o.effectWidth > 0 ? o.effectWidth : 0;
-	const base: React.CSSProperties = {
+	return {
 		// white text; black background by default (the /widget page overrides to chroma green)
 		background: o.background,
 		color: "white",
@@ -104,25 +104,8 @@ export function timerTextStyle(o: {
 		// so it stays proportional between the full-size source and the wizard's shrunken preview.
 		padding: "0 0.15em",
 		boxSizing: "border-box",
+		...textEffectStyle(o.effect, o.effectColor, o.effectWidth),
 	};
-	// the mode gates this, not the colour/width: those keep their last value while the effect is off, so
-	// falling through on them would draw a stroke for effect "none"
-	if (!o.effectColor || w <= 0)
-		return base;
-	if (o.effect === "shadow")
-		// centred on the glyphs rather than offset, so it reads as an even halo on every side and the width
-		// is simply the blur radius
-		return { ...base, textShadow: `0 0 ${w}px ${o.effectColor}` };
-	if (o.effect === "stroke")
-		return {
-			...base,
-			WebkitTextStrokeWidth: `${w}px`,
-			WebkitTextStrokeColor: o.effectColor,
-			// draw the stroke behind the glyphs; without this the outline is centred on the edge and
-			// eats into the letterforms, which is very visible on a heavy display face
-			paintOrder: "stroke fill",
-		};
-	return base;
 }
 
 const Timer: React.FC<{

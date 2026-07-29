@@ -1,6 +1,7 @@
 import Timer, { timerTextStyle, renderTimerText, TIMER_FONTS } from "../Timer";
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
+import { TEXT_EFFECTS, MAX_EFFECT_WIDTH, TRANSPARENT_BODY_CSS } from "../textEffect";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -9,11 +10,8 @@ let timer_color: string = "white";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const ALIGNS = ["left", "center", "right"];
-// chakra's global styles paint body white, which would show through a transparent fill — the wrap div owns
-// the background instead, so nothing underneath it paints one
-const BODY_CSS = `html, body, #root { background: transparent !important; }`;
-const EFFECTS = ["stroke", "shadow"];
-const MAX_EFFECT = 20; // px; past this the outline swallows the digits
+const EFFECTS = TEXT_EFFECTS;
+const MAX_EFFECT = MAX_EFFECT_WIDTH;
 
 const Widget: React.FC = () => {
 	// look built by the dashboard's widget wizard, baked into the url so one shop can run several sources
@@ -106,7 +104,7 @@ const Widget: React.FC = () => {
 	if (!fetched || !token)
 		return (
 			<>
-				<style>{BODY_CSS}</style>
+				<style>{TRANSPARENT_BODY_CSS}</style>
 				<div style={{ ...wrap, ...timerTextStyle({ background: bgColor, textAlign: align, font, effect, effectColor, effectWidth }) }}>
 					{renderTimerText("?:??", font)}
 				</div>
@@ -115,7 +113,7 @@ const Widget: React.FC = () => {
 
 	return (
 		<>
-			<style>{BODY_CSS}</style>
+			<style>{TRANSPARENT_BODY_CSS}</style>
 			<div style={wrap}>
 				<Timer
 					endTime={endTime}
