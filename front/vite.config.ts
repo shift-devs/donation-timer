@@ -18,12 +18,14 @@ const listPublic = (dir: string, re: RegExp) => {
 };
 const fwSounds = listPublic("fwsounds", /\.(mp3|wav|ogg|m4a)$/i);
 const mediaFiles = listPublic("media", /\.(mp4|webm|mov|m4v|mp3|wav|ogg|m4a)$/i);
+const banners = listPublic("banners", /\.(png|jpe?g|gif|webp|avif|svg)$/i);
 
 // https://vitejs.dev/config/
 export default defineConfig({
 	define: {
 		__FW_SOUNDS__: JSON.stringify(fwSounds),
 		__MEDIA_FILES__: JSON.stringify(mediaFiles),
+		__BANNERS__: JSON.stringify(banners),
 	},
 	server: {
 		host: "0.0.0.0",

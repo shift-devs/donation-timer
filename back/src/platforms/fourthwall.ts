@@ -44,6 +44,42 @@ export function normalizeFwProductSounds(raw: any): { [id: string]: { file: stri
     return out;
 }
 
+// per-product alert banners: { [offerId]: filename } — a bare name under the site's /banners/ folder
+// (the alert page builds the url, so no paths/traversal can sneak in). absent = the template's purple
+// panel, which the banner otherwise covers. this owns validating untrusted client input.
+export function normalizeFwProductBanners(raw: any): { [id: string]: string } {
+    const out: { [id: string]: string } = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return out;
+    for (const [id, v] of Object.entries(raw)){
+        if (Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            break;
+        if (!id || id.length > 100)
+            continue;
+        const file = typeof v === "string" ? v : "";
+        if (!file || file.length > 200 || file.includes("/") || file.includes("\\") || file.includes(".."))
+            continue;
+        out[id] = file;
+    }
+    return out;
+}
+
+// per-product name drop shadow: { [offerId]: true } for products whose alert draws a shadow behind the
+// buyer name, so it stays readable over a busy banner. absent = off (the plain purple panel needs none),
+// so we only ever store the enabled ones. this owns validating untrusted client input.
+export function normalizeFwProductShadows(raw: any): { [id: string]: boolean } {
+    const out: { [id: string]: boolean } = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return out;
+    for (const [id, v] of Object.entries(raw)){
+        if (Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            break;
+        if (id && id.length <= 100 && v === true) // only the "on" entries are meaningful
+            out[id] = true;
+    }
+    return out;
+}
+
 // per-product alert toggle: { [offerId]: false } for products whose on-stream purchase alert is off.
 // absent = on (the default), so we only ever store the disabled ones — mirrors the bonuses normalizer
 // dropping zeros. this owns validating untrusted client input.
@@ -105,6 +141,31 @@ export function soundForOffers(session: TimerUserSession, offers: any[]): { file
             return s;
     }
     return null;
+}
+
+// same for the banner image: first configured one among the order's lines wins (one alert, one banner)
+export function bannerForOffers(session: TimerUserSession, offers: any[]): string {
+    for (const line of offers){
+        const b = line && line.id && session.fwProductBanners && session.fwProductBanners[line.id];
+        if (b)
+            return b;
+    }
+    return "";
+}
+
+// whether that alert's name gets a drop shadow: the product supplying the banner decides, so the shadow
+// always matches the banner on screen. with no banner set, the first product asking for one wins.
+export function shadowForOffers(session: TimerUserSession, offers: any[]): boolean {
+    for (const line of offers){
+        const id = line && line.id;
+        if (!id)
+            continue;
+        if (session.fwProductBanners && session.fwProductBanners[id])
+            return !!(session.fwProductShadows && session.fwProductShadows[id]);
+        if (session.fwProductShadows && session.fwProductShadows[id])
+            return true;
+    }
+    return false;
 }
 
 // list the shop's products (offers) so the dashboard can attach per-product bonuses.
@@ -279,6 +340,8 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                     image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
                     sound: alertSound ? alertSound.file : "",
                     volume: alertSound ? alertSound.volume : 1,
+                    banner: bannerForOffers(session, offers),
+                    shadow: shadowForOffers(session, offers),
                 });
             }
         }

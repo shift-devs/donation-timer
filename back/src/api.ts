@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
-import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { setEndTime } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
@@ -67,6 +67,8 @@ function wsSync(ws: TimerWebSocket) {
             fwProductBonuses: curSession.fwProductBonuses || {},
             fwProductSounds: curSession.fwProductSounds || {},
             fwProductAlerts: curSession.fwProductAlerts || {},
+            fwProductBanners: curSession.fwProductBanners || {},
+            fwProductShadows: curSession.fwProductShadows || {},
             // { [offerId]: units sold } powering the /fwprogress sales-progress browser sources
             fwUnitsSold: curSession.fwUnitsSold || {},
             widgetSettings: curSession.widgetSettings || {},
@@ -414,6 +416,12 @@ export function startApi(){
                 case "setFwProductAlerts":
                     curSession.fwProductAlerts = normalizeFwProductAlerts(jData.alerts);
                     break;
+                case "setFwProductBanners":
+                    curSession.fwProductBanners = normalizeFwProductBanners(jData.banners);
+                    break;
+                case "setFwProductShadows":
+                    curSession.fwProductShadows = normalizeFwProductShadows(jData.shadows);
+                    break;
                 case "setWidgetSettings":
                     curSession.widgetSettings = normalizeWidgetSettings(jData.settings);
                     break;
@@ -467,6 +475,8 @@ export function startApi(){
                             image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
                             sound: simSound && simSound.file ? simSound.file : "",
                             volume: simSound && Number.isFinite(simSound.volume) ? simSound.volume : 1,
+                            banner: (curSession.fwProductBanners && curSession.fwProductBanners[pid]) || "",
+                            shadow: !!(curSession.fwProductShadows && curSession.fwProductShadows[pid]),
                         });
                     }
                     const addedSim = Math.round((curSession.endTime - beforeSim) / 1000);

@@ -7,7 +7,7 @@ import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
-import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwActivity } from "./platforms/fourthwall";
+import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwActivity } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
 
@@ -62,6 +62,8 @@ export function loginUser(inObj: Object){
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);
+    lvObj.fwProductBanners = normalizeFwProductBanners(lvObj.fwProductBanners);
+    lvObj.fwProductShadows = normalizeFwProductShadows(lvObj.fwProductShadows);
     lvObj.capSeconds = Math.max(0, Math.trunc(Number(lvObj.capSeconds) || 0)); // 0 = no cap
     lvObj.widgetSettings = normalizeWidgetSettings(lvObj.widgetSettings);
     lvObj.fwActivity = normalizeFwActivity(lvObj.fwActivity);

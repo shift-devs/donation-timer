@@ -19,6 +19,8 @@ interface AlertItem {
 	image: string;
 	sound: string; // bare filename under /fwsounds/, "" = silent
 	volume: number; // 0..1
+	banner: string; // bare filename under /banners/, "" = the template's purple panel
+	shadow: boolean; // draw a drop shadow behind the name so it reads over a busy banner
 	nonce: number;
 	leaving?: boolean;
 }
@@ -103,6 +105,14 @@ const CSS = `
   text-overflow: ellipsis;
   padding: 31px 25px;
 }
+/* opt-in per product: a tight dark outline plus a soft drop, so the white name survives a busy banner */
+.nameShadow {
+  text-shadow:
+    0 0 2px rgba(0,0,0,.95),
+    0 0 4px rgba(0,0,0,.9),
+    0 0 8px rgba(0,0,0,.7),
+    2px 2px 5px rgba(0,0,0,.85);
+}
 .messageTextBoy {
   padding: 14px 35px 20px 35px;
 }
@@ -167,6 +177,8 @@ const FwAlert: React.FC = () => {
 					image: typeof a.image === "string" ? a.image : "",
 					sound: typeof a.sound === "string" ? a.sound : "",
 					volume: typeof a.volume === "number" ? Math.min(1, Math.max(0, a.volume)) : 1,
+					banner: typeof a.banner === "string" ? a.banner : "",
+					shadow: a.shadow === true,
 					nonce: nonceRef.current,
 				});
 				// a purchase flood queues faster than alerts drain (one every SHOW+EXIT ms) — during a
@@ -211,6 +223,16 @@ const FwAlert: React.FC = () => {
 		padding: "24px",
 	};
 
+	// a chosen banner covers the template's purple panel; no banner leaves the purple as-is
+	const bannerStyle: React.CSSProperties = alert && alert.banner
+		? {
+			backgroundImage: `url("/banners/${encodeURIComponent(alert.banner)}")`,
+			backgroundSize: "cover",
+			backgroundPosition: "center",
+			backgroundRepeat: "no-repeat",
+		}
+		: {};
+
 	return (
 		<div style={wrap}>
 			<style>{CSS}</style>
@@ -242,11 +264,11 @@ const FwAlert: React.FC = () => {
 					<div className='wholeBox'>
 						{/* SECOND BOX */}
 						<div className='entryBox2 slide-in-leftSHIFT'>
-							<div className='secondBox exitBox2'>
+							<div className='secondBox exitBox2' style={bannerStyle}>
 								<div className='innerBox'>
 									<div id='alert-message' className='messageTextBoy'>{alert.message}</div>
 								</div>
-								<div className='nameShift'>{alert.name}</div>
+								<div className={`nameShift ${alert.shadow ? "nameShadow" : ""}`}>{alert.name}</div>
 							</div>
 						</div>
 						<div className='tagsystem2 slide-in-leftSHIFT'>

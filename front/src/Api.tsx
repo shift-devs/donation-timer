@@ -98,6 +98,16 @@ export function setFwProductAlerts(ws: WebSocket, alerts: any) {
 	return 1;
 }
 
+export function setFwProductBanners(ws: WebSocket, banners: any) {
+	send(ws, { event: "setFwProductBanners", banners: banners });
+	return 1;
+}
+
+export function setFwProductShadows(ws: WebSocket, shadows: any) {
+	send(ws, { event: "setFwProductShadows", shadows: shadows });
+	return 1;
+}
+
 export function getFwProducts(ws: WebSocket) {
 	send(ws, { event: "getFwProducts" });
 	return 1;

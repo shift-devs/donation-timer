@@ -36,6 +36,10 @@ export interface TimerUserSession {
     fwProductSounds: any
     // { [offerId]: false } for products whose on-stream purchase alert is turned off; absent = on
     fwProductAlerts: any
+    // { [offerId]: banner filename } shown behind the alert's name panel; absent = the default purple panel
+    fwProductBanners: any
+    // { [offerId]: true } for products whose alert name draws a drop shadow (readability over a banner)
+    fwProductShadows: any
     widgetSettings: any
     fwActivity: any
     // { [offerId]: all-time units sold } from the fourthwall units-sold report, driving the /fwprogress bars.

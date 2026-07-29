@@ -19,7 +19,7 @@ import {
 	Text,
 	useToast,
 } from "@chakra-ui/react";
-import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, testFwPurchase } from "../../Api";
+import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, setFwProductBanners, setFwProductShadows, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
@@ -27,6 +27,8 @@ import { BASE_URL } from "../../Consts";
 
 // sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
 const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : [];
+// same for public/banners — the alert's name panel background, per product
+const BANNERS: string[] = typeof __BANNERS__ !== "undefined" ? __BANNERS__ : [];
 
 // canonical view of the bonus map: only positive finite numbers survive (mirrors the backend normalizer),
 // so zeroing an input reads as "remove the bonus" for dirty-checking and saving alike
@@ -54,6 +56,29 @@ function normalizeSounds(raw: any): { [id: string]: { file: string; volume: numb
 	return out;
 }
 
+// banner map: { [id]: filename }, only kept with a non-empty name ("None" = removed, i.e. the alert's
+// default purple panel). mirrors the backend normalizer.
+function normalizeBanners(raw: any): { [id: string]: string } {
+	const out: { [id: string]: string } = {};
+	if (raw && typeof raw === "object" && !Array.isArray(raw))
+		for (const [id, v] of Object.entries(raw)) {
+			const file = typeof v === "string" ? v : "";
+			if (id && file) out[id] = file;
+		}
+	return out;
+}
+
+// name drop shadow: default off, so we only keep the products explicitly turned on ({ [id]: true }) —
+// mirrors the backend normalizer. any absent id reads as "no shadow".
+function normalizeShadows(raw: any): { [id: string]: boolean } {
+	const out: { [id: string]: boolean } = {};
+	if (raw && typeof raw === "object" && !Array.isArray(raw))
+		for (const [id, v] of Object.entries(raw)) {
+			if (id && v === true) out[id] = true;
+		}
+	return out;
+}
+
 // alert toggles: default on, so we only keep the products explicitly turned off ({ [id]: false }) —
 // mirrors the backend normalizer. any absent id reads as "alerts on".
 function normalizeAlerts(raw: any): { [id: string]: boolean } {
@@ -71,22 +96,26 @@ function normalizeAlerts(raw: any): { [id: string]: boolean } {
 // and a laggy one.
 type RowProps = {
 	id: string; name: string; faded: boolean; image: string; usd: number; simulatable: boolean;
-	bonus: number; sound?: { file: string; volume: number }; alertOn: boolean;
+	bonus: number; sound?: { file: string; volume: number }; alertOn: boolean; banner: string; shadow: boolean;
 	onBonus: (id: string, n: number) => void;
 	onSound: (id: string, entry: { file: string; volume: number }) => void;
 	onAlert: (id: string, checked: boolean) => void;
+	onBanner: (id: string, file: string) => void;
+	onShadow: (id: string, checked: boolean) => void;
 	onSimulate: (p: { id: string; name: string; usd: number; image: string }) => void;
 };
 
 function rowsEqual(a: RowProps, b: RowProps): boolean {
 	return a.id === b.id && a.name === b.name && a.faded === b.faded && a.image === b.image && a.usd === b.usd
 		&& a.simulatable === b.simulatable && a.bonus === b.bonus && a.alertOn === b.alertOn
+		&& a.banner === b.banner && a.shadow === b.shadow
 		&& (a.sound && a.sound.file) === (b.sound && b.sound.file)
 		&& (a.sound && a.sound.volume) === (b.sound && b.sound.volume)
-		&& a.onBonus === b.onBonus && a.onSound === b.onSound && a.onAlert === b.onAlert && a.onSimulate === b.onSimulate;
+		&& a.onBonus === b.onBonus && a.onSound === b.onSound && a.onAlert === b.onAlert
+		&& a.onBanner === b.onBanner && a.onShadow === b.onShadow && a.onSimulate === b.onSimulate;
 }
 
-const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd, simulatable, bonus, sound, alertOn, onBonus, onSound, onAlert, onSimulate }) => {
+const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd, simulatable, bonus, sound, alertOn, banner, shadow, onBonus, onSound, onAlert, onBanner, onShadow, onSimulate }) => {
 	const file = (sound && sound.file) || "";
 	const volume = sound && Number.isFinite(sound.volume) ? sound.volume : 1;
 	const soundOff = !alertOn;
@@ -136,6 +165,28 @@ const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd
 				</Slider>
 				<Text fontSize='xs' color='gray.500' w='38px' flexShrink={0}>{Math.round(volume * 100)}%</Text>
 			</Flex>
+			<Flex align='center' mt={1.5} pl='48px' gap={2}>
+				<Text fontSize='xs' color='gray.500' flexShrink={0}>Banner</Text>
+				<Select size='xs' maxW='240px' value={banner} isDisabled={soundOff} onChange={(ev) => onBanner(id, ev.currentTarget.value)}>
+					<option value=''>None (purple)</option>
+					{BANNERS.map((f) => <option key={f} value={f}>{f}</option>)}
+					{/* a saved banner whose file has since been removed from banners/ — keep it selectable so it's visible */}
+					{banner && !BANNERS.includes(banner) && <option value={banner}>(missing) {banner}</option>}
+				</Select>
+				{banner && (
+					<Image
+						src={`/banners/${encodeURIComponent(banner)}`}
+						alt=''
+						h='22px'
+						maxW='90px'
+						objectFit='cover'
+						borderRadius='sm'
+						fallback={<Box h='22px' w='40px' bg='whiteAlpha.200' borderRadius='sm' />}
+					/>
+				)}
+				<Text fontSize='xs' color='gray.500' flexShrink={0} ml={2}>text shadow</Text>
+				<Switch size='sm' isChecked={shadow} isDisabled={soundOff} onChange={(ev) => onShadow(id, ev.target.checked)} />
+			</Flex>
 		</Box>
 	);
 }, rowsEqual);
@@ -159,6 +210,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const savedAlertsStr = JSON.stringify(savedAlerts);
 	const [alertDraft, setAlertDraft] = useState<any>(savedAlerts);
 	const prevSavedAlertsRef = useRef(savedAlertsStr);
+	const savedBanners = normalizeBanners(settings.fwProductBanners);
+	const savedBannersStr = JSON.stringify(savedBanners);
+	const [bannerDraft, setBannerDraft] = useState<any>(savedBanners);
+	const prevSavedBannersRef = useRef(savedBannersStr);
+	const savedShadows = normalizeShadows(settings.fwProductShadows);
+	const savedShadowsStr = JSON.stringify(savedShadows);
+	const [shadowDraft, setShadowDraft] = useState<any>(savedShadows);
+	const prevSavedShadowsRef = useRef(savedShadowsStr);
 
 	// follow the server's values only when there are no unsaved local edits (same pattern as Time Per Action)
 	useEffect(() => {
@@ -176,10 +235,22 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		prevSavedAlertsRef.current = savedAlertsStr;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [savedAlertsStr]);
+	useEffect(() => {
+		setBannerDraft((prev: any) => (JSON.stringify(prev) === prevSavedBannersRef.current ? savedBanners : prev));
+		prevSavedBannersRef.current = savedBannersStr;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [savedBannersStr]);
+	useEffect(() => {
+		setShadowDraft((prev: any) => (JSON.stringify(prev) === prevSavedShadowsRef.current ? savedShadows : prev));
+		prevSavedShadowsRef.current = savedShadowsStr;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [savedShadowsStr]);
 
 	const dirty = JSON.stringify(normalize(draft)) !== savedStr
 		|| JSON.stringify(normalizeSounds(soundDraft)) !== savedSoundsStr
-		|| JSON.stringify(normalizeAlerts(alertDraft)) !== savedAlertsStr;
+		|| JSON.stringify(normalizeAlerts(alertDraft)) !== savedAlertsStr
+		|| JSON.stringify(normalizeBanners(bannerDraft)) !== savedBannersStr
+		|| JSON.stringify(normalizeShadows(shadowDraft)) !== savedShadowsStr;
 	const toast = useToast();
 
 	// progress-bar browser source builder: pick a product + goal + look, preview it, get a copyable
@@ -201,6 +272,8 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const onBonus = useCallback((id: string, n: number) => setDraft((d: any) => ({ ...d, [id]: n })), []);
 	const onSound = useCallback((id: string, entry: { file: string; volume: number }) => setSoundDraft((d: any) => ({ ...d, [id]: entry })), []);
 	const onAlert = useCallback((id: string, checked: boolean) => setAlertDraft((d: any) => ({ ...d, [id]: checked })), []);
+	const onBanner = useCallback((id: string, file: string) => setBannerDraft((d: any) => ({ ...d, [id]: file })), []);
+	const onShadow = useCallback((id: string, checked: boolean) => setShadowDraft((d: any) => ({ ...d, [id]: checked })), []);
 
 	const alertUrl = `${BASE_URL}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const activityUrl = `${BASE_URL}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
@@ -217,7 +290,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// config saved for products the shop no longer lists — keep it visible so it can be cleared
 	const orphans = products === null
 		? []
-		: Object.keys({ ...saved, ...savedSounds, ...savedAlerts }).filter((id) => !products.some((p) => p.id === id));
+		: Object.keys({ ...saved, ...savedSounds, ...savedAlerts, ...savedBanners, ...savedShadows }).filter((id) => !products.some((p) => p.id === id));
 
 	return (
 		<Box maxW='700px' mx='auto' textAlign='left'>
@@ -250,9 +323,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					bonus={draft[p.id] ?? 0}
 					sound={soundDraft[p.id]}
 					alertOn={alertDraft[p.id] !== false}
+					banner={bannerDraft[p.id] || ""}
+					shadow={shadowDraft[p.id] === true}
 					onBonus={onBonus}
 					onSound={onSound}
 					onAlert={onAlert}
+					onBanner={onBanner}
+					onShadow={onShadow}
 					onSimulate={onSimulate}
 				/>
 			))}
@@ -268,9 +345,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					bonus={draft[id] ?? 0}
 					sound={soundDraft[id]}
 					alertOn={alertDraft[id] !== false}
+					banner={bannerDraft[id] || ""}
+					shadow={shadowDraft[id] === true}
 					onBonus={onBonus}
 					onSound={onSound}
 					onAlert={onAlert}
+					onBanner={onBanner}
+					onShadow={onShadow}
 					onSimulate={onSimulate}
 				/>
 			))}
@@ -283,6 +364,8 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 						setFwProductBonuses(ws, normalize(draft));
 						setFwProductSounds(ws, normalizeSounds(soundDraft));
 						setFwProductAlerts(ws, normalizeAlerts(alertDraft));
+						setFwProductBanners(ws, normalizeBanners(bannerDraft));
+						setFwProductShadows(ws, normalizeShadows(shadowDraft));
 					}}
 				>
 					Save
@@ -311,6 +394,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					6. Alert sounds: drop mp3/wav/ogg files into the site&apos;s <Text as='code'>fwsounds</Text> folder
 					(<Text as='code'>front/public/fwsounds</Text>, needs a rebuild to appear here), then pick one per
 					product above. &quot;None&quot; keeps that product silent.
+				</Text>
+				<Text mt={1}>
+					7. Alert banners: drop images into the site&apos;s <Text as='code'>banners</Text> folder
+					(<Text as='code'>front/public/banners</Text>, needs a rebuild to appear here), then pick one per
+					product above. The banner covers the alert&apos;s purple panel; &quot;None&quot; keeps the purple.
+					Turn on <b>text shadow</b> for products whose banner is light or busy, so the buyer name stays
+					readable over it.
 				</Text>
 			</Box>
 
