@@ -6,7 +6,6 @@ import FwActivity from "./pages/FwActivity";
 import SubCount from "./pages/SubCount";
 import SubProgress from "./pages/SubProgress";
 import FwProgress from "./pages/FwProgress";
-import TwitchAuth from "./pages/TwitchAuth";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
@@ -18,7 +17,6 @@ const App: React.FC = () => (
 			<Routes>
 				<Route path='/' element={<Settings />} />
 				<Route path='/login' element={<Login />} />
-				<Route path='/twitchauth' element={<TwitchAuth />} />
 				<Route path='/widget' element={<Widget />} />
 				<Route path='/events' element={<EventSource />} />
 				<Route path='/fwalert' element={<FwAlert />} />

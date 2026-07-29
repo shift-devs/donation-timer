@@ -35,6 +35,11 @@ export interface TimerUserSession {
     twitchSubsLastOkAt?: number
     subsActive?: number
     subsPoints?: number
+    // in-flight device-code authorization: the streamer has a code to type in. transient — a device code is
+    // only good for ~30 min, so there's nothing worth reloading after a restart. deviceCode never leaves the
+    // server; the ui only needs the short user code and the url.
+    twitchSubsPending?: { deviceCode: string, userCode: string, verificationUri: string, expiresAt: number, interval: number }
+    twitchSubsLogin?: string
     // ms timestamp of the last genuine (non-command) event we received per platform — proof data is actually flowing
     lastEventAt?: { [platform: string]: number }
     rates: any

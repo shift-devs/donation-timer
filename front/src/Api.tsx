@@ -129,8 +129,8 @@ export function setConnection(ws: WebSocket, platform: string, config: any) {
 	return 1;
 }
 
-export function getTwitchSubsAuthUrl(ws: WebSocket) {
-	send(ws, { event: "getTwitchSubsAuthUrl" });
+export function startTwitchSubsDeviceAuth(ws: WebSocket) {
+	send(ws, { event: "startTwitchSubsDeviceAuth" });
 	return 1;
 }
 

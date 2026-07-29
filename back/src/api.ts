@@ -11,7 +11,7 @@ import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
-import { normalizeTwitchSubs, twitchSubsReady, exchangeTwitchSubsCode, twitchSubsAuthUrl, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
+import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwitchSubsDeviceAuth, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
 import { setEndTime, isStoppedAtZero } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -69,12 +69,18 @@ function wsSync(ws: TimerWebSocket) {
                     // credentials pasted, but the one-time authorize may still be outstanding — the ui needs
                     // to tell those two states apart to know which step to show
                     hasApp: !!(curSession.connections.twitchSubs && curSession.connections.twitchSubs.clientId
-                        && curSession.connections.twitchSubs.clientSecret && curSession.connections.twitchSubs.redirectUri),
-                    // echoed back so the ui can show exactly what must be registered on the twitch app
-                    redirectUri: (curSession.connections.twitchSubs && curSession.connections.twitchSubs.redirectUri) || "",
+                        && curSession.connections.twitchSubs.clientSecret),
                     authorized: twitchSubsReady(curSession),
                     error: curSession.twitchSubsError || "",
-                    lastOkAt: curSession.twitchSubsLastOkAt || 0
+                    lastOkAt: curSession.twitchSubsLastOkAt || 0,
+                    login: curSession.twitchSubsLogin || "",
+                    // the code the streamer still has to type in. deviceCode is deliberately not included —
+                    // it's the credential half, and the browser has no use for it.
+                    pending: curSession.twitchSubsPending ? {
+                        userCode: curSession.twitchSubsPending.userCode,
+                        verificationUri: curSession.twitchSubsPending.verificationUri,
+                        expiresAt: curSession.twitchSubsPending.expiresAt
+                    } : null
                 }
             },
             merchValues: curSession.merchValues,
@@ -413,6 +419,7 @@ export function startApi(){
                         curSession.conTwitchSubs = undefined;
                         curSession.twitchSubsStatus = false;
                         curSession.twitchSubsError = "";
+                        curSession.twitchSubsPending = undefined; // a code for the old app is worthless
                         if (config.disconnect) {
                             curSession.connections.twitchSubs = normalizeTwitchSubs({});
                             curSession.subsActive = 0;
@@ -424,13 +431,10 @@ export function startApi(){
                         const prev = curSession.connections.twitchSubs || {};
                         const clientId = typeof config.clientId === "string" ? config.clientId.trim() : "";
                         const clientSecret = typeof config.clientSecret === "string" ? config.clientSecret.trim() : "";
-                        const redirectUri = typeof config.redirectUri === "string" ? config.redirectUri.trim() : "";
-                        const sameApp = clientId === prev.clientId && clientSecret === prev.clientSecret
-                            && redirectUri === prev.redirectUri;
+                        const sameApp = clientId === prev.clientId && clientSecret === prev.clientSecret;
                         curSession.connections.twitchSubs = normalizeTwitchSubs({
                             clientId,
                             clientSecret,
-                            redirectUri,
                             refreshToken: sameApp ? prev.refreshToken : "",
                             broadcasterId: sameApp ? prev.broadcasterId : "",
                         });
@@ -485,43 +489,30 @@ export function startApi(){
                     curSession.widgetSettings = normalizeWidgetSettings({ ...(curSession.widgetSettings || {}), ...patch });
                     break;
                 }
-                case "getTwitchSubsAuthUrl": {
-                    // the redirect uri must match the twitch app registration exactly, so the client tells us
-                    // its own origin rather than the server guessing at one
+                case "startTwitchSubsDeviceAuth": {
+                    // no redirect url is involved: twitch requires https on those and this app is served over
+                    // plain http, so we ask for a short code the streamer types in on any device instead
                     const t = curSession.connections.twitchSubs || {};
                     if (!t.clientId || !t.clientSecret){
-                        ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message: "Save the Client ID and Secret first." } }));
+                        curSession.twitchSubsError = "Save the Client ID and Secret first.";
+                        emitSync(id);
                         return;
                     }
-                    if (!t.redirectUri){
-                        ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message: "Set the redirect URL first — it has to match your Twitch app exactly." } }));
-                        return;
-                    }
-                    ws.send(JSON.stringify({ twitchSubsAuth: { ok: true, url: twitchSubsAuthUrl(t.clientId, t.redirectUri) } }));
-                    return;
-                }
-                case "twitchSubsCode": {
-                    // the streamer came back from twitch with a one-shot code; swap it for the refresh token we
-                    // keep, then start polling straight away so the ui can confirm it works
-                    const code = typeof jData.code === "string" ? jData.code.slice(0, 500) : "";
-                    if (!code){
-                        ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message: "Twitch didn't send a usable code back." } }));
-                        return;
-                    }
-                    exchangeTwitchSubsCode(curSession, code)
-                        .then((who) => {
-                            if (curSession.conTwitchSubs)
-                                curSession.conTwitchSubs.disconnect();
-                            curSession.conTwitchSubs = connectTwitchSubsFor(curSession);
-                            if (ws.readyState === WebSocket.OPEN)
-                                ws.send(JSON.stringify({ twitchSubsAuth: { ok: true, message: `Reading active subs for ${who.login || "your channel"}.` } }));
-                            emitSync(id);
+                    startTwitchSubsDeviceAuth(curSession)
+                        .then(() => {
+                            curSession.twitchSubsError = "";
+                            emitSync(id); // hands the code to the dashboard via the normal sync
+                            runTwitchSubsDeviceAuth(curSession, () => {
+                                if (curSession.conTwitchSubs)
+                                    curSession.conTwitchSubs.disconnect();
+                                curSession.conTwitchSubs = connectTwitchSubsFor(curSession);
+                                emitSync(id);
+                            });
                         })
                         .catch((err) => {
-                            const message = err && err.response ? describeTwitchSubsError(err) : (err && err.message) || "Authorization failed.";
-                            curSession.twitchSubsError = message;
-                            if (ws.readyState === WebSocket.OPEN)
-                                ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message } }));
+                            curSession.twitchSubsError = err && err.response
+                                ? describeTwitchSubsError(err)
+                                : (err && err.message) || "Couldn't start the Twitch authorization.";
                             emitSync(id);
                         });
                     return;

@@ -16,6 +16,13 @@ export const FW_HTTP_TIMEOUT = 15 * 1000; // give up on a single fourthwall requ
 // active-sub/sub-point snapshot poll. one cheap helix call, so this is the resolution at which a lapsed sub
 // shows up on stream — well inside twitch's rate limit at this cadence
 export const TWITCH_SUBS_POLL_TIME = 30 * 1000;
+// consecutive failures back off instead of retrying every 30s forever: over a months-long marathon a dead
+// credential would otherwise be ~2900 failed token requests a day, which is noisy and invites throttling.
+// indexed by consecutive failure count, and it stays at the last entry from there on.
+export const TWITCH_SUBS_FAIL_BACKOFF_MS = [30 * 1000, 60 * 1000, 2 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000, 15 * 60 * 1000];
+// how many consecutive failures before the operator gets pinged. a single blip shouldn't notify anyone, but a
+// credential that died at 3am on day 40 should not go unnoticed either.
+export const TWITCH_SUBS_ALERT_AFTER = 3;
 export const LOG_RETENTION_MS = 30 * 24 * 3600 * 1000; // keep ~30 days of audit-log rows, prune older
 export const LOG_PRUNE_TIME = 6 * 3600 * 1000;         // how often to prune old log rows
 export const ALLOWED_USERS: Array<String> = ["shift", "aaronrules5", "darkrta", "the_ivo_robotnik", "yoman47", "lobomfz"];

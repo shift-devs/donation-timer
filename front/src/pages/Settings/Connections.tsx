@@ -14,9 +14,7 @@ import {
 	Tooltip,
 	VStack,
 } from "@chakra-ui/react";
-import { setConnection, getTwitchSubsAuthUrl } from "../../Api";
-import { BASE_URL } from "../../Consts";
-import { REDIRECT_PATH } from "../TwitchAuth";
+import { setConnection, startTwitchSubsDeviceAuth } from "../../Api";
 
 // green only when the server reports the connection is actually live; the only meaningful signal.
 // tips spells out what each state actually proves so a hover explains the colour.
@@ -111,10 +109,8 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 	const tsLastOkAt = ts.lastOkAt || 0;
 	const [tsId, setTsId] = useState("");
 	const [tsSecret, setTsSecret] = useState("");
-	// twitch matches this byte-for-byte, so it's editable rather than assumed: whichever address the streamer
-	// actually opens the dashboard on has to be the one registered on the app. defaults to this origin.
-	const [tsRedirect, setTsRedirect] = useState<string | null>(null);
-	const tsRedirectValue = tsRedirect ?? (ts.redirectUri || `${BASE_URL}${REDIRECT_PATH}`);
+	const tsPending = ts.pending || null; // a code the streamer still has to type in on twitch
+	const tsLogin = ts.login || "";
 	const lastEventAt = settings.lastEventAt || {};
 	const [twitchChannel, setTwitchChannel] = useState("");
 	const [slToken, setSlToken] = useState("");
@@ -325,13 +321,14 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 							</Text>
 							<ErrorBox show={tsAuthorized && !settings.twitchSubsStatus} text={tsError} />
 							<Box fontSize="sm" color="gray.600">
-								<Text><b>1.</b> At <Text as="code">dev.twitch.tv/console/apps</Text> register an application.</Text>
 								<Text>
-									<b>2.</b> Add the OAuth Redirect URL below to it, character for character. It must be the
-									address the streamer actually opens this dashboard on — Twitch rejects the login if the
-									two differ at all. An app can hold several redirect URLs, so add one per address you use.
+									<b>1.</b> At <Text as="code">dev.twitch.tv/console/apps</Text> register an application. Client
+									type <b>must be Confidential</b> — a Public app&apos;s access expires after 30 days and
+									the counts would stop mid-marathon. Twitch demands a redirect URL in the form; put
+									anything valid there, e.g. <Text as="code">https://localhost</Text>, as this never uses it.
 								</Text>
-								<Text><b>3.</b> Paste its Client ID and a New Secret below and save, then authorize.</Text>
+								<Text><b>2.</b> Paste its Client ID and a New Secret below and save.</Text>
+								<Text><b>3.</b> Hit Authorize and type the code it shows into Twitch on any device.</Text>
 							</Box>
 							<HStack>
 								<Input
@@ -347,47 +344,51 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 									onChange={(e) => setTsSecret(e.currentTarget.value)}
 									width="200px"
 								/>
-							</HStack>
-							<HStack>
-								<Input
-									placeholder="OAuth Redirect URL"
-									value={tsRedirectValue}
-									onChange={(e) => setTsRedirect(e.currentTarget.value)}
-									width="408px"
-									fontFamily="mono"
-									fontSize="sm"
-								/>
 								<Button
 									colorScheme="purple"
-									isDisabled={!tsId.trim() || !tsSecret || !tsRedirectValue.trim()}
+									isDisabled={!tsId.trim() || !tsSecret}
 									onClick={() => {
-										setConnection(ws, "twitchsubs", {
-											clientId: tsId.trim(),
-											clientSecret: tsSecret,
-											redirectUri: tsRedirectValue.trim(),
-										});
+										setConnection(ws, "twitchsubs", { clientId: tsId.trim(), clientSecret: tsSecret });
 										setTsId("");
 										setTsSecret("");
-										setTsRedirect(null); // follow the stored value again
 									}}
 								>
 									Save app
 								</Button>
 							</HStack>
-							{tsHasApp && (
+							{tsHasApp && !tsPending && (
 								<HStack>
 									<Button
 										colorScheme="purple"
 										variant="outline"
 										size="sm"
-										onClick={() => getTwitchSubsAuthUrl(ws)}
+										onClick={() => startTwitchSubsDeviceAuth(ws)}
 									>
-										{tsAuthorized ? "Re-authorize on Twitch" : "Authorize on Twitch"}
+										{tsAuthorized ? "Re-authorize" : "Authorize"}
 									</Button>
 									<Text fontSize="xs" color="gray.500">
-										opens Twitch, then comes back here
+										{tsAuthorized && tsLogin ? `currently reading ${tsLogin}` : "gives you a code to enter on Twitch"}
 									</Text>
 								</HStack>
+							)}
+							{tsPending && (
+								<Box borderWidth="1px" borderRadius="md" borderColor="purple.300" p={3}>
+									<Text fontSize="sm" mb={2}>
+										Go to{" "}
+										<Text as="a" href={tsPending.verificationUri} target="_blank" rel="noreferrer"
+											color="purple.300" textDecoration="underline">
+											{tsPending.verificationUri.replace(/\?.*$/, "")}
+										</Text>{" "}
+										while signed in as the broadcaster, and enter this code:
+									</Text>
+									<Text fontSize="3xl" fontWeight={700} letterSpacing="0.2em" fontFamily="mono">
+										{tsPending.userCode}
+									</Text>
+									<Text fontSize="xs" color="gray.500" mt={2}>
+										Waiting for Twitch — this page picks it up on its own, no need to come back and click
+										anything. The code stops working in about 30 minutes.
+									</Text>
+								</Box>
 							)}
 							{tsAuthorized && (
 								<Button
