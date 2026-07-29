@@ -32,6 +32,12 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	const toast = useToast();
 	const counts = settings.subCounts || { twitch: 0, youtube: 0, kick: 0 };
 	const total = (Number(counts.twitch) || 0) + (Number(counts.youtube) || 0) + (Number(counts.kick) || 0);
+	// live twitch snapshot, a different animal from the tallies above: it goes down too. ok=false means the
+	// read is failing, so show a dash instead of a number nobody should trust.
+	const activeSubs = settings.activeSubs || { count: 0, points: 0, ok: false };
+	const activeOk = !!activeSubs.ok;
+	const activeReady = !!(settings.connections && settings.connections.twitchSubs && settings.connections.twitchSubs.authorized);
+	const activeError = (settings.connections && settings.connections.twitchSubs && settings.connections.twitchSubs.error) || "";
 
 	// per-service "correct to real number" drafts — blank until the operator types one, so the live count
 	// keeps showing through without a field fighting the incoming sync
@@ -123,6 +129,55 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				(set on the Settings tab) so it keys out cleanly. Optional URL tweaks: <b>&amp;label=Subs</b> prints
 				a caption above the number, <b>&amp;color=%23ffffff</b> sets the number color.
 			</Text>
+
+			<Divider />
+
+			<Box borderWidth="1px" borderRadius="md" p={4} fontSize="sm">
+				<Text fontWeight={600} mb={2}>Live active subs &mdash; OBS browser sources</Text>
+				<Text color="gray.500" mb={3}>
+					Your real subscriber count and sub points as Twitch reports them right now, re-read every 30
+					seconds. Unlike the tallies above these go <b>down</b> too, so expirations, cancellations and
+					decay show up on their own and there is nothing to correct by hand. Sub points count Tier 1 and
+					Prime as 1, Tier 2 as 2 and Tier 3 as 6; the count excludes your own subscription, matching what
+					the Twitch API reports.
+				</Text>
+				{!activeReady ? (
+					<Text color="orange.300">
+						Set this up under <b>Twitch &mdash; active subs</b> on the Connections tab first: Twitch only
+						reports these numbers to the broadcaster&apos;s own authorized token.
+					</Text>
+				) : (
+					<>
+						{!activeOk && (
+							<Text color="red.300" mb={3}>
+								{activeError || "Twitch reads are failing — see the Connections tab."}
+							</Text>
+						)}
+						<HStack align="stretch" spacing={3} wrap="wrap">
+							{[
+								{ key: "activesubs", label: "Active subs", value: activeSubs.count },
+								{ key: "subpoints", label: "Sub points", value: activeSubs.points },
+							].map(({ key, label, value }) => (
+								<Box key={key} borderWidth="1px" borderRadius="md" p={3} flex="1" minW="260px">
+									<Text fontSize="sm" fontWeight={600}>{label}</Text>
+									<Text fontSize="2xl" fontWeight={700}>
+										{activeOk ? (Number(value) || 0).toLocaleString() : "—"}
+									</Text>
+									<HStack mt={2} spacing={2}>
+										<MaskedUrl url={srcUrl(key)} p={2} fontSize="xs" flex="1" overflowX="auto" whiteSpace="nowrap" />
+										<Button size="xs" onClick={() => copy(srcUrl(key), label)}>Copy</Button>
+									</HStack>
+								</Box>
+							))}
+						</HStack>
+						<Text fontSize="xs" color="gray.400" mt={3}>
+							Same page as the tallies above, so <b>&amp;label=</b> and <b>&amp;color=</b> work here too. The
+							source shows a dash whenever the Twitch read is failing rather than freezing on a stale
+							number.
+						</Text>
+					</>
+				)}
+			</Box>
 
 			<Divider />
 

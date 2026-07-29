@@ -1,3 +1,5 @@
+import { normalizeTwitchSubs } from "./platforms/twitchSubs";
+
 // per-platform connection config (what to watch). twitch channel defaults to the login name.
 export function normalizeConnections(raw: any, name: string, slToken: string){
     const c = raw || {};
@@ -12,5 +14,8 @@ export function normalizeConnections(raw: any, name: string, slToken: string){
             username: typeof f.username === "string" ? f.username : "",
             password: typeof f.password === "string" ? f.password : "",
         },
+        // the broadcaster's own twitch app + the refresh token from their one-time authorize, used to poll
+        // their live active-sub count and sub points (see platforms/twitchSubs.ts)
+        twitchSubs: normalizeTwitchSubs(c.twitchSubs),
     };
 }

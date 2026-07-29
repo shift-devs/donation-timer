@@ -75,6 +75,16 @@ const Settings: React.FC = () => {
 				setLog((prev) => [...prev, { t: Date.now(), line: cr.message, kind: cr.ok ? "ok" : "err" }].slice(-LOG_CAP));
 				return;
 			}
+			// the authorize url is minted server-side (it needs the client id); sending the operator straight
+			// there keeps the secret out of the browser. a failure comes back as a message instead of a url.
+			if ("twitchSubsAuth" in response) {
+				const a = response.twitchSubsAuth || {};
+				if (a.ok && a.url)
+					window.location.href = a.url;
+				else if (a.message)
+					setLog((prev) => [...prev, { t: Date.now(), line: a.message, kind: a.ok ? "ok" : "err" }].slice(-LOG_CAP));
+				return;
+			}
 			if ("fwProducts" in response) {
 				setFwProducts(Array.isArray(response.fwProducts) ? response.fwProducts : []);
 				setFwProductsError(response.fwProductsError || "");

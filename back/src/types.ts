@@ -28,6 +28,13 @@ export interface TimerUserSession {
     fourthwallStatus: boolean
     fourthwallError?: string
     fourthwallLastOkAt?: number
+    // live active-sub snapshot from helix (see platforms/twitchSubs.ts). transient: re-read every poll,
+    // never persisted, because a stale "active" number is worse than none.
+    twitchSubsStatus: boolean
+    twitchSubsError?: string
+    twitchSubsLastOkAt?: number
+    subsActive?: number
+    subsPoints?: number
     // ms timestamp of the last genuine (non-command) event we received per platform — proof data is actually flowing
     lastEventAt?: { [platform: string]: number }
     rates: any
@@ -54,6 +61,7 @@ export interface TimerUserSession {
     loggedOut?: boolean
     conTMI?: tmi.Client
     conSL?: any
+    conTwitchSubs?: any
     conFW?: any
 }
 

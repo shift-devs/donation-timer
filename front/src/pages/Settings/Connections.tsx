@@ -14,7 +14,9 @@ import {
 	Tooltip,
 	VStack,
 } from "@chakra-ui/react";
-import { setConnection } from "../../Api";
+import { setConnection, getTwitchSubsAuthUrl } from "../../Api";
+import { BASE_URL } from "../../Consts";
+import { REDIRECT_PATH } from "../TwitchAuth";
 
 // green only when the server reports the connection is actually live; the only meaningful signal.
 // tips spells out what each state actually proves so a hover explains the colour.
@@ -100,6 +102,19 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 	const fwConfigured = !!(conns.fourthwall && conns.fourthwall.configured);
 	const fwError = (conns.fourthwall && conns.fourthwall.error) || "";
 	const fwLastOkAt = (conns.fourthwall && conns.fourthwall.lastOkAt) || 0;
+	// active-sub reads are a separate twitch credential from chat: chat is anonymous, but helix/subscriptions
+	// only answers the broadcaster's own authorized token
+	const ts = conns.twitchSubs || {};
+	const tsHasApp = !!ts.hasApp;
+	const tsAuthorized = !!ts.authorized;
+	const tsError = ts.error || "";
+	const tsLastOkAt = ts.lastOkAt || 0;
+	const [tsId, setTsId] = useState("");
+	const [tsSecret, setTsSecret] = useState("");
+	// twitch matches this byte-for-byte, so it's editable rather than assumed: whichever address the streamer
+	// actually opens the dashboard on has to be the one registered on the app. defaults to this origin.
+	const [tsRedirect, setTsRedirect] = useState<string | null>(null);
+	const tsRedirectValue = tsRedirect ?? (ts.redirectUri || `${BASE_URL}${REDIRECT_PATH}`);
 	const lastEventAt = settings.lastEventAt || {};
 	const [twitchChannel, setTwitchChannel] = useState("");
 	const [slToken, setSlToken] = useState("");
@@ -279,6 +294,107 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 									variant="link"
 									colorScheme="purple"
 									onClick={() => setConnection(ws, "fourthwall", { disconnect: true })}
+								>
+									disconnect
+								</Button>
+							)}
+						</VStack>
+					</AccordionPanel>
+				</AccordionItem>
+				<AccordionItem>
+					<AccordionButton>
+						<HStack flex="1" textAlign="left">
+							<Text fontWeight={600}>Twitch — active subs</Text>
+							{statusBadge(!!settings.twitchSubsStatus, tsAuthorized, {
+								ok: "The last read succeeded — the live active-sub count and sub points are current.",
+								notConnecting: "Authorized, but the last read failed. See the reason below.",
+								notSetup: "Not set up — the active-sub browser sources have no number to show.",
+							})}
+							{settings.twitchSubsStatus && <Fresh ts={tsLastOkAt} label="read" />}
+						</HStack>
+						<AccordionIcon />
+					</AccordionButton>
+					<AccordionPanel pb={4}>
+						<VStack align="stretch" spacing={3}>
+							<Text fontSize="sm" color="gray.600">
+								Powers the live <b>active subs</b> and <b>sub points</b> browser sources on the Subcounts
+								tab. These rise and fall with real subscriber numbers, unlike the all-time tallies which
+								only count up. Twitch only reports this to the broadcaster&apos;s own authorized token —
+								there&apos;s no API key for it — so this needs a one-time approval on your channel.
+								Nothing here adds time to the timer.
+							</Text>
+							<ErrorBox show={tsAuthorized && !settings.twitchSubsStatus} text={tsError} />
+							<Box fontSize="sm" color="gray.600">
+								<Text><b>1.</b> At <Text as="code">dev.twitch.tv/console/apps</Text> register an application.</Text>
+								<Text>
+									<b>2.</b> Add the OAuth Redirect URL below to it, character for character. It must be the
+									address the streamer actually opens this dashboard on — Twitch rejects the login if the
+									two differ at all. An app can hold several redirect URLs, so add one per address you use.
+								</Text>
+								<Text><b>3.</b> Paste its Client ID and a New Secret below and save, then authorize.</Text>
+							</Box>
+							<HStack>
+								<Input
+									placeholder="Client ID"
+									value={tsId}
+									onChange={(e) => setTsId(e.currentTarget.value)}
+									width="200px"
+								/>
+								<Input
+									type="password"
+									placeholder="Client Secret"
+									value={tsSecret}
+									onChange={(e) => setTsSecret(e.currentTarget.value)}
+									width="200px"
+								/>
+							</HStack>
+							<HStack>
+								<Input
+									placeholder="OAuth Redirect URL"
+									value={tsRedirectValue}
+									onChange={(e) => setTsRedirect(e.currentTarget.value)}
+									width="408px"
+									fontFamily="mono"
+									fontSize="sm"
+								/>
+								<Button
+									colorScheme="purple"
+									isDisabled={!tsId.trim() || !tsSecret || !tsRedirectValue.trim()}
+									onClick={() => {
+										setConnection(ws, "twitchsubs", {
+											clientId: tsId.trim(),
+											clientSecret: tsSecret,
+											redirectUri: tsRedirectValue.trim(),
+										});
+										setTsId("");
+										setTsSecret("");
+										setTsRedirect(null); // follow the stored value again
+									}}
+								>
+									Save app
+								</Button>
+							</HStack>
+							{tsHasApp && (
+								<HStack>
+									<Button
+										colorScheme="purple"
+										variant="outline"
+										size="sm"
+										onClick={() => getTwitchSubsAuthUrl(ws)}
+									>
+										{tsAuthorized ? "Re-authorize on Twitch" : "Authorize on Twitch"}
+									</Button>
+									<Text fontSize="xs" color="gray.500">
+										opens Twitch, then comes back here
+									</Text>
+								</HStack>
+							)}
+							{tsAuthorized && (
+								<Button
+									size="xs"
+									variant="link"
+									colorScheme="purple"
+									onClick={() => setConnection(ws, "twitchsubs", { disconnect: true })}
 								>
 									disconnect
 								</Button>

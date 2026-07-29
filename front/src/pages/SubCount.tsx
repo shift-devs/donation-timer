@@ -6,12 +6,14 @@ let ws: WebSocket;
 let reconnectTimer: any;
 
 // which tally this browser source shows. ?platform=all sums the three services into one number.
-type Platform = "twitch" | "youtube" | "kick" | "all";
-const PLATFORMS: Platform[] = ["twitch", "youtube", "kick", "all"];
+// "activesubs"/"subpoints" are a different kind of number: a live snapshot of twitch subscribers right now,
+// which falls as subs lapse, where the other four only ever count up from events we saw.
+type Platform = "twitch" | "youtube" | "kick" | "all" | "activesubs" | "subpoints";
+const PLATFORMS: Platform[] = ["twitch", "youtube", "kick", "all", "activesubs", "subpoints"];
 
-// one page, four OBS URLs: /subcount?platform=twitch|youtube|kick|all. renders the live tally over a
-// chroma-key fill (color shared with the timer widget) so it drops straight into a scene. optional
-// ?label=... prints a caption above the number; ?color=... overrides the number color (default white).
+// one page, six OBS URLs: /subcount?platform=twitch|youtube|kick|all|activesubs|subpoints. renders the live
+// tally over a chroma-key fill (color shared with the timer widget) so it drops straight into a scene.
+// optional ?label=... prints a caption above the number; ?color=... overrides the number color (white).
 const SubCount: React.FC = () => {
 	const params = new URLSearchParams(window.location.search);
 	const token = params.get("token");
@@ -21,6 +23,9 @@ const SubCount: React.FC = () => {
 	const textColor = params.get("color") || "white";
 
 	const [counts, setCounts] = useState({ twitch: 0, youtube: 0, kick: 0 });
+	// tracked apart from the all-time tallies: ok=false means the twitch read is failing, and a stale
+	// "active" number on stream is worse than showing nothing
+	const [active, setActive] = useState({ count: 0, points: 0, ok: false });
 	const [fetched, setFetched] = useState(false);
 	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
 
@@ -41,6 +46,12 @@ const SubCount: React.FC = () => {
 					youtube: Number(c.youtube) || 0,
 					kick: Number(c.kick) || 0,
 				});
+				if (response.activeSubs)
+					setActive({
+						count: Number(response.activeSubs.count) || 0,
+						points: Number(response.activeSubs.points) || 0,
+						ok: !!response.activeSubs.ok,
+					});
 				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
 					setBgColor(response.widgetSettings.bgColor);
 				if (!fetched)
@@ -75,7 +86,17 @@ const SubCount: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	const total = platform === "all" ? counts.twitch + counts.youtube + counts.kick : counts[platform];
+	// the live tallies can be unavailable (twitch not connected / read failing) in a way the all-time ones
+	// can't, so they carry their own "do we have a number at all" answer
+	const live = platform === "activesubs" || platform === "subpoints";
+	const value = platform === "activesubs"
+		? active.count
+		: platform === "subpoints"
+			? active.points
+			: platform === "all"
+				? counts.twitch + counts.youtube + counts.kick
+				: counts[platform as "twitch" | "youtube" | "kick"];
+	const haveValue = fetched && !!token && (!live || active.ok);
 
 	// full-viewport chroma key fill — OBS keys it out so only the number shows
 	const wrap: React.CSSProperties = {
@@ -100,7 +121,7 @@ const SubCount: React.FC = () => {
 				</div>
 			)}
 			<div style={{ fontSize: "128px", fontWeight: 400, lineHeight: 1 }}>
-				{(fetched && token) ? total.toLocaleString() : "—"}
+				{haveValue ? value.toLocaleString() : "—"}
 			</div>
 		</div>
 	);

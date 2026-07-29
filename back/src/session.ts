@@ -7,6 +7,7 @@ import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
+import { connectTwitchSubs, twitchSubsReady } from "./platforms/twitchSubs";
 import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwActivity } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
@@ -53,6 +54,12 @@ export function connectFourthwallFor(session: TimerUserSession){
     return connectFourthwall(session, emitFor(session));
 }
 
+// read-only poller: it reports numbers for the browser sources and never grants time, so unlike the other
+// connectors it takes no emit
+export function connectTwitchSubsFor(session: TimerUserSession){
+    return connectTwitchSubs(session);
+}
+
 export function loginUser(inObj: Object){
     const lvObj = Object.assign({}, inObj) as TimerUserSession;
     lvObj.endTime = Number(lvObj.endTime); // bigint comes back as a string from pg
@@ -80,6 +87,9 @@ export function loginUser(inObj: Object){
     lvObj.fourthwallStatus = false;
     lvObj.fourthwallError = "";
     lvObj.fourthwallLastOkAt = 0;
+    lvObj.twitchSubsStatus = false;
+    lvObj.twitchSubsError = "";
+    lvObj.twitchSubsLastOkAt = 0;
     lvObj.lastEventAt = {};
     const existingSession = getUserSession(lvObj.userId);
     if (existingSession.userId != 0){
@@ -108,6 +118,12 @@ export function loginUser(inObj: Object){
     } catch (err) {
         reportError(curSession.userId, `connecting Fourthwall for ${curSession.name}`, err);
     }
+    try {
+        if (twitchSubsReady(curSession))
+            curSession.conTwitchSubs = connectTwitchSubsFor(curSession);
+    } catch (err) {
+        reportError(curSession.userId, `connecting Twitch subs for ${curSession.name}`, err);
+    }
     console.log(`${curSession.name} has logged in!`);
 }
 
@@ -132,6 +148,12 @@ export function logoutUser(id: number){
             curSession.conTMI.disconnect().catch((err: any)=>console.log("TMI disconnect failed:", err && err.message));
     } catch (err) {
         console.log("TMI disconnect failed:", err);
+    }
+    try {
+        if (curSession.conTwitchSubs)
+            curSession.conTwitchSubs.disconnect();
+    } catch (err) {
+        console.log("Twitch subs disconnect failed:", err);
     }
     try {
         if (curSession.conFW)

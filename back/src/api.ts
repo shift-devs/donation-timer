@@ -8,9 +8,10 @@ import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
-import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
+import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
+import { normalizeTwitchSubs, twitchSubsReady, exchangeTwitchSubsCode, twitchSubsAuthUrl, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
 import { setEndTime, isStoppedAtZero } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -48,6 +49,7 @@ function wsSync(ws: TimerWebSocket) {
             slStatus: curSession.slStatus,
             twitchStatus: curSession.twitchStatus,
             fourthwallStatus: curSession.fourthwallStatus,
+            twitchSubsStatus: !!curSession.twitchSubsStatus,
             capSeconds: curSession.capSeconds,
             stopAtZero: !!curSession.stopAtZero,
             anon: curSession.ignoreAnon,
@@ -62,6 +64,17 @@ function wsSync(ws: TimerWebSocket) {
                     configured: !!(curSession.connections.fourthwall && curSession.connections.fourthwall.username),
                     error: curSession.fourthwallError || "",
                     lastOkAt: curSession.fourthwallLastOkAt || 0 // last successful credential-verifying poll
+                },
+                twitchSubs: {
+                    // credentials pasted, but the one-time authorize may still be outstanding — the ui needs
+                    // to tell those two states apart to know which step to show
+                    hasApp: !!(curSession.connections.twitchSubs && curSession.connections.twitchSubs.clientId
+                        && curSession.connections.twitchSubs.clientSecret && curSession.connections.twitchSubs.redirectUri),
+                    // echoed back so the ui can show exactly what must be registered on the twitch app
+                    redirectUri: (curSession.connections.twitchSubs && curSession.connections.twitchSubs.redirectUri) || "",
+                    authorized: twitchSubsReady(curSession),
+                    error: curSession.twitchSubsError || "",
+                    lastOkAt: curSession.twitchSubsLastOkAt || 0
                 }
             },
             merchValues: curSession.merchValues,
@@ -73,6 +86,13 @@ function wsSync(ws: TimerWebSocket) {
             // { [offerId]: units sold } powering the /fwprogress sales-progress browser sources
             fwUnitsSold: curSession.fwUnitsSold || {},
             widgetSettings: curSession.widgetSettings || {},
+            // live snapshot of who is subscribed right now (falls as subs lapse), separate from the all-time
+            // tallies below. ok=false means the number is stale — the sources show a dash rather than a lie.
+            activeSubs: {
+                count: curSession.subsActive || 0,
+                points: curSession.subsPoints || 0,
+                ok: !!curSession.twitchSubsStatus
+            },
             // all-time per-service sub tallies for the dashboard + /subcount browser sources
             subCounts: {
                 twitch: curSession.subCountTwitch || 0,
@@ -387,6 +407,35 @@ export function startApi(){
                             curSession.conSL.disconnect();
                         curSession.slStatus = false;
                         curSession.conSL = config.token ? connectStreamlabsFor(curSession) : undefined;
+                    } else if (platform === "twitchsubs") {
+                        if (curSession.conTwitchSubs)
+                            curSession.conTwitchSubs.disconnect();
+                        curSession.conTwitchSubs = undefined;
+                        curSession.twitchSubsStatus = false;
+                        curSession.twitchSubsError = "";
+                        if (config.disconnect) {
+                            curSession.connections.twitchSubs = normalizeTwitchSubs({});
+                            curSession.subsActive = 0;
+                            curSession.subsPoints = 0;
+                            break;
+                        }
+                        // changing the app means the old refresh token is worthless, so drop it and make them
+                        // authorize again rather than leaving a token that can only fail
+                        const prev = curSession.connections.twitchSubs || {};
+                        const clientId = typeof config.clientId === "string" ? config.clientId.trim() : "";
+                        const clientSecret = typeof config.clientSecret === "string" ? config.clientSecret.trim() : "";
+                        const redirectUri = typeof config.redirectUri === "string" ? config.redirectUri.trim() : "";
+                        const sameApp = clientId === prev.clientId && clientSecret === prev.clientSecret
+                            && redirectUri === prev.redirectUri;
+                        curSession.connections.twitchSubs = normalizeTwitchSubs({
+                            clientId,
+                            clientSecret,
+                            redirectUri,
+                            refreshToken: sameApp ? prev.refreshToken : "",
+                            broadcasterId: sameApp ? prev.broadcasterId : "",
+                        });
+                        if (twitchSubsReady(curSession))
+                            curSession.conTwitchSubs = connectTwitchSubsFor(curSession);
                     } else if (platform === "fourthwall") {
                         if (curSession.conFW)
                             curSession.conFW.disconnect();
@@ -435,6 +484,47 @@ export function startApi(){
                         : {};
                     curSession.widgetSettings = normalizeWidgetSettings({ ...(curSession.widgetSettings || {}), ...patch });
                     break;
+                }
+                case "getTwitchSubsAuthUrl": {
+                    // the redirect uri must match the twitch app registration exactly, so the client tells us
+                    // its own origin rather than the server guessing at one
+                    const t = curSession.connections.twitchSubs || {};
+                    if (!t.clientId || !t.clientSecret){
+                        ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message: "Save the Client ID and Secret first." } }));
+                        return;
+                    }
+                    if (!t.redirectUri){
+                        ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message: "Set the redirect URL first — it has to match your Twitch app exactly." } }));
+                        return;
+                    }
+                    ws.send(JSON.stringify({ twitchSubsAuth: { ok: true, url: twitchSubsAuthUrl(t.clientId, t.redirectUri) } }));
+                    return;
+                }
+                case "twitchSubsCode": {
+                    // the streamer came back from twitch with a one-shot code; swap it for the refresh token we
+                    // keep, then start polling straight away so the ui can confirm it works
+                    const code = typeof jData.code === "string" ? jData.code.slice(0, 500) : "";
+                    if (!code){
+                        ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message: "Twitch didn't send a usable code back." } }));
+                        return;
+                    }
+                    exchangeTwitchSubsCode(curSession, code)
+                        .then((who) => {
+                            if (curSession.conTwitchSubs)
+                                curSession.conTwitchSubs.disconnect();
+                            curSession.conTwitchSubs = connectTwitchSubsFor(curSession);
+                            if (ws.readyState === WebSocket.OPEN)
+                                ws.send(JSON.stringify({ twitchSubsAuth: { ok: true, message: `Reading active subs for ${who.login || "your channel"}.` } }));
+                            emitSync(id);
+                        })
+                        .catch((err) => {
+                            const message = err && err.response ? describeTwitchSubsError(err) : (err && err.message) || "Authorization failed.";
+                            curSession.twitchSubsError = message;
+                            if (ws.readyState === WebSocket.OPEN)
+                                ws.send(JSON.stringify({ twitchSubsAuth: { ok: false, message } }));
+                            emitSync(id);
+                        });
+                    return;
                 }
                 case "getFwActivity":
                     // backlog for the /fwactivity page; live additions arrive as fwActivityEntry pushes
