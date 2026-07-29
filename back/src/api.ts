@@ -11,7 +11,7 @@ import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
-import { setEndTime } from "./timer";
+import { setEndTime, isStoppedAtZero } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
 import { parseCommand } from "./commands";
@@ -49,6 +49,7 @@ function wsSync(ws: TimerWebSocket) {
             twitchStatus: curSession.twitchStatus,
             fourthwallStatus: curSession.fourthwallStatus,
             capSeconds: curSession.capSeconds,
+            stopAtZero: !!curSession.stopAtZero,
             anon: curSession.ignoreAnon,
             rates: curSession.rates,
             // last genuine event per platform (ms) — lets the ui prove data is flowing, esp. youtube/kick which only relay
@@ -153,6 +154,7 @@ async function wsLogin(ws: TimerWebSocket, accessToken: string){
             dollarTime: USER_TABLE.dollarTime.defaultValue,
             endTime: USER_TABLE.endTime.defaultValue,
             capSeconds: USER_TABLE.capSeconds.defaultValue,
+            stopAtZero: USER_TABLE.stopAtZero.defaultValue,
             ignoreAnon: USER_TABLE.ignoreAnon.defaultValue,
             rates: DEFAULT_RATES,
             connections: { twitch: { channel: userName }, streamlabs: { token: "" } }
@@ -356,11 +358,14 @@ export function startApi(){
                         return;
                     }
                     const before = curSession.endTime;
+                    const wasStopped = isStoppedAtZero(curSession); // handle() returns early in that case
                     handle(curSession, parsed.event); // applies rates + cap, adds time, writes the log entry
                     const added = Math.round((curSession.endTime - before) / 1000);
                     const message = added !== 0
                         ? `+${added}s — ${parsed.event.label}`
-                        : `no time added — rate is 0 or over the ${CHAT_CMD_MAX_TIME / 3600}h command cap`;
+                        : wasStopped
+                            ? `no time added — the timer is at 0 and "stop at zero" is on`
+                            : `no time added — rate is 0 or over the ${CHAT_CMD_MAX_TIME / 3600}h command cap`;
                     ws.send(JSON.stringify({ commandResult: { ok: added !== 0, message } }));
                     return;
                 }
@@ -456,6 +461,7 @@ export function startApi(){
                         ws.send(JSON.stringify({ commandResult: { ok: false, message: "Simulated purchase: missing product id." } }));
                         return;
                     }
+                    const simWasStopped = isStoppedAtZero(curSession);
                     const beforeSim = curSession.endTime;
                     handle(curSession, { platform: "fourthwall", kind: "money", usd, unit: "order", manual: true, label: `simulated order: ${pname} ($${usd})` });
                     const orderFlat = Number(curSession.rates && curSession.rates.fourthwall && curSession.rates.fourthwall.orderFlat) || 0;
@@ -484,7 +490,9 @@ export function startApi(){
                         ok: addedSim !== 0,
                         message: addedSim !== 0
                             ? `+${addedSim}s — simulated purchase: ${pname} ($${usd}${perItem ? `, +${perItem}s bonus` : ""})`
-                            : `no time added — order rate and product bonus are both 0 for ${pname}`,
+                            : simWasStopped
+                                ? `no time added — the timer is at 0 and "stop at zero" is on`
+                                : `no time added — order rate and product bonus are both 0 for ${pname}`,
                     }}));
                     emitSync(id);
                     return;
@@ -499,6 +507,9 @@ export function startApi(){
                     // user-set max timer length in seconds; 0 = no cap. re-clamp the current timer right away.
                     curSession.capSeconds = Math.max(0, Math.trunc(Number(jData.value) || 0));
                     setEndTime(curSession, curSession.endTime);
+                    break;
+                case "setStopAtZero":
+                    curSession.stopAtZero = Boolean(jData.value) || false;
                     break;
                 case "setAnon":
                     curSession.ignoreAnon = Boolean(jData.value) || false;

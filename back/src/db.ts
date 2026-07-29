@@ -40,6 +40,11 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: 0
     },
+    stopAtZero: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    },
     ignoreAnon: {
         type: DataTypes.BOOLEAN,
         defaultValue: false
@@ -172,6 +177,7 @@ export async function dbCreate(inObj: Object){
         slToken: lvObj.slToken,
         endTime: lvObj.endTime,
         capSeconds: lvObj.capSeconds,
+        stopAtZero: lvObj.stopAtZero,
         ignoreAnon: lvObj.ignoreAnon,
         rates: lvObj.rates,
         connections: lvObj.connections,
@@ -209,6 +215,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 slToken: curSession.slToken,
                 endTime: Math.round(curSession.endTime),
                 capSeconds: curSession.capSeconds,
+                stopAtZero: curSession.stopAtZero,
                 ignoreAnon: curSession.ignoreAnon,
                 rates: curSession.rates,
                 connections: curSession.connections,

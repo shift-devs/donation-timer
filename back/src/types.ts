@@ -18,6 +18,8 @@ export interface TimerUserSession {
     slToken?: string
     endTime: number
     capSeconds: number // max timer length in seconds; 0 = no cap
+    // when on, a timer that reaches 0 stays there — later events add nothing until it's set by hand
+    stopAtZero: boolean
     ignoreAnon: boolean
     slStatus: boolean
     slError?: string

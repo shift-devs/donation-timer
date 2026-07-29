@@ -65,6 +65,7 @@ export function loginUser(inObj: Object){
     lvObj.fwProductBanners = normalizeFwProductBanners(lvObj.fwProductBanners);
     lvObj.fwProductShadows = normalizeFwProductShadows(lvObj.fwProductShadows);
     lvObj.capSeconds = Math.max(0, Math.trunc(Number(lvObj.capSeconds) || 0)); // 0 = no cap
+    lvObj.stopAtZero = Boolean(lvObj.stopAtZero);
     lvObj.widgetSettings = normalizeWidgetSettings(lvObj.widgetSettings);
     lvObj.fwActivity = normalizeFwActivity(lvObj.fwActivity);
     // all-time sub tallies: coerce (pg may hand back strings; a brand-new user has none yet -> 0)

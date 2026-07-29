@@ -51,6 +51,12 @@ export function setCapSeconds(ws: WebSocket, value: number) {
 }
 
 
+export function setStopAtZero(ws: WebSocket, value: boolean) {
+	console.log(`Setting stopAtZero to: ${value}`);
+	send(ws, { event: "setStopAtZero", value: value });
+	return 1;
+}
+
 export function setAnon(ws: WebSocket, value: boolean) {
 	console.log(`Setting ignoreAnon to: ${value}`);
 	send(ws, { event: "setAnon", value: value });

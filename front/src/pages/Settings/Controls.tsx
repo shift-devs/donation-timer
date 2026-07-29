@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
-import { Button, Code, Divider, HStack, Input, Text, VStack, useToast } from "@chakra-ui/react";
-import { setCapSeconds, setAnon, setWidgetSettings } from "../../Api";
+import { Button, Code, Divider, HStack, Input, Select, Switch, Text, VStack, useToast } from "@chakra-ui/react";
+import { setCapSeconds, setAnon, setStopAtZero, setWidgetSettings } from "../../Api";
 import { copyText } from "../../copy";
 import { BASE_URL } from "../../Consts";
 
@@ -11,6 +11,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 }) => {
 	const toast = useToast();
 	const anon = !!settings.anon;
+	const stopAtZero = !!settings.stopAtZero;
 
 	// custom time cap, entered in hours (0 = no cap). local echo while editing, applied on blur/Enter —
 	// the value follows the server otherwise (same idea as the bg picker below).
@@ -23,16 +24,20 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 		setCapInput(null); // follow the server value again
 	};
 
-	// widget background color: local echo while dragging the picker, debounced send (the color input
+	// widget appearance. the backend rebuilds the whole widgetSettings object from whatever we send, so each
+	// push carries every field — sending one on its own would reset the others to their defaults.
+	// background color gets a local echo while dragging the picker plus a debounced send (the color input
 	// fires continuously and the ws rate-limits per connection)
 	const [bgLocal, setBgLocal] = useState<string | null>(null);
 	const bgTimer = useRef<any>(null);
 	const bgColor = bgLocal ?? ((settings.widgetSettings && settings.widgetSettings.bgColor) || "#00FF00");
+	const align = (settings.widgetSettings && settings.widgetSettings.align) || "left";
 	const changeBg = (v: string) => {
 		setBgLocal(v);
 		clearTimeout(bgTimer.current);
-		bgTimer.current = setTimeout(() => setWidgetSettings(ws, { bgColor: v }), 300);
+		bgTimer.current = setTimeout(() => setWidgetSettings(ws, { bgColor: v, align }), 300);
 	};
+	const changeAlign = (v: string) => setWidgetSettings(ws, { bgColor, align: v });
 
 	return (
 		<VStack align="stretch" spacing={3} maxW="420px" mx="auto">
@@ -73,6 +78,15 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				Maximum timer length. New time is clamped to this, and changing it re-clamps the running timer
 				immediately. Leave 0 (blank) for no cap.
 			</Text>
+			<HStack justify="space-between">
+				<Text>Stop at zero</Text>
+				<Switch isChecked={stopAtZero} onChange={(e) => setStopAtZero(ws, e.target.checked)} />
+			</HStack>
+			<Text fontSize="xs" color="gray.400">
+				When the timer runs out it stays out — subs, donations and purchases after that add nothing, and
+				the Terminal says so when one is ignored. Set a time by hand to start it again. Off means the next
+				event revives the timer from 0.
+			</Text>
 			<Button colorScheme={anon ? "orange" : "purple"} onClick={() => setAnon(ws, !anon)}>
 				{anon ? "Unignore Anonymous Giftsubs" : "Ignore Anonymous Giftsubs"}
 			</Button>
@@ -97,6 +111,18 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			<Text fontSize="xs" color="gray.400">
 				Fills the /widget page behind the timer — keep a color OBS can key out, or match your overlay.
 				Open widgets update live.
+			</Text>
+			<HStack justify="space-between">
+				<Text>Timer alignment</Text>
+				<Select size="sm" w="120px" value={align} onChange={(e) => changeAlign(e.currentTarget.value)}>
+					<option value="left">Left</option>
+					<option value="center">Center</option>
+					<option value="right">Right</option>
+				</Select>
+			</HStack>
+			<Text fontSize="xs" color="gray.400">
+				Justifies the digits on the /widget browser source. The timer at the top of this page stays
+				centered. Open widgets update live.
 			</Text>
 			<Divider />
 			<Text fontSize="xs" color="gray.400">
