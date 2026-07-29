@@ -258,6 +258,13 @@ export function connectTwitchSubs(session: TimerUserSession){
                     throw err;
                 }
             }
+            // emitSync broadcasts the whole settings payload to every socket this user has open — dashboard,
+            // timer, each counter source, the alert and activity pages. at this cadence that's worth doing only
+            // when the numbers actually moved; the per-socket 5s force sync covers general freshness, and these
+            // counts change a handful of times an hour, not every poll.
+            const changed = session.subsActive !== counts.total
+                || session.subsPoints !== counts.points
+                || !session.twitchSubsStatus; // also catches the first read and recovery from an outage
             session.subsActive = counts.total;
             session.subsPoints = counts.points;
             session.twitchSubsError = "";
@@ -272,7 +279,8 @@ export function connectTwitchSubs(session: TimerUserSession){
                 alerted = false;
                 whSend(`**Twitch active subs recovered** for ${watching}.`);
             }
-            emitSync(session.userId);
+            if (changed)
+                emitSync(session.userId);
         } catch (err: any) {
             session.twitchSubsStatus = false;
             session.twitchSubsError = describeError(err);
