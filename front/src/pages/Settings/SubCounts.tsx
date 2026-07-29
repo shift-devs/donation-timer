@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
 	Box,
 	Button,
@@ -9,6 +9,7 @@ import {
 	NumberInput,
 	NumberInputField,
 	Select,
+	Switch,
 	Text,
 	VStack,
 	useToast,
@@ -20,6 +21,7 @@ import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
 import { parseSourceUrl, hexParam, oneOfParam, intParam, textParam } from "../../wizardUrl";
 import { TEXT_EFFECTS, MAX_EFFECT_WIDTH, textEffectStyle } from "../../textEffect";
+import RollingNumber, { ROLL_CSS } from "../../RollingNumber";
 
 type Platform = "twitch" | "youtube" | "kick";
 const SERVICES: { key: Platform; label: string }[] = [
@@ -84,6 +86,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	const [cntEffect, setCntEffect] = useState("none");
 	const [cntEffectColor, setCntEffectColor] = useState("#000000");
 	const [cntEffectW, setCntEffectW] = useState(4);
+	const [cntRoll, setCntRoll] = useState(true);
 	const cntBgValue = cntBg ?? syncBg;
 	const cntTransparent = cntBgValue === "transparent";
 	const pickCntBg = (v: string) => {
@@ -99,6 +102,8 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			p.set("effectColor", cntEffectColor);
 			p.set("effectWidth", String(cntEffectW));
 		}
+		if (!cntRoll)
+			p.set("roll", "0"); // on by default, so only the off state needs saying
 		return `${BASE_URL}/subcount?${p.toString()}`;
 	};
 
@@ -121,9 +126,26 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			setCntEffectColor(hexParam(sp, "effectColor", cntEffectColor));
 			setCntEffectW(intParam(sp, "effectWidth", 0, MAX_EFFECT_WIDTH, cntEffectW));
 		}
+		setCntRoll(sp.get("roll") !== "0");
 		setCntPaste("");
 		toast({ title: "Loaded — the URLs above now carry that look", status: "success", duration: 2000 });
 	};
+	// the preview number walks by random amounts, up and down, so the different sweep lengths actually show:
+	// a one-notch tick and a nine-notch spin look nothing alike, and both are worth seeing before a source
+	// goes into a scene. parked when the roll is off, since there'd be nothing to watch.
+	const [demo, setDemo] = useState(1234);
+	useEffect(() => {
+		if (!cntRoll)
+			return;
+		const t = setInterval(() => setDemo((n) => {
+			const step = 1 + Math.floor(Math.random() * 80);
+			const next = Math.random() < 0.5 ? n + step : n - step;
+			// held to 3-4 digits, so places still appear and vanish without the number drifting away entirely
+			return next < 150 ? n + step : next > 9800 ? n - step : next;
+		}), 1400);
+		return () => clearInterval(t);
+	}, [cntRoll]);
+
 	// so a transparent preview reads as see-through rather than as the dashboard's own background
 	const checker: React.CSSProperties = {
 		backgroundColor: "#2b2b2b",
@@ -241,7 +263,16 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						</>
 					)}
 				</Flex>
-				<Text fontSize="xs" color="gray.500" mb={1}>Preview:</Text>
+				<Flex align="center" gap={2} mb={2} wrap="wrap">
+					<Text fontSize="sm" w="80px" flexShrink={0}>Roll digits</Text>
+					<Switch isChecked={cntRoll} onChange={(e) => setCntRoll(e.target.checked)} />
+					<Text fontSize="xs" color="gray.500">
+						places scroll up or down to the new number, like a mechanical counter
+					</Text>
+				</Flex>
+				<Text fontSize="xs" color="gray.500" mb={1}>
+					Preview{cntRoll ? " (sample number moving at random, so you can see the roll)" : ""}:
+				</Text>
 				<Box borderRadius="md" overflow="hidden" mb={2} style={cntTransparent ? checker : undefined}>
 					<Box p={3} textAlign="center" style={{
 						background: cntTransparent ? "transparent" : cntBgValue,
@@ -249,7 +280,10 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						color: cntColor,
 						...textEffectStyle(cntEffect, cntEffectColor, cntEffectW),
 					}}>
-						<Box fontSize="44px" lineHeight={1}>1,234</Box>
+						<Box fontSize="44px" lineHeight={1}>
+							<style>{ROLL_CSS}</style>
+							<RollingNumber value={demo} animate={cntRoll} />
+						</Box>
 					</Box>
 				</Box>
 				<HStack spacing={2}>
@@ -271,8 +305,8 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			<Box borderWidth="1px" borderRadius="md" p={4} fontSize="sm">
 				<Text fontWeight={600} mb={2}>Live active subs &mdash; OBS browser sources</Text>
 				<Text color="gray.500" mb={3}>
-					Your real subscriber count and sub points as Twitch reports them right now, re-read every 30
-					seconds. Unlike the tallies above these go <b>down</b> too, so expirations, cancellations and
+					Your real subscriber count and sub points as Twitch reports them right now, re-read every
+					second. Unlike the tallies above these go <b>down</b> too, so expirations, cancellations and
 					decay show up on their own and there is nothing to correct by hand. Sub points count Tier 1 and
 					Prime as 1, Tier 2 as 2 and Tier 3 as 6; the count excludes your own subscription, matching what
 					the Twitch API reports.

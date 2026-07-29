@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
 import { TEXT_EFFECTS, MAX_EFFECT_WIDTH, textEffectStyle, TRANSPARENT_BODY_CSS } from "../textEffect";
+import RollingNumber, { ROLL_CSS } from "../RollingNumber";
 
 const WS_URL = consts.WS_URL;
 let ws: WebSocket;
@@ -16,7 +17,8 @@ const PLATFORMS: Platform[] = ["twitch", "youtube", "kick", "all", "activesubs",
 // tally over a chroma-key fill (color shared with the timer widget) so it drops straight into a scene.
 // optional ?label=... prints a caption above the number; ?color=... overrides the number color (white);
 // ?bg=... overrides the fill (hex, or "transparent" so OBS needs no colour key at all); ?effect=stroke|shadow
-// with ?effectColor= and ?effectWidth= outlines the text so it survives a busy scene.
+// with ?effectColor= and ?effectWidth= outlines the text so it survives a busy scene. the digits roll like an
+// odometer when the number moves; ?roll=0 turns that off.
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const SubCount: React.FC = () => {
 	const params = new URLSearchParams(window.location.search);
@@ -33,6 +35,7 @@ const SubCount: React.FC = () => {
 	const effectColor = HEX.test((params.get("effectColor") || "").trim()) ? (params.get("effectColor") || "").trim() : "";
 	const effectWidthRaw = Number(params.get("effectWidth"));
 	const effectWidth = Number.isFinite(effectWidthRaw) ? Math.min(MAX_EFFECT_WIDTH, Math.max(0, effectWidthRaw)) : 0;
+	const roll = (params.get("roll") || "") !== "0"; // on unless explicitly turned off
 
 	const [counts, setCounts] = useState({ twitch: 0, youtube: 0, kick: 0 });
 	// tracked apart from the all-time tallies: ok=false means the twitch read is failing, and a stale
@@ -132,14 +135,14 @@ const SubCount: React.FC = () => {
 
 	return (
 		<div style={wrap}>
-			<style>{TRANSPARENT_BODY_CSS}</style>
+			<style>{TRANSPARENT_BODY_CSS + ROLL_CSS}</style>
 			{label && (
 				<div style={{ fontSize: "48px", fontWeight: 400, lineHeight: 1, marginBottom: "8px" }}>
 					{label}
 				</div>
 			)}
 			<div style={{ fontSize: "128px", fontWeight: 400, lineHeight: 1 }}>
-				{haveValue ? value.toLocaleString() : "—"}
+				{haveValue ? <RollingNumber value={value} animate={roll} /> : "—"}
 			</div>
 		</div>
 	);
