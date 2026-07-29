@@ -9,6 +9,9 @@ let timer_color: string = "white";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const ALIGNS = ["left", "center", "right"];
+// chakra's global styles paint body white, which would show through a transparent fill — the wrap div owns
+// the background instead, so nothing underneath it paints one
+const BODY_CSS = `html, body, #root { background: transparent !important; }`;
 const EFFECTS = ["stroke", "shadow"];
 const MAX_EFFECT = 20; // px; past this the outline swallows the digits
 
@@ -30,7 +33,9 @@ const Widget: React.FC = () => {
 	const [syncBg, setSyncBg] = useState("#00FF00"); // chroma green until the sync says otherwise
 	const [syncAlign, setSyncAlign] = useState("left"); // timer justification, same default as the backend
 
-	const bgColor = HEX.test(qpBg) ? qpBg : syncBg;
+	// "transparent" is url-only: the synced bgColor is shared with the progress/subcount sources, which don't
+	// clear the body background, so letting it go transparent there would render them white instead
+	const bgColor = qpBg === "transparent" || HEX.test(qpBg) ? qpBg : syncBg;
 	const align = ALIGNS.includes(qpAlign) ? qpAlign : syncAlign;
 	const font = TIMER_FONTS[qpFont] ? qpFont : "display";
 	const effect = EFFECTS.includes(qpEffect) ? qpEffect : "none";
@@ -88,8 +93,8 @@ const Widget: React.FC = () => {
 		};
 	}, []);
 
-	// full-viewport chroma key fill (color set in the dashboard's Settings tab; #00FF00 default) —
-	// OBS keys it out so only the timer shows
+	// full-viewport fill (set in the dashboard's widget builder / Settings tab; #00FF00 default) — OBS keys
+	// it out so only the timer shows, or composites directly when it's transparent
 	const wrap: React.CSSProperties = {
 		position: "fixed",
 		inset: 0,
@@ -100,24 +105,30 @@ const Widget: React.FC = () => {
 
 	if (!fetched || !token)
 		return (
-			<div style={{ ...wrap, ...timerTextStyle({ background: bgColor, textAlign: align, font, effect, effectColor, effectWidth }) }}>
-				{renderTimerText("?:??", font)}
-			</div>
+			<>
+				<style>{BODY_CSS}</style>
+				<div style={{ ...wrap, ...timerTextStyle({ background: bgColor, textAlign: align, font, effect, effectColor, effectWidth }) }}>
+					{renderTimerText("?:??", font)}
+				</div>
+			</>
 		);
 
 	return (
-		<div style={wrap}>
-			<Timer
-				endTime={endTime}
-				textAlign={align}
-				color={timer_color}
-				background={bgColor}
-				font={font}
-				effect={effect}
-				effectColor={effectColor}
-				effectWidth={effectWidth}
-			/>
-		</div>
+		<>
+			<style>{BODY_CSS}</style>
+			<div style={wrap}>
+				<Timer
+					endTime={endTime}
+					textAlign={align}
+					color={timer_color}
+					background={bgColor}
+					font={font}
+					effect={effect}
+					effectColor={effectColor}
+					effectWidth={effectWidth}
+				/>
+			</div>
+		</>
 	);
 };
 

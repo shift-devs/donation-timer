@@ -52,6 +52,24 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	const [wizEffectW, setWizEffectW] = useState(4);
 	const builderBg = wizBg ?? bgColor;
 	const builderAlign = wizAlign ?? align;
+	const builderTransparent = builderBg === "transparent";
+	// a colour input can't show "transparent", so it keeps displaying the last hex while transparency is on;
+	// picking a colour from it is what turns transparency back off
+	const [wizBgHex, setWizBgHex] = useState("#00FF00");
+	const pickBg = (v: string) => {
+		setWizBg(v);
+		if (v !== "transparent")
+			setWizBgHex(v);
+	};
+	// so the preview reads as "nothing behind it" instead of looking like the dashboard's own background
+	const checker: React.CSSProperties = {
+		backgroundColor: "#2b2b2b",
+		backgroundImage:
+			"linear-gradient(45deg,#3d3d3d 25%,transparent 25%,transparent 75%,#3d3d3d 75%)," +
+			"linear-gradient(45deg,#3d3d3d 25%,transparent 25%,transparent 75%,#3d3d3d 75%)",
+		backgroundSize: "18px 18px",
+		backgroundPosition: "0 0, 9px 9px",
+	};
 
 	const copyUrl = (url: string, what: string) => {
 		copyText(url).then((ok) =>
@@ -151,9 +169,20 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			</Text>
 			<Flex align="center" gap={2} mb={2} wrap="wrap">
 				<Text w="76px" flexShrink={0}>Background</Text>
-				<Input type="color" w="42px" p={1} cursor="pointer" value={builderBg} onChange={(e) => setWizBg(e.currentTarget.value)} />
+				<Input
+					type="color"
+					w="42px"
+					p={1}
+					cursor="pointer"
+					value={builderTransparent ? wizBgHex : builderBg}
+					opacity={builderTransparent ? 0.4 : 1}
+					onChange={(e) => pickBg(e.currentTarget.value)}
+				/>
 				<Code>{builderBg}</Code>
-				<Button size="xs" onClick={() => setWizBg("#00FF00")} isDisabled={builderBg.toUpperCase() === "#00FF00"}>
+				<Button size="xs" onClick={() => pickBg("transparent")} isDisabled={builderTransparent}>
+					transparent
+				</Button>
+				<Button size="xs" onClick={() => pickBg("#00FF00")} isDisabled={builderBg.toUpperCase() === "#00FF00"}>
 					chroma green
 				</Button>
 			</Flex>
@@ -188,7 +217,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						<NumberInputField />
 					</NumberInput>
 					<Text color="gray.400">
-						{wizEffectW <= 0 ? "px — off" : wizEffect === "stroke" ? "px outline" : "px drop"}
+						{wizEffectW <= 0 ? "px — off" : wizEffect === "stroke" ? "px outline" : "px blur"}
 					</Text>
 				</Flex>
 			)}
@@ -203,7 +232,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				return (
 					<>
 						<Text fontSize="xs" color="gray.500" mb={1}>Preview (a sample time, at a fraction of the real size):</Text>
-						<Box borderRadius="md" mb={3} overflow="hidden">
+						<Box borderRadius="md" mb={3} overflow="hidden" style={builderTransparent ? checker : undefined}>
 							<div style={timerTextStyle({
 								background: builderBg,
 								textAlign: builderAlign,
@@ -222,9 +251,11 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						</HStack>
 						<Text color="gray.400" mt={3}>
 							A stroke outlines the digits — drawn behind them, so a wide one thickens the digits
-							instead of eating into them. A drop shadow offsets down-right by the width and blurs a
-							little wider. Either is off at width 0. The monospaced font keeps every digit the same
-							width, so the timer doesn&apos;t jitter as the numbers tick down.
+							instead of eating into them. A drop shadow is centred on them, blurred out to
+							the width. Either is off at width 0. The monospaced font keeps every digit the same width,
+							so the timer doesn&apos;t jitter as the numbers tick down. A transparent background
+							needs no Color Key filter — OBS composites the timer straight over your scene (the
+							checkerboard above just marks where it&apos;s see-through).
 						</Text>
 					</>
 				);

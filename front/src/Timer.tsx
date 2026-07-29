@@ -110,8 +110,9 @@ export function timerTextStyle(o: {
 	if (!o.effectColor || w <= 0)
 		return base;
 	if (o.effect === "shadow")
-		// offset and blur both track the one width control; blur runs wider so it reads as a soft drop
-		return { ...base, textShadow: `${w}px ${w}px ${Math.round(w * 1.5)}px ${o.effectColor}` };
+		// centred on the glyphs rather than offset, so it reads as an even halo on every side and the width
+		// is simply the blur radius
+		return { ...base, textShadow: `0 0 ${w}px ${o.effectColor}` };
 	if (o.effect === "stroke")
 		return {
 			...base,
