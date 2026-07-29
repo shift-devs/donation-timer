@@ -4,6 +4,7 @@ import { setCapSeconds, setAnon, setStopAtZero, setWidgetSettings } from "../../
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import { timerTextStyle, renderTimerText, TIMER_FONTS } from "../../Timer";
+import { parseSourceUrl, hexParam, oneOfParam, intParam } from "../../wizardUrl";
 import { BASE_URL } from "../../Consts";
 
 const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
@@ -61,6 +62,32 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 		if (v !== "transparent")
 			setWizBgHex(v);
 	};
+	// paste a /widget url back in to keep editing it
+	const [wizPaste, setWizPaste] = useState("");
+	const loadFromUrl = () => {
+		const sp = parseSourceUrl(wizPaste, "/widget");
+		if (!sp) {
+			toast({ title: "That doesn't look like a widget URL", status: "error", duration: 3000 });
+			return;
+		}
+		const bg = hexParam(sp, "bg", builderBg, "transparent");
+		setWizBg(bg);
+		if (bg !== "transparent")
+			setWizBgHex(bg);
+		setWizAlign(oneOfParam(sp, "align", ["left", "center", "right"], builderAlign));
+		setWizFont(oneOfParam(sp, "font", Object.keys(TIMER_FONTS), wizFont));
+		// no effect in the url means the source draws none, so read absence as "none" rather than keeping
+		// whatever the wizard happened to be showing
+		const effect = oneOfParam(sp, "effect", ["stroke", "shadow"], "none");
+		setWizEffect(effect);
+		if (effect !== "none") {
+			setWizEffectColor(hexParam(sp, "effectColor", wizEffectColor));
+			setWizEffectW(intParam(sp, "effectWidth", 0, 20, wizEffectW));
+		}
+		setWizPaste("");
+		toast({ title: "Loaded — edit and copy the new URL", status: "success", duration: 2000 });
+	};
+
 	// so the preview reads as "nothing behind it" instead of looking like the dashboard's own background
 	const checker: React.CSSProperties = {
 		backgroundColor: "#2b2b2b",
@@ -248,6 +275,16 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						<HStack spacing={2}>
 							<MaskedUrl url={widgetUrl} p={2} fontSize="xs" flex="1" overflowX="auto" whiteSpace="nowrap" />
 							<Button size="xs" onClick={() => copyUrl(widgetUrl, "Widget")}>Copy</Button>
+						</HStack>
+						<HStack spacing={2} mt={2}>
+							<Input
+								size="xs"
+								placeholder="…or paste an existing widget URL to edit it"
+								value={wizPaste}
+								onChange={(e) => setWizPaste(e.currentTarget.value)}
+								onKeyDown={(e) => { if (e.key === "Enter") loadFromUrl(); }}
+							/>
+							<Button size="xs" isDisabled={!wizPaste.trim()} onClick={loadFromUrl}>Load</Button>
 						</HStack>
 						<Text color="gray.400" mt={3}>
 							A stroke outlines the digits — drawn behind them, so a wide one thickens the digits

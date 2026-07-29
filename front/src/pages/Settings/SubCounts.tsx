@@ -18,6 +18,7 @@ import { copyText } from "../../copy";
 import { BASE_URL } from "../../Consts";
 import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
+import { parseSourceUrl, hexParam, oneOfParam, intParam, textParam } from "../../wizardUrl";
 
 type Platform = "twitch" | "youtube" | "kick";
 const SERVICES: { key: Platform; label: string }[] = [
@@ -53,6 +54,25 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	const [barTrack, setBarTrack] = useState("#111827");
 	const [barText, setBarText] = useState("#ffffff");
 	const tallyOf = (p: string) => (p === "all" ? total : Number(counts[p as Platform]) || 0);
+
+	// paste a /subprogress url back in to keep editing it
+	const [barPaste, setBarPaste] = useState("");
+	const loadBarUrl = () => {
+		const sp = parseSourceUrl(barPaste, "/subprogress");
+		if (!sp) {
+			toast({ title: "That doesn't look like a sub goal bar URL", status: "error", duration: 3000 });
+			return;
+		}
+		setBarPlatform(oneOfParam(sp, "platform", BAR_SERVICES.map((s) => s.key), barPlatform));
+		setBarMax(intParam(sp, "max", 1, 1000000000, barMax));
+		setBarOffset(intParam(sp, "offset", 0, 1000000000, barOffset));
+		setBarTitle(textParam(sp, "title", barTitle));
+		setBarFill(hexParam(sp, "fill", barFill));
+		setBarTrack(hexParam(sp, "track", barTrack));
+		setBarText(hexParam(sp, "text", barText));
+		setBarPaste("");
+		toast({ title: "Loaded — edit and copy the new URL", status: "success", duration: 2000 });
+	};
 
 	const srcUrl = (platform: string) => `${BASE_URL}/subcount?token=${token}&platform=${platform}`;
 
@@ -273,6 +293,16 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				) : (
 					<Text color="gray.500">Pick a tally above to preview it and get its browser-source URL.</Text>
 				)}
+				<HStack spacing={2} mt={2}>
+					<Input
+						size="xs"
+						placeholder="…or paste an existing sub goal bar URL to edit it"
+						value={barPaste}
+						onChange={(e) => setBarPaste(e.currentTarget.value)}
+						onKeyDown={(e) => { if (e.key === "Enter") loadBarUrl(); }}
+					/>
+					<Button size="xs" isDisabled={!barPaste.trim()} onClick={loadBarUrl}>Load</Button>
+				</HStack>
 				<Text color="gray.400" mt={3}>
 					Same chroma-key setup as the plain counters: add a Color Key filter in OBS so only the row shows.
 					One URL per bar &mdash; run several if you want a goal per service.

@@ -24,6 +24,7 @@ import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
 import { BASE_URL } from "../../Consts";
+import { parseSourceUrl, hexParam, intParam, textParam } from "../../wizardUrl";
 
 // sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
 const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : [];
@@ -262,6 +263,31 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const [progressFill, setProgressFill] = useState("#22c55e");
 	const [progressTrack, setProgressTrack] = useState("#111827");
 	const [progressText, setProgressText] = useState("#ffffff");
+	// paste a /fwprogress url back in to keep editing it. the product is only accepted if the shop still
+	// lists it — otherwise the wizard would show a blank picker with a stale id behind it.
+	const [progressPaste, setProgressPaste] = useState("");
+	const loadProgressUrl = () => {
+		const sp = parseSourceUrl(progressPaste, "/fwprogress");
+		if (!sp) {
+			toast({ title: "That doesn't look like a progress bar URL", status: "error", duration: 3000 });
+			return;
+		}
+		const id = (sp.get("product") || "").trim();
+		const known = (products || []).some((p) => p.id === id);
+		if (id && !known)
+			toast({ title: "That URL's product is no longer in the shop — pick one below", status: "warning", duration: 4000 });
+		if (known)
+			setProgressProduct(id);
+		setProgressMax(intParam(sp, "max", 1, 1000000000, progressMax));
+		setProgressOffset(intParam(sp, "offset", 0, 1000000000, progressOffset));
+		setProgressTitle(textParam(sp, "title", progressTitle));
+		setProgressFill(hexParam(sp, "fill", progressFill));
+		setProgressTrack(hexParam(sp, "track", progressTrack));
+		setProgressText(hexParam(sp, "text", progressText));
+		setProgressPaste("");
+		if (known || !id)
+			toast({ title: "Loaded — edit and copy the new URL", status: "success", duration: 2000 });
+	};
 
 	// stable row callbacks (functional setState) so every ProductRow keeps the same prop identities across
 	// renders — that's what lets React.memo skip the 50 rows when unrelated state (wizard, colors) changes.
@@ -551,6 +577,16 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				) : (
 					<Text color='gray.500'>Pick a product above to preview it and get its browser-source URL.</Text>
 				)}
+				<Flex align='center' gap={2} mt={2}>
+					<Input
+						size='xs'
+						placeholder='…or paste an existing progress bar URL to edit it'
+						value={progressPaste}
+						onChange={(ev) => setProgressPaste(ev.currentTarget.value)}
+						onKeyDown={(ev) => { if (ev.key === "Enter") loadProgressUrl(); }}
+					/>
+					<Button size='xs' isDisabled={!progressPaste.trim()} onClick={loadProgressUrl}>Load</Button>
+				</Flex>
 				<Text color='gray.400' mt={3}>
 					The page background is the timer widget&apos;s chroma color (set in the Settings tab) — add a
 					Color Key filter in OBS so only the row shows.
