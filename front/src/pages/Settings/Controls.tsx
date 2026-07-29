@@ -24,10 +24,9 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 		setCapInput(null); // follow the server value again
 	};
 
-	// widget appearance. the backend rebuilds the whole widgetSettings object from whatever we send, so each
-	// push carries every field — sending one on its own would reset the others to their defaults.
-	// background color gets a local echo while dragging the picker plus a debounced send (the color input
-	// fires continuously and the ws rate-limits per connection)
+	// widget background color: local echo while dragging the picker, debounced send (the color input
+	// fires continuously and the ws rate-limits per connection). the backend merges what it receives, so
+	// pushing one field on its own leaves the rest alone.
 	const [bgLocal, setBgLocal] = useState<string | null>(null);
 	const bgTimer = useRef<any>(null);
 	const bgColor = bgLocal ?? ((settings.widgetSettings && settings.widgetSettings.bgColor) || "#00FF00");
@@ -35,9 +34,9 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	const changeBg = (v: string) => {
 		setBgLocal(v);
 		clearTimeout(bgTimer.current);
-		bgTimer.current = setTimeout(() => setWidgetSettings(ws, { bgColor: v, align }), 300);
+		bgTimer.current = setTimeout(() => setWidgetSettings(ws, { bgColor: v }), 300);
 	};
-	const changeAlign = (v: string) => setWidgetSettings(ws, { bgColor, align: v });
+	const changeAlign = (v: string) => setWidgetSettings(ws, { align: v });
 
 	return (
 		<VStack align="stretch" spacing={3} maxW="420px" mx="auto">

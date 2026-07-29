@@ -32,6 +32,9 @@ interface AlertItem {
 // - .firstBox is position:relative so the logo anchors to its box, not the viewport
 // - the original's 6s animation-delay + undefined slide-out class are replaced by js timing
 const CSS = `
+/* chakra's global styles paint body white, which would show through a transparent fill — the wrap div
+   below owns the background instead, so nothing underneath it paints one */
+html, body, #root { background: transparent !important; }
 .alertShift {
   color: white;
   font-family: 'Normative Pro', 'Arial Black', Arial, sans-serif;
@@ -137,6 +140,7 @@ const CSS = `
 const FwAlert: React.FC = () => {
 	const token = new URLSearchParams(window.location.search).get("token");
 	const [alert, setAlert] = useState<AlertItem | null>(null);
+	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
 	const queueRef = useRef<AlertItem[]>([]);
 	const busyRef = useRef(false);
 	const nonceRef = useRef(0);
@@ -167,7 +171,9 @@ const FwAlert: React.FC = () => {
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
-			// this page only cares about purchase alerts; the settings sync payload is ignored
+			// the sync payload is otherwise ignored here — only the alert fill is read off it
+			if (response.widgetSettings && typeof response.widgetSettings.alertBgColor === "string")
+				setBgColor(response.widgetSettings.alertBgColor);
 			if ("fwAlert" in response && response.fwAlert) {
 				const a = response.fwAlert;
 				nonceRef.current += 1;
@@ -213,12 +219,13 @@ const FwAlert: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	// full-viewport chroma key fill: #00FF00 is keyed out in OBS (color key filter) so only the alert shows
+	// full-viewport chroma key fill (color set in the dashboard's Settings tab; #00FF00 default) — OBS keys
+	// it out with a color key filter so only the alert shows
 	const wrap: React.CSSProperties = {
 		position: "fixed",
 		inset: 0,
 		margin: 0,
-		background: "#00FF00",
+		background: bgColor,
 		overflow: "hidden",
 		padding: "24px",
 	};

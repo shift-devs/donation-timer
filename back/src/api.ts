@@ -427,9 +427,15 @@ export function startApi(){
                 case "setFwProductShadows":
                     curSession.fwProductShadows = normalizeFwProductShadows(jData.shadows);
                     break;
-                case "setWidgetSettings":
-                    curSession.widgetSettings = normalizeWidgetSettings(jData.settings);
+                case "setWidgetSettings": {
+                    // merged onto what's already stored, so a client can push one field without having to
+                    // resend the others (the normalizer would otherwise reset the omitted ones to defaults)
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.widgetSettings = normalizeWidgetSettings({ ...(curSession.widgetSettings || {}), ...patch });
                     break;
+                }
                 case "getFwActivity":
                     // backlog for the /fwactivity page; live additions arrive as fwActivityEntry pushes
                     ws.send(JSON.stringify({ fwActivity: curSession.fwActivity || [] }));

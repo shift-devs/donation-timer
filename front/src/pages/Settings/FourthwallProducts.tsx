@@ -19,7 +19,7 @@ import {
 	Text,
 	useToast,
 } from "@chakra-ui/react";
-import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, setFwProductBanners, setFwProductShadows, testFwPurchase } from "../../Api";
+import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, setFwProductBanners, setFwProductShadows, setWidgetSettings, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
@@ -275,6 +275,24 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const onBanner = useCallback((id: string, file: string) => setBannerDraft((d: any) => ({ ...d, [id]: file })), []);
 	const onShadow = useCallback((id: string, checked: boolean) => setShadowDraft((d: any) => ({ ...d, [id]: checked })), []);
 
+	// alert source background: lives in widgetSettings (shared jsonb) but is configured here, next to the
+	// rest of the /fwalert setup. "transparent" means obs needs no colour key at all. local echo + debounce
+	// because a colour input fires continuously; the backend merges, so sending this field alone is safe.
+	const [alertBgLocal, setAlertBgLocal] = useState<string | null>(null);
+	const alertBgTimer = useRef<any>(null);
+	const alertBg = alertBgLocal ?? ((settings.widgetSettings && settings.widgetSettings.alertBgColor) || "#00FF00");
+	const alertTransparent = alertBg === "transparent";
+	// a colour input can't display "transparent", so it keeps showing the last hex while transparency is on;
+	// picking a colour from it is what turns transparency back off
+	const [alertHex, setAlertHex] = useState("#00FF00");
+	const changeAlertBg = (v: string) => {
+		setAlertBgLocal(v);
+		if (v !== "transparent")
+			setAlertHex(v);
+		clearTimeout(alertBgTimer.current);
+		alertBgTimer.current = setTimeout(() => setWidgetSettings(ws, { alertBgColor: v }), 300);
+	};
+
 	const alertUrl = `${BASE_URL}/fwalert?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const activityUrl = `${BASE_URL}/fwactivity?token=${encodeURIComponent(localStorage.getItem("identity") || "")}`;
 	const copyUrl = (url: string, what: string) => {
@@ -382,8 +400,27 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				</Flex>
 				<Text mb={1}>3. Width 1200, Height 220 (the alert is a ~125px banner), FPS 30.</Text>
 				<Text mb={1}>
-					4. The page is a solid green fill: on the source add Filters → Color Key, key color green
-					(#00FF00), so only the alert shows over your scene.
+					4. The page is a solid color fill: on the source add Filters → Color Key and key that color, so
+					only the alert shows over your scene. Chroma green (#00FF00) by default:
+				</Text>
+				<Flex mb={1} align='center' gap={2} pl={4} flexWrap='wrap'>
+					<Text flexShrink={0}>Background:</Text>
+					<Input
+						type='color'
+						value={alertTransparent ? alertHex : alertBg}
+						onChange={(ev) => changeAlertBg(ev.currentTarget.value)}
+						w='42px'
+						p={1}
+						cursor='pointer'
+						opacity={alertTransparent ? 0.4 : 1}
+					/>
+					<Text as='code'>{alertBg}</Text>
+					<Button size='xs' onClick={() => changeAlertBg("transparent")} isDisabled={alertTransparent}>transparent</Button>
+					<Button size='xs' onClick={() => changeAlertBg("#00FF00")} isDisabled={alertBg.toUpperCase() === "#00FF00"}>chroma green</Button>
+				</Flex>
+				<Text mb={1} color='gray.400'>
+					Transparent needs no Color Key filter at all — OBS composites the alert straight over your
+					scene, which avoids green fringing on the text edges. Open alert sources update live.
 				</Text>
 				<Text mb={1}>
 					5. Each purchase plays an alert here unless that product&apos;s <b>Alert</b> toggle above is off.
