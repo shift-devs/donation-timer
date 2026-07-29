@@ -22,6 +22,7 @@ import {
 import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
+import ProgressBar from "../../ProgressBar";
 import { BASE_URL } from "../../Consts";
 
 // sound files found in public/fwsounds at build time (vite.config.ts bakes the list in)
@@ -399,16 +400,19 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 							text: progressText,
 						});
 						const progressUrl = `${BASE_URL}/fwprogress?${p.toString()}`;
-						const barText: React.CSSProperties = { position: "relative", zIndex: 1, color: progressText, fontFamily: "'Staatliches', sans-serif", fontSize: "20px", lineHeight: 1, whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.6)" };
 						return (
 							<>
 								<Text fontSize='xs' color='gray.500' mb={1}>Preview (live sold count — {sold.toLocaleString()} all-time{progressOffset > 0 ? `, ${counted.toLocaleString()} after the offset` : ""}):</Text>
 								<Box borderRadius='md' p={3} mb={3} style={{ background: previewBg }}>
-									<Box position='relative' h='38px' borderRadius='full' overflow='hidden' display='flex' alignItems='center' justifyContent='space-between' px='18px' style={{ background: progressTrack, border: `2px solid ${progressText}` }}>
-										<Box position='absolute' left={0} top={0} h='100%' zIndex={0} style={{ width: `${pct}%`, background: progressFill, transition: "width 0.4s ease" }} />
-										<Box style={barText}>{progressTitle}</Box>
-										<Box style={barText}>{counted.toLocaleString()} / {progressMax.toLocaleString()}</Box>
-									</Box>
+									<ProgressBar
+										size='preview'
+										title={progressTitle}
+										value={`${counted.toLocaleString()} / ${progressMax.toLocaleString()}`}
+										pct={pct}
+										fill={progressFill}
+										track={progressTrack}
+										textColor={progressText}
+									/>
 								</Box>
 								<Flex align='center' gap={2} flexWrap='wrap'>
 									<MaskedUrl url={progressUrl} bg='blackAlpha.400' px={2} py={0.5} borderRadius='sm' wordBreak='break-all' />

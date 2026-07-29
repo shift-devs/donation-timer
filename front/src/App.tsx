@@ -4,6 +4,7 @@ import EventSource from "./pages/EventSource";
 import FwAlert from "./pages/FwAlert";
 import FwActivity from "./pages/FwActivity";
 import SubCount from "./pages/SubCount";
+import SubProgress from "./pages/SubProgress";
 import FwProgress from "./pages/FwProgress";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
@@ -21,6 +22,7 @@ const App: React.FC = () => (
 				<Route path='/fwalert' element={<FwAlert />} />
 				<Route path='/fwactivity' element={<FwActivity />} />
 				<Route path='/subcount' element={<SubCount />} />
+				<Route path='/subprogress' element={<SubProgress />} />
 				<Route path='/fwprogress' element={<FwProgress />} />
 				<Route path='*' element={<Navigate to='/' replace />} />
 			</Routes>

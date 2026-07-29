@@ -6,16 +6,21 @@ const WS_URL = consts.WS_URL;
 let ws: WebSocket;
 let reconnectTimer: any;
 
-// sales-progress browser source: a "title  [====bar====]  sold / max" row for one fourthwall product.
-// one page, one OBS URL per product. the units-sold count rides the normal sync (fwUnitsSold, keyed by
-// offer id) and refreshes as the backend polls the report. URL params (all built by the dashboard wizard):
-//   product=<offerId>  max=<goal>  title=<text left of the bar>
-//   offset=<units already sold before this goal started, subtracted from the count>
+// which tally this bar tracks. "all" sums the three services, same as /subcount.
+type Platform = "twitch" | "youtube" | "kick" | "all";
+const PLATFORMS: Platform[] = ["twitch", "youtube", "kick", "all"];
+
+// sub-count progress bar browser source: a "title  [====bar====]  subs / goal" row for one service (or the
+// combined total). the tally rides the normal sync (subCounts) so it moves the moment a sub lands.
+// URL params (all built by the dashboard wizard):
+//   platform=twitch|youtube|kick|all  max=<goal>  title=<text left of the bar>
+//   offset=<subs already counted before this goal started, subtracted from the tally>
 //   fill=<progress color>  track=<empty-bar color>  text=<title + number color>
-const FwProgress: React.FC = () => {
+const SubProgress: React.FC = () => {
 	const params = new URLSearchParams(window.location.search);
 	const token = params.get("token");
-	const product = params.get("product") || "";
+	const raw = (params.get("platform") || "all").toLowerCase();
+	const platform: Platform = (PLATFORMS as string[]).includes(raw) ? (raw as Platform) : "all";
 	const max = Math.max(1, Math.trunc(Number(params.get("max")) || 100)); // avoid divide-by-zero
 	const offset = Math.max(0, Math.trunc(Number(params.get("offset")) || 0));
 	const title = params.get("title") || "";
@@ -23,7 +28,7 @@ const FwProgress: React.FC = () => {
 	const fillColor = params.get("fill") || "#22c55e";
 	const trackColor = params.get("track") || "rgba(0,0,0,0.45)";
 
-	const [sold, setSold] = useState(0);
+	const [counts, setCounts] = useState({ twitch: 0, youtube: 0, kick: 0 });
 	const [fetched, setFetched] = useState(false);
 	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
 
@@ -33,13 +38,17 @@ const FwProgress: React.FC = () => {
 			ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
 			try { ws.close(); } catch {}
 		}
-		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=fwprogress`);
+		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=subprogress`);
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
-			if ("fwUnitsSold" in response) {
-				const m = response.fwUnitsSold || {};
-				setSold(Number(m[product]) || 0);
+			if ("subCounts" in response) {
+				const c = response.subCounts || {};
+				setCounts({
+					twitch: Number(c.twitch) || 0,
+					youtube: Number(c.youtube) || 0,
+					kick: Number(c.kick) || 0,
+				});
 				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
 					setBgColor(response.widgetSettings.bgColor);
 				if (!fetched)
@@ -74,8 +83,9 @@ const FwProgress: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	const ready = fetched && token && product;
-	const count = Math.max(0, sold - offset); // all-time units minus what was already sold when the goal started
+	const ready = fetched && !!token;
+	const total = platform === "all" ? counts.twitch + counts.youtube + counts.kick : counts[platform];
+	const count = Math.max(0, total - offset); // all-time tally minus what was already counted when the goal started
 
 	// full-viewport chroma key fill — OBS keys it out so only the row shows
 	const wrap: React.CSSProperties = {
@@ -104,4 +114,4 @@ const FwProgress: React.FC = () => {
 	);
 };
 
-export default FwProgress;
+export default SubProgress;
