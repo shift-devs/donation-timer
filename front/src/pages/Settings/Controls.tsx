@@ -1,7 +1,9 @@
 import React, { useRef, useState } from "react";
-import { Button, Code, Divider, HStack, Input, Select, Switch, Text, VStack, useToast } from "@chakra-ui/react";
+import { Box, Button, Code, Divider, Flex, HStack, Input, NumberInput, NumberInputField, Select, Switch, Text, VStack, useToast } from "@chakra-ui/react";
 import { setCapSeconds, setAnon, setStopAtZero, setWidgetSettings } from "../../Api";
 import { copyText } from "../../copy";
+import MaskedUrl from "../../MaskedUrl";
+import { timerTextStyle, renderTimerText, TIMER_FONTS } from "../../Timer";
 import { BASE_URL } from "../../Consts";
 
 const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
@@ -38,22 +40,32 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	};
 	const changeAlign = (v: string) => setWidgetSettings(ws, { align: v });
 
+	// widget browser-source builder: pick a look, check the preview, copy a /widget url that carries it.
+	// everything lives in the url (no saved state) like the progress-bar wizards, so one shop can run
+	// several timer sources with different looks. seeded from the live settings above so it opens showing
+	// the current one.
+	const [wizBg, setWizBg] = useState<string | null>(null);
+	const [wizAlign, setWizAlign] = useState<string | null>(null);
+	const [wizFont, setWizFont] = useState("display");
+	const [wizEffect, setWizEffect] = useState("none");
+	const [wizEffectColor, setWizEffectColor] = useState("#000000");
+	const [wizEffectW, setWizEffectW] = useState(4);
+	const builderBg = wizBg ?? bgColor;
+	const builderAlign = wizAlign ?? align;
+
+	const copyUrl = (url: string, what: string) => {
+		copyText(url).then((ok) =>
+			toast(ok
+				? { title: `${what} URL copied`, status: "success", duration: 1500 }
+				: { title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }));
+	};
+
 	return (
+		<Box maxW="700px" mx="auto">
 		<VStack align="stretch" spacing={3} maxW="420px" mx="auto">
 			<Text color="gray.500" fontSize="sm">
 				These apply immediately — no Save.
 			</Text>
-			<Button
-				colorScheme="purple"
-				onClick={() => {
-					copyText(`${BASE_URL}/widget?token=${token}`).then((ok) =>
-						toast(ok
-							? { title: "Widget URL copied", status: "success", duration: 1500 }
-							: { title: "Couldn't copy — select the URL manually", status: "error", duration: 3000 }));
-				}}
-			>
-				Copy widget URL
-			</Button>
 			<HStack justify="space-between">
 				<Text>Time cap (hours)</Text>
 				<HStack>
@@ -128,6 +140,97 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				These hit the server instantly — no Save.
 			</Text>
 		</VStack>
+
+		<Box mt={6} p={4} borderRadius="md" bg="whiteAlpha.100" fontSize="sm" textAlign="left">
+			<Text fontWeight="bold" mb={2}>Timer widget — OBS browser source</Text>
+			<Text color="gray.400" mb={3}>
+				Set the look below, check the preview, then copy the URL into an OBS browser source. The look is
+				baked into the URL, so you can run several timer sources with different looks — and it overrides
+				the live settings above for that source. A URL with no look in it (anything copied before this
+				builder existed) keeps following those live settings.
+			</Text>
+			<Flex align="center" gap={2} mb={2} wrap="wrap">
+				<Text w="76px" flexShrink={0}>Background</Text>
+				<Input type="color" w="42px" p={1} cursor="pointer" value={builderBg} onChange={(e) => setWizBg(e.currentTarget.value)} />
+				<Code>{builderBg}</Code>
+				<Button size="xs" onClick={() => setWizBg("#00FF00")} isDisabled={builderBg.toUpperCase() === "#00FF00"}>
+					chroma green
+				</Button>
+			</Flex>
+			<Flex align="center" gap={2} mb={2} wrap="wrap">
+				<Text w="76px" flexShrink={0}>Alignment</Text>
+				<Select size="sm" w="120px" value={builderAlign} onChange={(e) => setWizAlign(e.currentTarget.value)}>
+					<option value="left">Left</option>
+					<option value="center">Center</option>
+					<option value="right">Right</option>
+				</Select>
+			</Flex>
+			<Flex align="center" gap={2} mb={2} wrap="wrap">
+				<Text w="76px" flexShrink={0}>Font</Text>
+				<Select size="sm" w="220px" value={wizFont} onChange={(e) => setWizFont(e.currentTarget.value)}>
+					{Object.entries(TIMER_FONTS).map(([key, f]) => <option key={key} value={key}>{f.label}</option>)}
+				</Select>
+			</Flex>
+			<Flex align="center" gap={2} mb={2} wrap="wrap">
+				<Text w="76px" flexShrink={0}>Effect</Text>
+				<Select size="sm" w="130px" value={wizEffect} onChange={(e) => setWizEffect(e.currentTarget.value)}>
+					<option value="none">None</option>
+					<option value="stroke">Stroke</option>
+					<option value="shadow">Drop shadow</option>
+				</Select>
+			</Flex>
+			{wizEffect !== "none" && (
+				<Flex align="center" gap={2} mb={3} wrap="wrap">
+					<Text w="76px" flexShrink={0} />
+					<Input type="color" w="42px" p={1} cursor="pointer" value={wizEffectColor} onChange={(e) => setWizEffectColor(e.currentTarget.value)} />
+					<Code>{wizEffectColor}</Code>
+					<NumberInput size="sm" maxW="90px" min={0} max={20} value={wizEffectW} onChange={(_, n) => setWizEffectW(Number.isFinite(n) ? Math.min(20, Math.max(0, Math.trunc(n))) : 0)}>
+						<NumberInputField />
+					</NumberInput>
+					<Text color="gray.400">
+						{wizEffectW <= 0 ? "px — off" : wizEffect === "stroke" ? "px outline" : "px drop"}
+					</Text>
+				</Flex>
+			)}
+			{(() => {
+				const p = new URLSearchParams({ token: token || "", bg: builderBg, align: builderAlign, font: wizFont });
+				if (wizEffect !== "none" && wizEffectW > 0) {
+					p.set("effect", wizEffect);
+					p.set("effectColor", wizEffectColor);
+					p.set("effectWidth", String(wizEffectW));
+				}
+				const widgetUrl = `${BASE_URL}/widget?${p.toString()}`;
+				return (
+					<>
+						<Text fontSize="xs" color="gray.500" mb={1}>Preview (a sample time, at a fraction of the real size):</Text>
+						<Box borderRadius="md" mb={3} overflow="hidden">
+							<div style={timerTextStyle({
+								background: builderBg,
+								textAlign: builderAlign,
+								fontSize: "56px",
+								font: wizFont,
+								effect: wizEffect,
+								effectColor: wizEffectColor,
+								effectWidth: wizEffectW,
+							})}>
+								{renderTimerText("1:23:45", wizFont)}
+							</div>
+						</Box>
+						<HStack spacing={2}>
+							<MaskedUrl url={widgetUrl} p={2} fontSize="xs" flex="1" overflowX="auto" whiteSpace="nowrap" />
+							<Button size="xs" onClick={() => copyUrl(widgetUrl, "Widget")}>Copy</Button>
+						</HStack>
+						<Text color="gray.400" mt={3}>
+							A stroke outlines the digits — drawn behind them, so a wide one thickens the digits
+							instead of eating into them. A drop shadow offsets down-right by the width and blurs a
+							little wider. Either is off at width 0. The monospaced font keeps every digit the same
+							width, so the timer doesn&apos;t jitter as the numbers tick down.
+						</Text>
+					</>
+				);
+			})()}
+		</Box>
+		</Box>
 	);
 };
 

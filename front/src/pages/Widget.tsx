@@ -1,4 +1,4 @@
-import Timer from "../Timer";
+import Timer, { timerTextStyle, renderTimerText, TIMER_FONTS } from "../Timer";
 import React, { useEffect, useState } from "react";
 import * as consts from "../Consts";
 
@@ -7,12 +7,35 @@ let ws: WebSocket;
 let reconnectTimer: any;
 let timer_color: string = "white";
 
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const ALIGNS = ["left", "center", "right"];
+const EFFECTS = ["stroke", "shadow"];
+const MAX_EFFECT = 20; // px; past this the outline swallows the digits
+
 const Widget: React.FC = () => {
-	const token = new URLSearchParams(window.location.search).get("token");
+	// look built by the dashboard's widget wizard, baked into the url so one shop can run several sources
+	// with different looks. anything absent falls back to the live-synced settings, so urls copied before
+	// the wizard existed keep rendering exactly as they did.
+	const params = new URLSearchParams(window.location.search);
+	const token = params.get("token");
+	const qpBg = params.get("bg") || "";
+	const qpAlign = params.get("align") || "";
+	const qpFont = params.get("font") || "";
+	const qpEffect = params.get("effect") || "";
+	const qpEffectColor = params.get("effectColor") || "";
+	const qpEffectW = Number(params.get("effectWidth"));
+
 	const [endTime, setEndTime] = useState(0);
 	const [fetched, setFetched] = useState(false);
-	const [bgColor, setBgColor] = useState("#00FF00"); // chroma green until the sync says otherwise
-	const [align, setAlign] = useState("left"); // timer justification, same default as the backend
+	const [syncBg, setSyncBg] = useState("#00FF00"); // chroma green until the sync says otherwise
+	const [syncAlign, setSyncAlign] = useState("left"); // timer justification, same default as the backend
+
+	const bgColor = HEX.test(qpBg) ? qpBg : syncBg;
+	const align = ALIGNS.includes(qpAlign) ? qpAlign : syncAlign;
+	const font = TIMER_FONTS[qpFont] ? qpFont : "display";
+	const effect = EFFECTS.includes(qpEffect) ? qpEffect : "none";
+	const effectColor = HEX.test(qpEffectColor) ? qpEffectColor : "";
+	const effectWidth = Number.isFinite(qpEffectW) ? Math.min(MAX_EFFECT, Math.max(0, qpEffectW)) : 0;
 
 	const connectWs = () => {
 		// tear down any prior socket so handlers/reconnects can't stack
@@ -28,9 +51,9 @@ const Widget: React.FC = () => {
 			if ("endTime" in response) {
 				setEndTime(response.endTime);
 				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
-					setBgColor(response.widgetSettings.bgColor);
+					setSyncBg(response.widgetSettings.bgColor);
 				if (response.widgetSettings && typeof response.widgetSettings.align === "string")
-					setAlign(response.widgetSettings.align);
+					setSyncAlign(response.widgetSettings.align);
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -77,21 +100,23 @@ const Widget: React.FC = () => {
 
 	if (!fetched || !token)
 		return (
-			<div style={{
-				...wrap,
-				color: "white",
-				fontFamily: "'Staatliches', cursive",
-				fontSize: "128px",
-				fontWeight: 400,
-				textAlign: align as any,
-			}}>
-				?:??
+			<div style={{ ...wrap, ...timerTextStyle({ background: bgColor, textAlign: align, font, effect, effectColor, effectWidth }) }}>
+				{renderTimerText("?:??", font)}
 			</div>
 		);
 
 	return (
 		<div style={wrap}>
-			<Timer endTime={endTime} textAlign={align} color={timer_color} background={bgColor} />
+			<Timer
+				endTime={endTime}
+				textAlign={align}
+				color={timer_color}
+				background={bgColor}
+				font={font}
+				effect={effect}
+				effectColor={effectColor}
+				effectWidth={effectWidth}
+			/>
 		</div>
 	);
 };
