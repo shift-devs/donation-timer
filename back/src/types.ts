@@ -54,6 +54,8 @@ export interface TimerUserSession {
     fwProductBanners: any
     // { [offerId]: true } for products whose alert name draws a drop shadow (readability over a banner)
     fwProductShadows: any
+    // { [offerId]: label } shown on stream in place of the shop's product name; absent = fourthwall's name
+    fwProductNames: any
     widgetSettings: any
     fwActivity: any
     // { [offerId]: all-time units sold } from the fourthwall units-sold report, driving the /fwprogress bars.

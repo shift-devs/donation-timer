@@ -19,7 +19,7 @@ import {
 	Text,
 	useToast,
 } from "@chakra-ui/react";
-import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, setFwProductBanners, setFwProductShadows, setWidgetSettings, testFwPurchase } from "../../Api";
+import { getFwProducts, setFwProductBonuses, setFwProductSounds, setFwProductAlerts, setFwProductBanners, setFwProductShadows, setFwProductNames, setWidgetSettings, testFwPurchase } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import ProgressBar from "../../ProgressBar";
@@ -80,6 +80,18 @@ function normalizeShadows(raw: any): { [id: string]: boolean } {
 	return out;
 }
 
+// custom display names: { [id]: label } trimmed, only kept when non-empty (blank = fall back to the shop's
+// own product name). mirrors the backend normalizer.
+function normalizeNames(raw: any): { [id: string]: string } {
+	const out: { [id: string]: string } = {};
+	if (raw && typeof raw === "object" && !Array.isArray(raw))
+		for (const [id, v] of Object.entries(raw)) {
+			const name = typeof v === "string" ? v.trim().slice(0, 200) : "";
+			if (id && name) out[id] = name;
+		}
+	return out;
+}
+
 // alert toggles: default on, so we only keep the products explicitly turned off ({ [id]: false }) —
 // mirrors the backend normalizer. any absent id reads as "alerts on".
 function normalizeAlerts(raw: any): { [id: string]: boolean } {
@@ -98,25 +110,28 @@ function normalizeAlerts(raw: any): { [id: string]: boolean } {
 type RowProps = {
 	id: string; name: string; faded: boolean; image: string; usd: number; simulatable: boolean;
 	bonus: number; sound?: { file: string; volume: number }; alertOn: boolean; banner: string; shadow: boolean;
+	customName: string;
 	onBonus: (id: string, n: number) => void;
 	onSound: (id: string, entry: { file: string; volume: number }) => void;
 	onAlert: (id: string, checked: boolean) => void;
 	onBanner: (id: string, file: string) => void;
 	onShadow: (id: string, checked: boolean) => void;
+	onName: (id: string, name: string) => void;
 	onSimulate: (p: { id: string; name: string; usd: number; image: string }) => void;
 };
 
 function rowsEqual(a: RowProps, b: RowProps): boolean {
 	return a.id === b.id && a.name === b.name && a.faded === b.faded && a.image === b.image && a.usd === b.usd
 		&& a.simulatable === b.simulatable && a.bonus === b.bonus && a.alertOn === b.alertOn
-		&& a.banner === b.banner && a.shadow === b.shadow
+		&& a.banner === b.banner && a.shadow === b.shadow && a.customName === b.customName
 		&& (a.sound && a.sound.file) === (b.sound && b.sound.file)
 		&& (a.sound && a.sound.volume) === (b.sound && b.sound.volume)
 		&& a.onBonus === b.onBonus && a.onSound === b.onSound && a.onAlert === b.onAlert
-		&& a.onBanner === b.onBanner && a.onShadow === b.onShadow && a.onSimulate === b.onSimulate;
+		&& a.onBanner === b.onBanner && a.onShadow === b.onShadow && a.onName === b.onName
+		&& a.onSimulate === b.onSimulate;
 }
 
-const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd, simulatable, bonus, sound, alertOn, banner, shadow, onBonus, onSound, onAlert, onBanner, onShadow, onSimulate }) => {
+const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd, simulatable, bonus, sound, alertOn, banner, shadow, customName, onBonus, onSound, onAlert, onBanner, onShadow, onName, onSimulate }) => {
 	const file = (sound && sound.file) || "";
 	const volume = sound && Number.isFinite(sound.volume) ? sound.volume : 1;
 	const soundOff = !alertOn;
@@ -149,6 +164,18 @@ const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd
 					</NumberInput>
 					<Text fontSize='sm' color='gray.400' w='70px'>sec / item</Text>
 				</HStack>
+			</Flex>
+			<Flex align='center' mt={1.5} pl='48px' gap={2}>
+				<Text fontSize='xs' color='gray.500' flexShrink={0}>Shown as</Text>
+				<Input
+					size='xs'
+					maxW='300px'
+					maxLength={200}
+					placeholder={name}
+					value={customName}
+					onChange={(ev) => onName(id, ev.currentTarget.value)}
+				/>
+				{customName && <Button size='xs' variant='ghost' onClick={() => onName(id, "")}>reset</Button>}
 			</Flex>
 			<Flex align='center' mt={1.5} pl='48px' gap={2}>
 				<Text fontSize='xs' color='gray.500' flexShrink={0}>Alert</Text>
@@ -219,6 +246,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const savedShadowsStr = JSON.stringify(savedShadows);
 	const [shadowDraft, setShadowDraft] = useState<any>(savedShadows);
 	const prevSavedShadowsRef = useRef(savedShadowsStr);
+	const savedNames = normalizeNames(settings.fwProductNames);
+	const savedNamesStr = JSON.stringify(savedNames);
+	const [nameDraft, setNameDraft] = useState<any>(savedNames);
+	const prevSavedNamesRef = useRef(savedNamesStr);
 
 	// follow the server's values only when there are no unsaved local edits (same pattern as Time Per Action)
 	useEffect(() => {
@@ -246,12 +277,18 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		prevSavedShadowsRef.current = savedShadowsStr;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [savedShadowsStr]);
+	useEffect(() => {
+		setNameDraft((prev: any) => (JSON.stringify(normalizeNames(prev)) === prevSavedNamesRef.current ? savedNames : prev));
+		prevSavedNamesRef.current = savedNamesStr;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [savedNamesStr]);
 
 	const dirty = JSON.stringify(normalize(draft)) !== savedStr
 		|| JSON.stringify(normalizeSounds(soundDraft)) !== savedSoundsStr
 		|| JSON.stringify(normalizeAlerts(alertDraft)) !== savedAlertsStr
 		|| JSON.stringify(normalizeBanners(bannerDraft)) !== savedBannersStr
-		|| JSON.stringify(normalizeShadows(shadowDraft)) !== savedShadowsStr;
+		|| JSON.stringify(normalizeShadows(shadowDraft)) !== savedShadowsStr
+		|| JSON.stringify(normalizeNames(nameDraft)) !== savedNamesStr;
 	const toast = useToast();
 
 	// progress-bar browser source builder: pick a product + goal + look, preview it, get a copyable
@@ -300,6 +337,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	const onAlert = useCallback((id: string, checked: boolean) => setAlertDraft((d: any) => ({ ...d, [id]: checked })), []);
 	const onBanner = useCallback((id: string, file: string) => setBannerDraft((d: any) => ({ ...d, [id]: file })), []);
 	const onShadow = useCallback((id: string, checked: boolean) => setShadowDraft((d: any) => ({ ...d, [id]: checked })), []);
+	const onName = useCallback((id: string, v: string) => setNameDraft((d: any) => ({ ...d, [id]: v })), []);
 
 	// alert source background: lives in widgetSettings (shared jsonb) but is configured here, next to the
 	// rest of the /fwalert setup. "transparent" means obs needs no colour key at all. local echo + debounce
@@ -334,7 +372,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// config saved for products the shop no longer lists — keep it visible so it can be cleared
 	const orphans = products === null
 		? []
-		: Object.keys({ ...saved, ...savedSounds, ...savedAlerts, ...savedBanners, ...savedShadows }).filter((id) => !products.some((p) => p.id === id));
+		: Object.keys({ ...saved, ...savedSounds, ...savedAlerts, ...savedBanners, ...savedShadows, ...savedNames }).filter((id) => !products.some((p) => p.id === id));
 
 	return (
 		<Box maxW='700px' mx='auto' textAlign='left'>
@@ -347,6 +385,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				Extra seconds granted when a product is bought — per item, multiplied by quantity, on top of the
 				per-$ order rate from the Time Per Action tab. 0 = no bonus. Click a thumbnail to simulate a
 				purchase (uses the saved bonus, so save first to test new values).
+			</Text>
+			<Text fontSize='sm' color='gray.400' mb={4}>
+				<b>Shown as</b> is what the product is called on stream — the purchase alert, the activity feed and
+				the timer log all use it. Leave it blank to keep the shop&apos;s own name.
 			</Text>
 			{error && <Text color='red.300' mb={3}>{error}</Text>}
 			{products === null && !error && (
@@ -369,11 +411,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					alertOn={alertDraft[p.id] !== false}
 					banner={bannerDraft[p.id] || ""}
 					shadow={shadowDraft[p.id] === true}
+					customName={nameDraft[p.id] || ""}
 					onBonus={onBonus}
 					onSound={onSound}
 					onAlert={onAlert}
 					onBanner={onBanner}
 					onShadow={onShadow}
+					onName={onName}
 					onSimulate={onSimulate}
 				/>
 			))}
@@ -391,11 +435,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					alertOn={alertDraft[id] !== false}
 					banner={bannerDraft[id] || ""}
 					shadow={shadowDraft[id] === true}
+					customName={nameDraft[id] || ""}
 					onBonus={onBonus}
 					onSound={onSound}
 					onAlert={onAlert}
 					onBanner={onBanner}
 					onShadow={onShadow}
+					onName={onName}
 					onSimulate={onSimulate}
 				/>
 			))}
@@ -410,6 +456,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 						setFwProductAlerts(ws, normalizeAlerts(alertDraft));
 						setFwProductBanners(ws, normalizeBanners(bannerDraft));
 						setFwProductShadows(ws, normalizeShadows(shadowDraft));
+						setFwProductNames(ws, normalizeNames(nameDraft));
 					}}
 				>
 					Save
@@ -498,9 +545,9 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 							const id = ev.currentTarget.value;
 							setProgressProduct(id);
 							setProgressOffset(0); // the offset belongs to whichever product it was set from
-							// prefill the title with the product name (still editable)
+							// prefill the title with the name this product goes out under (still editable)
 							const p = (products || []).find((x) => x.id === id);
-							setProgressTitle(p ? p.name : "");
+							setProgressTitle(p ? (nameDraft[id] || p.name) : "");
 						}}
 					>
 						{(products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

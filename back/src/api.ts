@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
 import { testTimerEvent } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
-import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
+import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwitchSubsDeviceAuth, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
 import { setEndTime, isStoppedAtZero } from "./timer";
@@ -89,6 +89,7 @@ function wsSync(ws: TimerWebSocket) {
             fwProductAlerts: curSession.fwProductAlerts || {},
             fwProductBanners: curSession.fwProductBanners || {},
             fwProductShadows: curSession.fwProductShadows || {},
+            fwProductNames: curSession.fwProductNames || {},
             // { [offerId]: units sold } powering the /fwprogress sales-progress browser sources
             fwUnitsSold: curSession.fwUnitsSold || {},
             widgetSettings: curSession.widgetSettings || {},
@@ -480,6 +481,9 @@ export function startApi(){
                 case "setFwProductShadows":
                     curSession.fwProductShadows = normalizeFwProductShadows(jData.shadows);
                     break;
+                case "setFwProductNames":
+                    curSession.fwProductNames = normalizeFwProductNames(jData.names);
+                    break;
                 case "setWidgetSettings": {
                     // merged onto what's already stored, so a client can push one field without having to
                     // resend the others (the normalizer would otherwise reset the omitted ones to defaults)
@@ -542,7 +546,10 @@ export function startApi(){
                     // takes, but manual (command-capped, doesn't count as platform liveness). the price comes from
                     // the product list the client loaded. future hook: also fire a browser-source notification here.
                     const pid = typeof jData.id === "string" ? jData.id.slice(0, 100) : "";
-                    const pname = ((typeof jData.name === "string" && jData.name) ? jData.name : pid).slice(0, 200);
+                    // the shop's name arrives from the client; the custom name (if any) overrides it, exactly
+                    // as it would on a real order
+                    const shopName = ((typeof jData.name === "string" && jData.name) ? jData.name : pid).slice(0, 200);
+                    const pname = displayNameFor(curSession, pid, shopName);
                     const usd = Math.min(Math.max(Number(jData.usd) || 0, 0), 100000);
                     if (!pid){
                         ws.send(JSON.stringify({ commandResult: { ok: false, message: "Simulated purchase: missing product id." } }));

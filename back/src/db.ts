@@ -89,6 +89,11 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    fwProductNames: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     widgetSettings: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -187,6 +192,7 @@ export async function dbCreate(inObj: Object){
         fwProductAlerts: lvObj.fwProductAlerts,
         fwProductBanners: lvObj.fwProductBanners,
         fwProductShadows: lvObj.fwProductShadows,
+        fwProductNames: lvObj.fwProductNames,
         widgetSettings: lvObj.widgetSettings,
         fwActivity: lvObj.fwActivity,
         subCountTwitch: lvObj.subCountTwitch,
@@ -225,6 +231,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 fwProductAlerts: curSession.fwProductAlerts,
                 fwProductBanners: curSession.fwProductBanners,
                 fwProductShadows: curSession.fwProductShadows,
+                fwProductNames: curSession.fwProductNames,
                 widgetSettings: curSession.widgetSettings,
                 fwActivity: curSession.fwActivity,
                 subCountTwitch: curSession.subCountTwitch,

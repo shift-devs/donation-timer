@@ -114,6 +114,11 @@ export function setFwProductShadows(ws: WebSocket, shadows: any) {
 	return 1;
 }
 
+export function setFwProductNames(ws: WebSocket, names: any) {
+	send(ws, { event: "setFwProductNames", names: names });
+	return 1;
+}
+
 export function getFwProducts(ws: WebSocket) {
 	send(ws, { event: "getFwProducts" });
 	return 1;

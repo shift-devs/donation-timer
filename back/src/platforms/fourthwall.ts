@@ -96,6 +96,34 @@ export function normalizeFwProductAlerts(raw: any): { [id: string]: boolean } {
     return out;
 }
 
+// per-product display names: { [offerId]: label } used on stream instead of the shop's own product name
+// (shop names are often long/SEO-ish). absent or blank = keep fourthwall's name, so only the renamed
+// products are stored. this owns validating untrusted client input.
+const MAX_PRODUCT_NAME = 200;
+export function normalizeFwProductNames(raw: any): { [id: string]: string } {
+    const out: { [id: string]: string } = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        return out;
+    for (const [id, v] of Object.entries(raw)){
+        if (Object.keys(out).length >= MAX_BONUS_PRODUCTS)
+            break;
+        if (!id || id.length > 100)
+            continue;
+        const name = typeof v === "string" ? v.trim().slice(0, MAX_PRODUCT_NAME) : "";
+        if (name)
+            out[id] = name;
+    }
+    return out;
+}
+
+// the label a product goes out under: the streamer's custom name if they set one, else whatever the shop
+// calls it. every on-stream surface (alert text, activity feed, log labels) reads the name through here so
+// a renamed product looks the same everywhere.
+export function displayNameFor(session: TimerUserSession, id: string, fallback: string): string {
+    const custom = id && session.fwProductNames && session.fwProductNames[id];
+    return typeof custom === "string" && custom ? custom : fallback;
+}
+
 // is the on-stream alert enabled for this product? default on unless explicitly turned off.
 export function alertsEnabledFor(session: TimerUserSession, id: string): boolean {
     return !(id && session.fwProductAlerts && session.fwProductAlerts[id] === false);
@@ -316,14 +344,14 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 if (!per)
                     continue;
                 const qty = Math.max(1, Math.trunc(Number(line.variant && line.variant.quantity)) || 1);
-                emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${line.name || line.id} x${qty}` });
+                emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${displayNameFor(session, line.id, line.name || line.id)} x${qty}` });
             }
             // activity feed: one row per purchased product, carrying the buyer + their checkout message
             const buyer = o.username || "Someone";
             const orderMsg = typeof o.message === "string" ? o.message : "";
             if (offers.length)
                 for (const line of offers)
-                    pushFwActivity(session, { t: Date.now(), product: line.name || "merch", user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order" });
+                    pushFwActivity(session, { t: Date.now(), product: displayNameFor(session, line.id, line.name || "merch"), user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order" });
             else
                 pushFwActivity(session, { t: Date.now(), product: "Purchase", user: buyer, message: orderMsg, image: "", unit: "order" });
             // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound.
@@ -335,7 +363,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 emitFwAlert(session.userId, {
                     name: o.username || "Someone",
                     message: offers.length
-                        ? `purchased ${offers[0].name || "merch"}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
+                        ? `purchased ${displayNameFor(session, offers[0].id, offers[0].name || "merch")}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
                         : "made a purchase",
                     image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
                     sound: alertSound ? alertSound.file : "",
