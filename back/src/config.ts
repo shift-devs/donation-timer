@@ -31,6 +31,19 @@ export const FW_UNITS_RETRY_TIME = 15 * 1000;
 // browser then caches, so the miss costs once, not per sale.
 export const FW_THUMBS_POLL_TIME = 6 * 3600 * 1000;
 export const FW_HTTP_TIMEOUT = 15 * 1000; // give up on a single fourthwall request so cycles can't hang/stack
+// how many rows to ask the page-0-only lists (donations, memberships) for. they have no createdAt cursor like
+// /order does, so every poll re-reads the newest page and dedups by id — which means the page has to cover
+// everything that can land between two polls, because a row pushed off page 0 before we read it is never picked
+// up again and that is lost timer time. a fixed 50 covered ten donations a second and paid for it every 5s
+// forever, so the size adapts instead: small while it's quiet, doubling the moment a page comes back crowded.
+export const FW_LIST_PAGE_MIN = 10;
+// the ceiling is also the width we seed at connect. the dedup set only holds what we've read, so the window can
+// never be allowed to grow past its seeded width — otherwise widening would expose rows older than the baseline
+// and re-emit historical donations as new ones.
+export const FW_LIST_PAGE_MAX = 50;
+// consecutive uncrowded polls before creeping the size back down: a minute at FW_POLL_TIME, so a lull inside a
+// donation train doesn't shrink the page right before the next wave.
+export const FW_LIST_QUIET_POLLS = 12;
 // active-sub/sub-point snapshot poll: the resolution at which a lapsed sub shows up on stream. one cheap
 // helix call, and 60 requests/min is a fraction of twitch's per-client budget. what makes this cadence
 // affordable on our side is that the poller only broadcasts when the numbers actually move (see

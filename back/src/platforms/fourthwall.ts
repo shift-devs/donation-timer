@@ -1,6 +1,6 @@
 import axios from "axios";
 import { TimerUserSession, TimerEvent } from "../types";
-import { FW_POLL_TIME, FW_UNITS_POLL_TIME, FW_UNITS_NUDGE_TIME, FW_UNITS_RETRY_TIME, FW_THUMBS_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
+import { FW_POLL_TIME, FW_UNITS_POLL_TIME, FW_UNITS_NUDGE_TIME, FW_UNITS_RETRY_TIME, FW_THUMBS_POLL_TIME, FW_HTTP_TIMEOUT, FW_LIST_PAGE_MIN, FW_LIST_PAGE_MAX, FW_LIST_QUIET_POLLS } from "../config";
 import { emitSync, emitFwAlert, emitFwActivity } from "../bus";
 import { diag } from "../diag";
 
@@ -178,6 +178,27 @@ export function imageForLine(session: TimerUserSession, line: any): string {
         || String((line && line.primaryImage && line.primaryImage.url) || "");
 }
 
+// a page-0-only list we poll: what we've already emitted, how wide we're currently reading, and how long it's
+// been quiet at that width.
+export interface FwList { path: string, seen: Set<string>, size: number, quiet: number }
+
+// how wide the next read of a page-0-only list should be, given how crowded this one looked. grows fast and
+// shrinks slowly, because the two directions have wildly different stakes: too wide only wastes bandwidth, while
+// too narrow silently drops donations that fell off the page before we read them.
+//   half the page new  -> one busy cycle from truncating, so double now
+//   a quarter new      -> busy enough to hold the current width
+//   less than that     -> headroom to spare, but only creep down after a sustained lull
+export function nextPageSize(size: number, fresh: number, quiet: number): { size: number, quiet: number } {
+    if (fresh * 2 >= size)
+        return { size: Math.min(FW_LIST_PAGE_MAX, size * 2), quiet: 0 };
+    if (fresh * 4 > size)
+        return { size, quiet: 0 };
+    const q = quiet + 1;
+    if (q < FW_LIST_QUIET_POLLS || size <= FW_LIST_PAGE_MIN)
+        return { size, quiet: q };
+    return { size: Math.max(FW_LIST_PAGE_MIN, Math.round(size / 2)), quiet: 0 };
+}
+
 // units of one order line. fourthwall nests it under the chosen variant; anything unparseable counts as one item.
 export function lineQty(line: any): number {
     return Math.max(1, Math.trunc(Number(line && line.variant && line.variant.quantity)) || 1);
@@ -320,8 +341,11 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
     const headers = { Authorization: auth };
 
     let ordersCursor = new Date().toISOString(); // only orders created after we connect
-    const seenDonations = new Set<string>();
-    const seenMembers = new Set<string>();
+    // page-0-only lists: dedup set, plus the adaptive page width and how long it's been quiet. seeded at the
+    // ceiling so the first read covers the widest window we'll ever ask for (see FW_LIST_PAGE_MAX) — the quiet
+    // ladder walks it down to the floor over the first few minutes.
+    const donationList = { path: "/donations", seen: new Set<string>(), size: FW_LIST_PAGE_MAX, quiet: 0 };
+    const memberList = { path: "/memberships/members", seen: new Set<string>(), size: FW_LIST_PAGE_MAX, quiet: 0 };
     let baselined = false; // first poll just records existing donation/member ids without granting time
     let polling = false;   // in-flight guard: a slow cycle must not let the interval stack up overlapping polls
     let diagnosed = false; // one-time payload dump (grep FW-DIAG) to confirm field shapes/sort/status on real data
@@ -422,18 +446,43 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             queueUnits(FW_UNITS_NUDGE_TIME);
     }
 
-    // page 0 only; assumes newest-first (logged on baseline so we can confirm). new = id not seen since startup.
-    async function pollById(path: string, seen: Set<string>, make: (row: any) => TimerEvent){
-        const rows = await get(path, { size: 50 });
+    // one read of page 0; assumes newest-first (logged on baseline so we can confirm). new = id not seen since
+    // startup. returns how the page looked so the caller can decide how wide to read next time.
+    async function readPage(list: FwList, make: (row: any) => TimerEvent){
+        const rows = await get(list.path, { size: list.size });
+        let fresh = 0;
         for (const row of rows){
-            if (!row.id || seen.has(row.id))
+            if (!row.id || list.seen.has(row.id))
                 continue;
-            seen.add(row.id);
+            list.seen.add(row.id);
+            fresh++;
             if (baselined)
                 emit(make(row));
         }
-        while (seen.size > 5000) // keep the dedup set bounded over a weeks-long run (a page can add up to 50)
-            seen.delete(seen.values().next().value);
+        while (list.seen.size > 5000) // keep the dedup set bounded over a weeks-long run
+            list.seen.delete(list.seen.values().next().value);
+        return { returned: rows.length, fresh };
+    }
+
+    // page 0 only, so a burst bigger than the page we asked for would push rows off it unread and we'd never see
+    // them again. a page that comes back entirely new is exactly that warning, and the rows are still on page 0
+    // for the moment — so widen and re-read immediately instead of waiting for the next cycle. bounded, because a
+    // shop whose page is always full must not spin here.
+    async function pollList(list: FwList, make: (row: any) => TimerEvent){
+        for (let pass = 0; pass < 5; pass++){ // min -> max doubles four times, so five reads can always reach it
+            const { returned, fresh } = await readPage(list, make);
+            if (!baselined) // every row is unseen on the seeding read; sizing off that would be meaningless
+                return;
+            const saturated = fresh > 0 && fresh >= returned && returned >= list.size;
+            const before = list.size;
+            const next = nextPageSize(list.size, fresh, list.quiet);
+            if (next.size !== before)
+                diag(`FW-DIAG ${watching}: ${list.path} page ${next.size > before ? "grown" : "shrunk"} to ${next.size} (${fresh} new of ${returned})`);
+            list.size = next.size;
+            list.quiet = next.quiet;
+            if (!saturated || list.size === before) // caught up, or already as wide as we're allowed to look
+                return;
+        }
     }
 
     async function poll(){
@@ -442,14 +491,14 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
         polling = true;
         try {
             await pollOrders();
-            await pollById("/donations", seenDonations, (d) => {
+            await pollList(donationList, (d) => {
                 const usd = Number(d.amounts && d.amounts.total && d.amounts.total.value) || 0;
                 if (!usd)
                     diag(`FW-DIAG ${watching}: donation ${d.id} parsed to $0 (check amounts.total field)`);
                 pushFwActivity(session, { t: Date.now(), product: `Donation $${usd}`, user: d.username || d.email || "someone", message: typeof d.message === "string" ? d.message : "", image: "", unit: "donation" });
                 return { platform: "fourthwall", kind: "money", usd, unit: "donation", label: `donation $${usd} from ${d.username || d.email || "someone"}` };
             });
-            await pollById("/memberships/members", seenMembers, (m) => {
+            await pollList(memberList, (m) => {
                 // flat per new member (renewals reuse the same id so polling won't re-fire them; tiers TBD)
                 pushFwActivity(session, { t: Date.now(), product: "New membership", user: m.nickname || m.email || "someone", message: "", image: "", unit: "membership" });
                 return { platform: "fourthwall", kind: "member", count: 1, unit: "membership", label: `membership from ${m.nickname || m.email || "someone"}` };
@@ -460,7 +509,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             }
             if (!baselined){
                 baselined = true;
-                console.log(`Fourthwall baseline done for ${watching} (${seenDonations.size} donations, ${seenMembers.size} members seen)`);
+                console.log(`Fourthwall baseline done for ${watching} (${donationList.seen.size} donations, ${memberList.seen.size} members seen)`);
             }
             session.fourthwallError = "";
             session.fourthwallLastOkAt = Date.now(); // each ok poll re-verifies the creds; surfaced as "verified Xs ago"
