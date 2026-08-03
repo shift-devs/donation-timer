@@ -1,6 +1,6 @@
 import axios from "axios";
 import { TimerUserSession, TimerEvent } from "../types";
-import { FW_POLL_TIME, FW_UNITS_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
+import { FW_POLL_TIME, FW_UNITS_POLL_TIME, FW_UNITS_NUDGE_TIME, FW_UNITS_RETRY_TIME, FW_THUMBS_POLL_TIME, FW_HTTP_TIMEOUT } from "../config";
 import { emitSync, emitFwAlert, emitFwActivity } from "../bus";
 import { diag } from "../diag";
 
@@ -164,6 +164,20 @@ export function pushFwActivity(session: TimerUserSession, entry: any){
     emitFwActivity(session.userId, entry);
 }
 
+// the image an on-stream surface should load for an order line. an order carries only the full-size original —
+// 4000px and ~940kb on the shop we measured — which the feed renders into a 96px box and the alert into a panel,
+// every byte of it fetched on the machine running obs mid-stream. the signed imgproxy url can't be rewritten with
+// resize options (it 400s), so we resolve the photo through the product list instead: same image id first, then any
+// photo of that product, then the original. the last case is what shipped before, so an unlisted product still
+// shows something — just expensively.
+export function imageForLine(session: TimerUserSession, line: any): string {
+    const t = session.fwThumbs;
+    const imgId = line && line.primaryImage && line.primaryImage.id;
+    return (t && typeof imgId === "string" && t.byImage[imgId])
+        || (t && line && typeof line.id === "string" && t.byOffer[line.id])
+        || String((line && line.primaryImage && line.primaryImage.url) || "");
+}
+
 // units of one order line. fourthwall nests it under the chosen variant; anything unparseable counts as one item.
 export function lineQty(line: any): number {
     return Math.max(1, Math.trunc(Number(line && line.variant && line.variant.quantity)) || 1);
@@ -212,6 +226,8 @@ export async function fetchFourthwallProducts(session: TimerUserSession): Promis
         throw new Error("Fourthwall is not connected.");
     const auth = "Basic " + Buffer.from(`${fw.username}:${fw.password}`).toString("base64");
     const out: { id: string, name: string, image: string, usd: number }[] = [];
+    const byImage: { [id: string]: string } = {};
+    const byOffer: { [id: string]: string } = {};
     for (let page = 0; page < 10; page++){ // hard page cap so a pathological shop can't loop us forever
         const res = await axios.get(`${FW_API}/products`, {
             headers: { Authorization: auth },
@@ -220,18 +236,32 @@ export async function fetchFourthwallProducts(session: TimerUserSession): Promis
             paramsSerializer: (p: any) => new URLSearchParams(p).toString(),
         });
         const rows = (res.data && res.data.results) || [];
-        for (const r of rows)
-            if (r && r.id)
-                out.push({
-                    id: String(r.id),
-                    name: String(r.name || r.slug || r.id),
-                    image: String((r.thumbnailImage && r.thumbnailImage.url) || ""), // fourthwall cdn url; "" = no photo
-                    // first variant's price, for display and for simulating purchases from the dashboard
-                    usd: Number(r.variants && r.variants[0] && r.variants[0].unitPrice && r.variants[0].unitPrice.value) || 0,
-                });
+        for (const r of rows){
+            if (!r || !r.id)
+                continue;
+            const imgs = Array.isArray(r.images) ? r.images : [];
+            // a product publishes the same photo twice: images[] through imgproxy, thumbnailImage straight off the
+            // cdn. same id, same pixels, and the imgproxy copy is a fraction of the bytes (33kb vs 258kb on the
+            // shop we measured), so prefer it and keep the cdn one only as a fallback.
+            for (const im of imgs)
+                if (im && typeof im.id === "string" && typeof im.url === "string")
+                    byImage[im.id] = im.url;
+            const small = String((imgs[0] && imgs[0].url) || (r.thumbnailImage && r.thumbnailImage.url) || "");
+            if (small)
+                byOffer[String(r.id)] = small;
+            out.push({
+                id: String(r.id),
+                name: String(r.name || r.slug || r.id),
+                image: small, // "" = no photo
+                // first variant's price, for display and for simulating purchases from the dashboard
+                usd: Number(r.variants && r.variants[0] && r.variants[0].unitPrice && r.variants[0].unitPrice.value) || 0,
+            });
+        }
         if (rows.length < 100)
             break;
     }
+    // every caller refreshes the maps for free — a dashboard product load included
+    session.fwThumbs = { byImage, byOffer };
     return out;
 }
 
@@ -297,7 +327,10 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
     let diagnosed = false; // one-time payload dump (grep FW-DIAG) to confirm field shapes/sort/status on real data
     let timer: NodeJS.Timeout | number = 0;
     let unitsTimer: NodeJS.Timeout | number = 0;
+    let thumbsTimer: NodeJS.Timeout | number = 0;
+    let unitsNudge: NodeJS.Timeout | number = 0; // pending out-of-band report read (see queueUnits)
     let pollingUnits = false; // in-flight guard for the slower units-sold report poll
+    let stopped = false;      // disconnected: clearing the timers isn't enough now that a failed read re-queues itself
 
     async function get(path: string, params: any){
         // axios's default serializer leaves [ ] literal, which fourthwall's tomcat rejects with a 400; encode them
@@ -359,7 +392,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             const orderMsg = typeof o.message === "string" ? o.message : "";
             if (offers.length)
                 for (const line of offers)
-                    pushFwActivity(session, { t: Date.now(), product: displayNameFor(session, line.id, line.name || "merch"), user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order", qty: lineQty(line) });
+                    pushFwActivity(session, { t: Date.now(), product: displayNameFor(session, line.id, line.name || "merch"), user: buyer, message: orderMsg, image: imageForLine(session, line), unit: "order", qty: lineQty(line) });
             else
                 pushFwActivity(session, { t: Date.now(), product: "Purchase", user: buyer, message: orderMsg, image: "", unit: "order", qty: 1 });
             // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound.
@@ -373,7 +406,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                     message: offers.length
                         ? `purchased ${displayNameFor(session, offers[0].id, offers[0].name || "merch")} x${lineQty(offers[0])}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
                         : "made a purchase",
-                    image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
+                    image: offers.length ? imageForLine(session, offers[0]) : "",
                     sound: alertSound ? alertSound.file : "",
                     volume: alertSound ? alertSound.volume : 1,
                     banner: bannerForOffers(session, offers),
@@ -384,6 +417,9 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
         for (const o of rows) // advance cursor past the newest we saw
             if (o.createdAt && o.createdAt > ordersCursor)
                 ordersCursor = o.createdAt;
+        // something sold, so the progress bars are now wrong — pull the report shortly rather than at the floor
+        if (rows.length)
+            queueUnits(FW_UNITS_NUDGE_TIME);
     }
 
     // page 0 only; assumes newest-first (logged on baseline so we can confirm). new = id not seen since startup.
@@ -461,18 +497,41 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
         } catch (err: any) {
             const r = err && err.response;
             diag(`FW-DIAG ${watching}: units-sold report poll failed: ${r ? `${r.status} ${JSON.stringify(r.data)}` : (err && err.message)}`);
+            queueUnits(FW_UNITS_RETRY_TIME); // don't sit on stale bars for the whole floor over one bad read
         } finally {
             pollingUnits = false;
         }
+    }
+
+    // an out-of-band report read, coalesced: the first caller sets the timer and later ones ride it, so a cycle
+    // that lands ten orders (or a retry landing on top of a nudge) still costs one read of the analytics endpoint.
+    function queueUnits(delayMs: number){
+        if (unitsNudge || stopped)
+            return;
+        unitsNudge = setTimeout(() => {
+            unitsNudge = 0;
+            if (!stopped)
+                pollUnits();
+        }, delayMs);
+    }
+
+    // keep offerId -> thumbnail fresh so a newly listed product's first sale doesn't have to fall back to the
+    // full-size original. failures are silent: a stale map only costs image bytes, never an event.
+    function refreshThumbs(){
+        fetchFourthwallProducts(session).catch((err: any) =>
+            diag(`FW-DIAG ${watching}: product thumbnail refresh failed: ${(err && err.message) || err}`));
     }
 
     poll();
     timer = setInterval(poll, FW_POLL_TIME);
     pollUnits();
     unitsTimer = setInterval(pollUnits, FW_UNITS_POLL_TIME);
+    refreshThumbs();
+    thumbsTimer = setInterval(refreshThumbs, FW_THUMBS_POLL_TIME);
 
     return {
         disconnect(){
+            stopped = true;
             if (timer){
                 clearInterval(timer);
                 timer = 0;
@@ -480,6 +539,14 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             if (unitsTimer){
                 clearInterval(unitsTimer);
                 unitsTimer = 0;
+            }
+            if (thumbsTimer){
+                clearInterval(thumbsTimer);
+                thumbsTimer = 0;
+            }
+            if (unitsNudge){ // a pending nudge would otherwise fire a report read after disconnect
+                clearTimeout(unitsNudge);
+                unitsNudge = 0;
             }
             session.fourthwallStatus = false;
         }

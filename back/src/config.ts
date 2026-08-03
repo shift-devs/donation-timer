@@ -11,7 +11,25 @@ export const WS_MSG_RATE = 20;    // sustained messages/sec before dropping (FE-
 export const CLIENT_ID: string = process.env.CLIENT_ID || "";
 export const WH_PATH: string = process.env.WH_PATH || "";
 export const FW_POLL_TIME = 5 * 1000;     // how often we poll the fourthwall api for new orders/donations/members
-export const FW_UNITS_POLL_TIME = 5 * 1000; // units-sold report poll for the /fwprogress bars — same cadence as the order poll so the bars move right away
+// units-sold report poll for the /fwprogress bars. this one hits fourthwall's ANALYTICS engine (an all-time
+// aggregation over every order), not a plain list endpoint, and at a 5s cadence their replica pool started
+// refusing us — 500 ANALYTICS_UNKNOWN_ERROR / "Error getting connection from data source ... (replica-pool)"
+// on ~2% of reads. so the floor is slow, and freshness comes from the nudge below instead: the bars only need
+// to move when something actually sells, which the order poll already knows about.
+export const FW_UNITS_POLL_TIME = 60 * 1000;
+// after an order poll sees a purchase, re-read the report this soon rather than waiting out the floor. not
+// instant, because the analytics replica lags the order it just told us about — a read at 0s can still report
+// the pre-purchase count, which would park a stale number on screen until the next slow tick.
+export const FW_UNITS_NUDGE_TIME = 10 * 1000;
+// a failed report read (their 500s, dns blips) shouldn't leave the bars stale for a whole minute
+export const FW_UNITS_RETRY_TIME = 15 * 1000;
+// refresh of the product-photo map the feed/alert images come from. deliberately very slow: the product list is
+// the heaviest call in the api (~80kb per product, ~4mb for a 50-product shop, since every row carries its full
+// html description and nine signed image urls), so polling it often would cost more than the image bytes it
+// saves. the map only goes stale when the shop lists or re-photographs something, a dashboard product load
+// refreshes it for free, and until then that product's first sale just falls back to the original — which the
+// browser then caches, so the miss costs once, not per sale.
+export const FW_THUMBS_POLL_TIME = 6 * 3600 * 1000;
 export const FW_HTTP_TIMEOUT = 15 * 1000; // give up on a single fourthwall request so cycles can't hang/stack
 // active-sub/sub-point snapshot poll: the resolution at which a lapsed sub shows up on stream. one cheap
 // helix call, and 60 requests/min is a fraction of twitch's per-client budget. what makes this cadence

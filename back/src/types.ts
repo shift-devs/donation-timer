@@ -61,6 +61,10 @@ export interface TimerUserSession {
     // { [offerId]: all-time units sold } from the fourthwall units-sold report, driving the /fwprogress bars.
     // transient: re-derived from the api each poll, never persisted.
     fwUnitsSold?: { [id: string]: number }
+    // small product photos harvested from the product list, so the on-stream surfaces don't load the full-size
+    // originals an order line carries. byImage is keyed by image id (an order's primaryImage resolves to the
+    // compressed copy of that exact photo), byOffer is the per-product fallback. transient, like above.
+    fwThumbs?: { byImage: { [id: string]: string }, byOffer: { [id: string]: string } }
     // all-time per-service sub tallies driving the /subcount browser sources
     subCountTwitch: number
     subCountYoutube: number
