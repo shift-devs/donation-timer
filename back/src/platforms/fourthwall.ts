@@ -511,14 +511,22 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 baselined = true;
                 console.log(`Fourthwall baseline done for ${watching} (${donationList.seen.size} donations, ${memberList.seen.size} members seen)`);
             }
+            const wasBroken = !session.fourthwallStatus || !!session.fourthwallError;
             session.fourthwallError = "";
             session.fourthwallLastOkAt = Date.now(); // each ok poll re-verifies the creds; surfaced as "verified Xs ago"
             if (!session.fourthwallStatus){
                 session.fourthwallStatus = true;
                 console.log(`Connected to ${watching}'s Fourthwall!`);
             }
-            emitSync(session.userId);
+            // only the transition is worth a broadcast. a healthy poll changes nothing a client can see except
+            // lastOkAt, and the dashboard — the only page that shows it — re-syncs on its own 5s timer anyway;
+            // real activity broadcasts through the timer change it causes. pushing the whole payload to every
+            // open source every 5s regardless is what this used to do.
+            if (wasBroken)
+                emitSync(session.userId);
         } catch (err: any) {
+            const wasOk = session.fourthwallStatus;
+            const prevError = session.fourthwallError;
             session.fourthwallStatus = false;
             session.fourthwallError = describeError(err); // surfaced to the connections ui via wsSync
             const r = err && err.response;
@@ -526,7 +534,9 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             console.log(`Fourthwall poll failed for ${watching}:`, r
                 ? `${r.status} ${err.config && err.config.method} ${err.config && err.config.url} -> ${JSON.stringify(r.data)}`
                 : (err && err.message));
-            emitSync(session.userId);
+            // an outage that lasts an hour shouldn't re-broadcast the same red light 720 times
+            if (wasOk || prevError !== session.fourthwallError)
+                emitSync(session.userId);
         } finally {
             polling = false;
         }
@@ -541,8 +551,15 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
         pollingUnits = true;
         try {
             const map = await fetchFourthwallUnitsSold(session);
+            // the bars only move when a number does, and on a shop that sells a few things an hour that's a
+            // handful of broadcasts instead of 1,440 identical ones a day. compared key by key rather than by
+            // stringify, since the report is free to hand back the same rows in a different order.
+            const prev = session.fwUnitsSold || {};
+            const keys = Object.keys(map);
+            const moved = keys.length !== Object.keys(prev).length || keys.some((k) => prev[k] !== map[k]);
             session.fwUnitsSold = map;
-            emitSync(session.userId); // push the fresh counts to any open progress-bar browser source
+            if (moved)
+                emitSync(session.userId); // push the fresh counts to any open progress-bar browser source
         } catch (err: any) {
             const r = err && err.response;
             diag(`FW-DIAG ${watching}: units-sold report poll failed: ${r ? `${r.status} ${JSON.stringify(r.data)}` : (err && err.message)}`);
