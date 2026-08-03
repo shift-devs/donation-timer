@@ -9,6 +9,11 @@ const WS_URL = consts.WS_URL;
 let ws: WebSocket;
 let reconnectTimer: any;
 
+// how many rows the page shows. the point of this page is thanking whoever just bought something, so anything
+// past the newest handful is scrolled-away history nobody reads — and every row on screen pulls its product
+// photo, so rendering the server's whole 300-entry backlog meant hundreds of image fetches on one page load.
+const MAX_ROWS = 10;
+
 interface Entry {
 	t: number;
 	product: string;
@@ -52,12 +57,12 @@ const FwActivity: React.FC = () => {
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
 			if ("fwActivity" in response) {
-				// backlog arrives oldest-first; show newest on top
-				setEntries([...(response.fwActivity || [])].reverse());
+				// backlog arrives oldest-first; show newest on top, and only as many as we display
+				setEntries([...(response.fwActivity || [])].reverse().slice(0, MAX_ROWS));
 				return;
 			}
 			if ("fwActivityEntry" in response && response.fwActivityEntry) {
-				setEntries((prev) => [response.fwActivityEntry, ...(prev || [])].slice(0, 300));
+				setEntries((prev) => [response.fwActivityEntry, ...(prev || [])].slice(0, MAX_ROWS));
 				return;
 			}
 			// first sync after login = the socket is ready; fetch the backlog once per connection
