@@ -1,5 +1,6 @@
 // scheduled conditional media events. an event fires AT a time (one-time or daily) and, iff the live countdown's
-// remaining time is within an optional [min,max] window, plays an audio/video clip on the /events browser source.
+// remaining time is within an optional [min,max] window, plays a clip (media-folder file or youtube link) on the
+// /events browser source.
 // stored per-user as an array (mirrors rates); this file owns validating untrusted client input into a strict shape.
 
 export const DEFAULT_TIMER_EVENTS: any[] = [];
@@ -7,12 +8,19 @@ export const DEFAULT_TIMER_EVENTS: any[] = [];
 const MAX_EVENTS = 200;       // bound the array so a bad client can't blow up the json column / scheduler
 const MAX_SRC = 2000;         // bound the media path/url length
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/; // 24h "HH:MM"
+const MAX_CLIP_SEC = 86400;   // bound the clip trim so a bad client can't ask for an absurd offset
 
-// coerce a value that should be a finite ms count >= 0, else null (= unbounded on that side of the window)
-function msOrNull(v: any): number | null {
+// coerce a value that should be a finite count >= 0, else null (= no bound / no override).
+// null/"" must be screened out first: Number(null) is 0, which would turn "no maximum" into "max 0" and
+// leave the event unable to fire outside the last second of the countdown.
+function numOrNull(v: any): number | null {
+    if (v == null || v === "")
+        return null;
     const n = Number(v);
     return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
 }
+
+const clampSec = (n: number | null) => (n == null ? null : Math.min(MAX_CLIP_SEC, n));
 
 function normalizeOne(raw: any, i: number): any | null {
     if (!raw || typeof raw !== "object")
@@ -21,10 +29,16 @@ function normalizeOne(raw: any, i: number): any | null {
     const dailyTime = typeof raw.dailyTime === "string" && HHMM.test(raw.dailyTime) ? raw.dailyTime : "00:00";
     const onceAtN = Number(raw.onceAt);
     const onceAt = Number.isFinite(onceAtN) ? Math.round(onceAtN) : 0;
-    const mediaKind = raw.mediaKind === "video" ? "video" : "audio";
-    const mediaSrc = typeof raw.mediaSrc === "string" ? raw.mediaSrc.slice(0, MAX_SRC) : "";
+    // audio/video = a file in the site's media folder; youtube = a pasted link, embedded by the /events page
+    const mediaKind = raw.mediaKind === "video" ? "video" : raw.mediaKind === "youtube" ? "youtube" : "audio";
+    const mediaSrc = typeof raw.mediaSrc === "string" ? raw.mediaSrc.trim().slice(0, MAX_SRC) : "";
     const volN = Number(raw.volume);
     const volume = Number.isFinite(volN) ? Math.min(1, Math.max(0, volN)) : 1;
+    // optional clip trim, in seconds into the media. null = play from its own start / to its own end.
+    const clipStartSec = clampSec(numOrNull(raw.clipStartSec));
+    let clipEndSec = clampSec(numOrNull(raw.clipEndSec));
+    if (clipEndSec != null && clipEndSec <= (clipStartSec || 0))
+        clipEndSec = null; // an end at or before the start would play nothing, so treat it as unset
     // optional terminal command fired cmdDelaySec seconds after the media starts (same grammar as the dashboard terminal)
     const cmdText = typeof raw.cmdText === "string" ? raw.cmdText.slice(0, 500).trim() : "";
     const cdN = Number(raw.cmdDelaySec);
@@ -42,10 +56,12 @@ function normalizeOne(raw: any, i: number): any | null {
         dailyTime,
         tz,
         onceAt,
-        minRemainingMs: msOrNull(raw.minRemainingMs),
-        maxRemainingMs: msOrNull(raw.maxRemainingMs),
+        minRemainingMs: numOrNull(raw.minRemainingMs),
+        maxRemainingMs: numOrNull(raw.maxRemainingMs),
         mediaKind,
         mediaSrc,
+        clipStartSec,
+        clipEndSec,
         volume,
         cmdText,
         cmdDelaySec,

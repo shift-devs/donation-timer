@@ -69,7 +69,15 @@ function windowMatches(ev: any, remainingMs: number): boolean {
 
 // the payload the /events page consumes
 function playPayload(ev: any) {
-    return { id: ev.id, name: ev.name, kind: ev.mediaKind, src: ev.mediaSrc, volume: ev.volume };
+    return {
+        id: ev.id,
+        name: ev.name,
+        kind: ev.mediaKind,
+        src: ev.mediaSrc,
+        volume: ev.volume,
+        startSec: ev.clipStartSec ?? null,
+        endSec: ev.clipEndSec ?? null,
+    };
 }
 
 // optional delayed terminal command: cmdDelaySec seconds into the clip, run ev.cmdText through the same

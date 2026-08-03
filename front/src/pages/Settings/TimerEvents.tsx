@@ -24,6 +24,7 @@ import { setTimerEvents, testTimerEvent } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import { BASE_URL } from "../../Consts";
+import { parseYouTube } from "../../youtube";
 
 // media files found in public/media at build time (vite.config.ts bakes the list in) — the
 // dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
@@ -33,8 +34,10 @@ const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
 // ---- shape helpers -------------------------------------------------------------------------------------------------
 // canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings and
 // the command delay as raw text so typing doesn't fight a formatter — a half-typed "1." parses to 1 and a numeric
-// value prop would rewrite the box mid-keystroke, eating the dot. we convert at the save/load boundary and compare
-// canonical projections.
+// value prop would rewrite the box mid-keystroke, eating the dot. it also splits the single canonical mediaSrc into
+// a picked file and a typed youtube url so flipping the source dropdown doesn't discard the other one. we convert at
+// the save/load boundary and compare canonical projections — so the edit-only keys must never displace a canonical
+// key's position, or every event would read as dirty forever.
 
 const uid = () =>
 	(typeof crypto !== "undefined" && (crypto as any).randomUUID)
@@ -66,6 +69,18 @@ function parseDelaySec(s: string): number {
 	return Number.isFinite(n) && n > 0 ? Math.min(86400, n) : 0;
 }
 
+// clip start/end boxes: same lenient grammar as the window boxes, but in whole seconds into the media
+// ("30" = 0:30, "1:05" = 65s). blank = the media's own start/end. the ceiling mirrors the server's clamp.
+function parseClip(s: string): number | null {
+	const ms = parseHMS(s);
+	return ms == null ? null : Math.min(86400, Math.round(ms / 1000));
+}
+function fmtClip(sec: number | null): string {
+	if (sec == null) return "";
+	const m = Math.floor(sec / 60), s = sec % 60;
+	return m >= 60 ? fmtHMS(sec * 1000) : `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function fmtHMS(ms: number | null): string {
 	if (ms == null) return "";
 	const total = Math.max(0, Math.round(ms / 1000));
@@ -91,7 +106,15 @@ function fromLocalInput(s: string): number {
 // coerce server data into a complete canonical event (fills any missing fields with defaults)
 function canonFromServer(raw: any) {
 	const r = raw || {};
-	const num = (v: any) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : null);
+	// an unset bound/trim comes back as null, and Number(null) is 0 — so screen those out before coercing, or a
+	// blank max would reload as 00:00:00 and the next save would pin the window shut
+	const num = (v: any) => {
+		if (v == null || v === "")
+			return null;
+		const n = Number(v);
+		return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+	};
+	const end = num(r.clipEndSec);
 	return {
 		id: typeof r.id === "string" && r.id ? r.id : uid(),
 		name: typeof r.name === "string" ? r.name : "",
@@ -102,8 +125,11 @@ function canonFromServer(raw: any) {
 		onceAt: Number.isFinite(Number(r.onceAt)) ? Math.round(Number(r.onceAt)) : 0,
 		minRemainingMs: num(r.minRemainingMs),
 		maxRemainingMs: num(r.maxRemainingMs),
-		mediaKind: r.mediaKind === "video" ? "video" : "audio",
+		mediaKind: r.mediaKind === "video" ? "video" : r.mediaKind === "youtube" ? "youtube" : "audio",
 		mediaSrc: typeof r.mediaSrc === "string" ? r.mediaSrc : "",
+		clipStartSec: num(r.clipStartSec),
+		// same drop rule the server applies, so a stale row can't load as a window the editor would never save
+		clipEndSec: end != null && end <= (num(r.clipStartSec) || 0) ? null : end,
 		volume: Number.isFinite(Number(r.volume)) ? Math.min(1, Math.max(0, Number(r.volume))) : 1,
 		cmdText: typeof r.cmdText === "string" ? r.cmdText : "",
 		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Number(r.cmdDelaySec) : 0,
@@ -112,22 +138,46 @@ function canonFromServer(raw: any) {
 
 const toEdit = (c: any) => {
 	const { cmdDelaySec, ...rest } = c;
+	const yt = c.mediaKind === "youtube";
 	return {
 		...rest,
 		minRemaining: fmtHMS(c.minRemainingMs),
 		maxRemaining: fmtHMS(c.maxRemainingMs),
 		cmdDelay: String(cmdDelaySec ?? 0),
+		source: yt ? "youtube" : "file",
+		fileSrc: yt ? "" : c.mediaSrc,
+		ytUrl: yt ? c.mediaSrc : "",
+		clipStart: fmtClip(c.clipStartSec),
+		clipEnd: fmtClip(c.clipEndSec),
 	};
 };
 function toCanon(e: any) {
-	const { minRemaining, maxRemaining, cmdDelay, ...rest } = e;
+	const { minRemaining, maxRemaining, cmdDelay, source, fileSrc, ytUrl, clipStart, clipEnd, ...rest } = e;
+	const yt = source === "youtube";
+	const clipStartSec = parseClip(clipStart);
+	const clipEndSec = parseClip(clipEnd);
 	return {
 		...rest,
+		// kind follows the source: youtube embeds, otherwise the file's extension picks <video> vs <audio>
+		mediaKind: yt ? "youtube" : VIDEO_RE.test(fileSrc || "") ? "video" : "audio",
+		mediaSrc: (yt ? ytUrl : fileSrc || "").trim(),
+		clipStartSec,
+		// mirror the server: an end at or before the start would play nothing, so it saves as unset
+		clipEndSec: clipEndSec != null && clipEndSec <= (clipStartSec || 0) ? null : clipEndSec,
 		minRemainingMs: parseHMS(minRemaining),
 		maxRemainingMs: parseHMS(maxRemaining),
 		cmdDelaySec: parseDelaySec(cmdDelay),
 	};
 }
+
+// a clip start/end that reads back as unset: blank, or an end that isn't after the start (the server drops those too)
+function clipIsBackwards(e: any): boolean {
+	const s = parseClip(e.clipStart), en = parseClip(e.clipEnd);
+	return en != null && en <= (s || 0);
+}
+
+// the media src an edited event would save as, i.e. what Test would play
+const editedSrc = (e: any) => ((e.source === "youtube" ? e.ytUrl : e.fileSrc) || "").trim();
 
 function defaultEdit() {
 	return toEdit(canonFromServer({ id: uid(), name: "New event", triggerType: "daily", dailyTime: "00:00", onceAt: Date.now() }));
@@ -237,23 +287,75 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 				</Box>
 
 				{/* media */}
-				<Box minW="240px" flex="1">
+				<Box minW="380px" flex="1">
 					<Text fontSize="sm" fontWeight={600} mb={1}>Media</Text>
-					<Select
-						value={e.mediaSrc}
-						onChange={(ev) => {
-							const src = ev.currentTarget.value;
-							// kind follows the file: video extensions play in <video>, everything else in <audio>
-							update(i, { mediaSrc: src, mediaKind: VIDEO_RE.test(src) ? "video" : "audio" });
-						}}
-					>
-						<option value="">None</option>
-						{MEDIA_FILES.map((f) => (
-							<option key={f} value={`/media/${f}`}>{f}</option>
-						))}
-					</Select>
-					<HStack mt={2}>
-						<Text fontSize="sm" color="gray.600" minW="55px">volume</Text>
+					<HStack mb={2} align="start">
+						<Select
+							value={e.source}
+							onChange={(ev) => update(i, { source: ev.currentTarget.value })}
+							width="150px"
+							flexShrink={0}
+						>
+							<option value="file">Media folder</option>
+							<option value="youtube">YouTube link</option>
+						</Select>
+						{e.source === "youtube" ? (
+							<Box flex="1">
+								<Input
+									value={e.ytUrl}
+									placeholder="https://www.youtube.com/watch?v=..."
+									onChange={(ev) => {
+										const url = ev.currentTarget.value;
+										// a link pasted with a start time (?t=90) fills the empty start box, so what
+										// plays is always what the boxes show
+										const at = parseYouTube(url);
+										const fill = at && at.start && !e.clipStart.trim() ? { clipStart: fmtClip(at.start) } : {};
+										update(i, { ytUrl: url, ...fill });
+									}}
+									isInvalid={!!e.ytUrl.trim() && !parseYouTube(e.ytUrl)}
+								/>
+								{!!e.ytUrl.trim() && !parseYouTube(e.ytUrl) && (
+									<Text fontSize="xs" color="red.500" mt={1}>Not a YouTube link.</Text>
+								)}
+							</Box>
+						) : (
+							<Select
+								value={e.fileSrc}
+								onChange={(ev) => update(i, { fileSrc: ev.currentTarget.value })}
+								flex="1"
+							>
+								<option value="">None</option>
+								{MEDIA_FILES.map((f) => (
+									<option key={f} value={`/media/${f}`}>{f}</option>
+								))}
+							</Select>
+						)}
+					</HStack>
+					<HStack mb={1}>
+						<Text fontSize="sm" color="gray.600" minW="70px">play from</Text>
+						<Input
+							value={e.clipStart}
+							placeholder="start"
+							onChange={(ev) => update(i, { clipStart: ev.currentTarget.value })}
+							width="90px"
+						/>
+						<Text fontSize="sm" color="gray.600">to</Text>
+						<Input
+							value={e.clipEnd}
+							placeholder="end"
+							onChange={(ev) => update(i, { clipEnd: ev.currentTarget.value })}
+							width="90px"
+							isInvalid={clipIsBackwards(e)}
+						/>
+					</HStack>
+					<Text fontSize="xs" color={clipIsBackwards(e) ? "red.500" : "gray.500"} mb={2}>
+						{clipIsBackwards(e)
+							? "The end must be after the start — it saves as unset, playing to the end."
+							: <>Time into the clip, as <Code fontSize="xs">M:SS</Code> or <Code fontSize="xs">H:MM:SS</Code> (a
+								plain number is seconds). Blank start = from the beginning, blank end = to the end.</>}
+					</Text>
+					<HStack>
+						<Text fontSize="sm" color="gray.600" minW="70px">volume</Text>
 						<Slider
 							value={e.volume}
 							min={0}
@@ -267,6 +369,11 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						</Slider>
 						<Text fontSize="sm" color="gray.500" minW="40px">{Math.round(e.volume * 100)}%</Text>
 					</HStack>
+					{e.source === "youtube" && !e.clipEnd.trim() && (
+						<Text fontSize="xs" color="gray.500" mt={1}>
+							With no end set this plays the whole video — set one to keep it short.
+						</Text>
+					)}
 				</Box>
 
 				{/* delayed terminal command */}
@@ -301,7 +408,7 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 				<Button
 					size="sm"
 					onClick={() => testTimerEvent(ws, e.id)}
-					isDisabled={dirty || !e.mediaSrc}
+					isDisabled={dirty || !editedSrc(e)}
 					title={dirty ? "Save first — Test plays the saved version" : "Play now on the /events source"}
 				>
 					Test
@@ -356,6 +463,8 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					The media dropdown lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder
 					(<Code fontSize="xs">front/public/media</Code>) and only those — drop files there and
 					rebuild/restart for them to appear. Whether a clip plays as video or audio follows its file type.
+					A YouTube link plays as an embed instead, and clears itself when the video ends; videos whose owner
+					has disabled embedding won't play.
 				</Text>
 			</Box>
 		</Box>

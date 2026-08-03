@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as consts from "../Consts";
+import { parseYouTube } from "../youtube";
 
 // the OBS browser source for timer events. add this page as a Browser Source; the backend pushes {playEvent} messages
 // (scheduled or via the dashboard Test button) and we play the clip here. the page is a solid #00FF00 fill that OBS
@@ -12,12 +13,122 @@ let reconnectTimer: any;
 interface PlayItem {
 	id: string;
 	name: string;
-	kind: "audio" | "video";
+	kind: "audio" | "video" | "youtube";
 	src: string;
 	volume: number;
+	// optional trim, seconds into the media. null = the media's own start/end.
+	startSec: number | null;
+	endSec: number | null;
 	// monotonically increasing so the same clip fired twice still remounts and replays
 	nonce: number;
 }
+
+// youtube's iframe player api, fetched once and shared by every clip. we use the api rather than a plain
+// autoplay iframe because only it gives us the volume setting and an end-of-video event to clear the source.
+let ytApi: Promise<any> | null = null;
+function loadYtApi(): Promise<any> {
+	if (!ytApi)
+		ytApi = new Promise((resolve, reject) => {
+			const w = window as any;
+			if (w.YT && w.YT.Player) {
+				resolve(w.YT);
+				return;
+			}
+			// the api calls this global once it's live; chain any existing one so we don't stomp it
+			const prev = w.onYouTubeIframeAPIReady;
+			w.onYouTubeIframeAPIReady = () => {
+				if (typeof prev === "function") prev();
+				resolve(w.YT);
+			};
+			const tag = document.createElement("script");
+			tag.src = "https://www.youtube.com/iframe_api";
+			tag.onerror = () => reject(new Error("could not load the youtube iframe api"));
+			document.head.appendChild(tag);
+		});
+	return ytApi;
+}
+
+// one youtube clip. keyed by nonce upstream, so a fire = a fresh mount = a fresh player.
+const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, onDone }) => {
+	const hostRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const parsed = parseYouTube(item.src);
+		if (!parsed) {
+			onDone();
+			return;
+		}
+		// the event's own start wins; a link with no start box set still honors its ?t=
+		const start = item.startSec != null ? item.startSec : parsed.start;
+		let player: any = null;
+		let stopTimer: any = null;
+		let dead = false;
+		loadYtApi()
+			.then((YT: any) => {
+				if (dead || !hostRef.current)
+					return;
+				// the api REPLACES the element it's given with the iframe, so hand it a child we made ourselves —
+				// react must not own that node or unmounting would fight the player over it
+				const mount = document.createElement("div");
+				hostRef.current.appendChild(mount);
+				player = new YT.Player(mount, {
+					width: "100%",
+					height: "100%",
+					videoId: parsed.id,
+					playerVars: {
+						autoplay: 1,
+						controls: 0,
+						disablekb: 1,
+						fs: 0,
+						rel: 0,
+						playsinline: 1,
+						modestbranding: 1,
+						iv_load_policy: 3,
+						start: Math.round(start),
+						// youtube stops at `end` and reports ENDED, which clears the source like a natural finish
+						...(item.endSec != null ? { end: Math.ceil(item.endSec) } : {}),
+					},
+					events: {
+						onReady: (e: any) => {
+							const frame = e.target.getIframe();
+							if (frame) {
+								frame.style.width = "100%";
+								frame.style.height = "100%";
+								frame.style.border = "0";
+							}
+							e.target.setVolume(Math.round(item.volume * 100));
+							e.target.playVideo();
+						},
+						onStateChange: (e: any) => {
+							if (e.data === YT.PlayerState.ENDED)
+								onDone();
+							// watchdog for a trimmed clip: if `end` is ignored for any reason, clear the source
+							// anyway rather than leave a frozen frame sitting on the stream
+							if (e.data === YT.PlayerState.PLAYING && item.endSec != null && !stopTimer)
+								stopTimer = setTimeout(onDone, (Math.max(0, item.endSec - start) * 1000) + 2000);
+						},
+						// unplayable or embedding-disabled video: clear the source instead of parking on an error card
+						onError: () => onDone(),
+					},
+				});
+			})
+			.catch(() => onDone());
+
+		return () => {
+			dead = true;
+			clearTimeout(stopTimer);
+			if (player && player.destroy)
+				try { player.destroy(); } catch {}
+			if (hostRef.current)
+				hostRef.current.innerHTML = "";
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [item.nonce]);
+
+	// the player paints its own black backdrop, so keep the box at the video's aspect: on a 16:9 canvas it fills
+	// edge to edge and no black bars land inside the green that OBS keys out
+	return <div ref={hostRef} style={{ width: "100%", maxWidth: "calc(100vh * 16 / 9)", aspectRatio: "16 / 9" }} />;
+};
 
 const EventSource: React.FC = () => {
 	const token = new URLSearchParams(window.location.search).get("token");
@@ -41,9 +152,11 @@ const EventSource: React.FC = () => {
 				setItem({
 					id: p.id,
 					name: p.name,
-					kind: p.kind === "video" ? "video" : "audio",
+					kind: p.kind === "video" ? "video" : p.kind === "youtube" ? "youtube" : "audio",
 					src: p.src,
 					volume: typeof p.volume === "number" ? p.volume : 1,
+					startSec: typeof p.startSec === "number" ? p.startSec : null,
+					endSec: typeof p.endSec === "number" ? p.endSec : null,
 					nonce: nonceRef.current,
 				});
 			}
@@ -90,6 +203,19 @@ const EventSource: React.FC = () => {
 
 	const clear = () => setItem(null);
 
+	// the clip trim for a media-folder file: seek to the start once the duration is known, and stop at the end.
+	// timeupdate fires ~4x a second, so the cut can land up to a frame or two late — close enough for a clip.
+	const trim = (it: PlayItem) => ({
+		onLoadedMetadata: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+			if (it.startSec)
+				try { ev.currentTarget.currentTime = it.startSec; } catch {}
+		},
+		onTimeUpdate: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+			if (it.endSec != null && ev.currentTarget.currentTime >= it.endSec)
+				clear();
+		},
+	});
+
 	return (
 		<div style={wrap}>
 			{item && item.kind === "video" && (
@@ -102,6 +228,7 @@ const EventSource: React.FC = () => {
 					ref={(el) => { if (el) el.volume = item.volume; }}
 					onEnded={clear}
 					onError={clear}
+					{...trim(item)}
 				/>
 			)}
 			{item && item.kind === "audio" && (
@@ -112,8 +239,10 @@ const EventSource: React.FC = () => {
 					ref={(el) => { if (el) el.volume = item.volume; }}
 					onEnded={clear}
 					onError={clear}
+					{...trim(item)}
 				/>
 			)}
+			{item && item.kind === "youtube" && <YouTubeClip key={item.nonce} item={item} onDone={clear} />}
 		</div>
 	);
 };
