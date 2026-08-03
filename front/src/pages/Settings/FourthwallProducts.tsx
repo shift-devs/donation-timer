@@ -523,8 +523,8 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				</Flex>
 				<Text>
 					Every purchase, donation, and membership appears live with the buyer&apos;s name and checkout
-					message — newest on top — so you can thank people as they come in. Simulated purchases show
-					up too.
+					message — newest on top — so you can thank people as they come in. Every row shows how many
+					were bought as a &times;count on the thumbnail. Simulated purchases show up too.
 				</Text>
 			</Box>
 

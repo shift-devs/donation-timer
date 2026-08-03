@@ -147,6 +147,9 @@ export function normalizeFwActivity(raw: any): any[] {
             message: typeof e.message === "string" ? e.message.slice(0, 1000) : "",
             image: typeof e.image === "string" ? e.image.slice(0, 2000) : "",
             unit: typeof e.unit === "string" ? e.unit.slice(0, 20) : "order",
+            // units of this product in the order. entries stored before the feed showed quantity have none, so
+            // they normalize to 1 rather than dropping out of the backlog.
+            qty: Math.max(1, Math.trunc(Number(e.qty)) || 1),
         });
     }
     return out;
@@ -159,6 +162,11 @@ export function pushFwActivity(session: TimerUserSession, entry: any){
     if (session.fwActivity.length > FW_ACTIVITY_CAP)
         session.fwActivity.splice(0, session.fwActivity.length - FW_ACTIVITY_CAP);
     emitFwActivity(session.userId, entry);
+}
+
+// units of one order line. fourthwall nests it under the chosen variant; anything unparseable counts as one item.
+export function lineQty(line: any): number {
+    return Math.max(1, Math.trunc(Number(line && line.variant && line.variant.quantity)) || 1);
 }
 
 // first configured sound among an order's line items -> the alert's sound (one alert, one sound)
@@ -343,7 +351,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const per = Number(line && line.id && session.fwProductBonuses && session.fwProductBonuses[line.id]) || 0;
                 if (!per)
                     continue;
-                const qty = Math.max(1, Math.trunc(Number(line.variant && line.variant.quantity)) || 1);
+                const qty = lineQty(line);
                 emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${displayNameFor(session, line.id, line.name || line.id)} x${qty}` });
             }
             // activity feed: one row per purchased product, carrying the buyer + their checkout message
@@ -351,9 +359,9 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             const orderMsg = typeof o.message === "string" ? o.message : "";
             if (offers.length)
                 for (const line of offers)
-                    pushFwActivity(session, { t: Date.now(), product: displayNameFor(session, line.id, line.name || "merch"), user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order" });
+                    pushFwActivity(session, { t: Date.now(), product: displayNameFor(session, line.id, line.name || "merch"), user: buyer, message: orderMsg, image: String((line.primaryImage && line.primaryImage.url) || ""), unit: "order", qty: lineQty(line) });
             else
-                pushFwActivity(session, { t: Date.now(), product: "Purchase", user: buyer, message: orderMsg, image: "", unit: "order" });
+                pushFwActivity(session, { t: Date.now(), product: "Purchase", user: buyer, message: orderMsg, image: "", unit: "order", qty: 1 });
             // on-stream purchase alert for the /fwalert browser source: buyer + first product + its image + sound.
             // gated on the shown product's toggle — if its alert is turned off, stay silent (orders with no
             // product line can't be toggled, so those always alert).
@@ -363,7 +371,7 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 emitFwAlert(session.userId, {
                     name: o.username || "Someone",
                     message: offers.length
-                        ? `purchased ${displayNameFor(session, offers[0].id, offers[0].name || "merch")}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
+                        ? `purchased ${displayNameFor(session, offers[0].id, offers[0].name || "merch")} x${lineQty(offers[0])}${offers.length > 1 ? ` +${offers.length - 1} more` : ""}`
                         : "made a purchase",
                     image: String((offers[0] && offers[0].primaryImage && offers[0].primaryImage.url) || ""),
                     sound: alertSound ? alertSound.file : "",

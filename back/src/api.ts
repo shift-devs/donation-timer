@@ -566,12 +566,12 @@ export function startApi(){
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
                     // feed always fires; the alert respects the per-product toggle so a simulated purchase
                     // reflects exactly what a real one would show
-                    pushFwActivity(curSession, { t: Date.now(), product: pname, user: "SIMULATED", message: "this is a test purchase", image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "", unit: "order" });
+                    pushFwActivity(curSession, { t: Date.now(), product: pname, user: "SIMULATED", message: "this is a test purchase", image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "", unit: "order", qty: 1 });
                     if (alertsEnabledFor(curSession, pid)){
                         const simSound = (curSession.fwProductSounds && curSession.fwProductSounds[pid]) || null;
                         emitFwAlert(id, {
                             name: "SIMULATED",
-                            message: `purchased ${pname}`,
+                            message: `purchased ${pname} x1`,
                             image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "",
                             sound: simSound && simSound.file ? simSound.file : "",
                             volume: simSound && Number.isFinite(simSound.volume) ? simSound.volume : 1,

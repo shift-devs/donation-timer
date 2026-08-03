@@ -16,7 +16,12 @@ interface Entry {
 	message: string;
 	image: string;
 	unit: string;
+	// units of the product in that order. absent on donations/memberships and on rows written before the
+	// feed carried it, so it always reads through qtyOf().
+	qty?: number;
 }
+
+const qtyOf = (e: Entry) => Math.max(1, Math.trunc(Number(e.qty)) || 1);
 
 // dark theme: this page stays open all stream, so no white rectangle burning on a second monitor
 const CSS = `
@@ -123,14 +128,34 @@ const FwActivity: React.FC = () => {
 						background: "#171a21",
 					}}
 				>
-					{e.image ? (
-						<img src={e.image} alt='' style={{ width: "96px", height: "96px", objectFit: "cover", border: "3px solid #374151", borderRadius: "4px", flexShrink: 0 }} />
-					) : (
-						<div style={{ width: "96px", height: "96px", background: "#252a34", border: "3px solid #374151", borderRadius: "4px", flexShrink: 0 }} />
-					)}
+					{/* quantity rides the thumbnail, on every row, so how many were bought is never in question */}
+					<div style={{ position: "relative", flexShrink: 0 }}>
+						{e.image ? (
+							<img src={e.image} alt='' style={{ width: "96px", height: "96px", objectFit: "cover", border: "3px solid #374151", borderRadius: "4px", display: "block" }} />
+						) : (
+							<div style={{ width: "96px", height: "96px", background: "#252a34", border: "3px solid #374151", borderRadius: "4px" }} />
+						)}
+						<div
+							style={{
+								position: "absolute",
+								right: "-8px",
+								bottom: "-8px",
+								background: "#22c55e",
+								color: "#0f1115",
+								border: "3px solid #171a21",
+								borderRadius: "999px",
+								padding: "1px 10px",
+								fontWeight: 900,
+								fontSize: "20px",
+								lineHeight: 1.3,
+							}}
+						>
+							&times;{qtyOf(e)}
+						</div>
+					</div>
 					<div style={{ minWidth: 0, flex: 1 }}>
 						{/* no product name — the image is the identifier; title attr keeps it hoverable */}
-						<div title={e.product} style={{ fontWeight: 700, fontSize: "20px", color: "#86efac" }}>{e.user}</div>
+						<div title={`${e.product} ×${qtyOf(e)}`} style={{ fontWeight: 700, fontSize: "20px", color: "#86efac" }}>{e.user}</div>
 						{e.message && (
 							<div style={{ color: "#c4c9d4", fontSize: "20px", marginTop: "4px", overflowWrap: "anywhere" }}>{e.message}</div>
 						)}
