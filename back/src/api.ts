@@ -36,6 +36,33 @@ function wsCloseError(ws: TimerWebSocket, reason: string){
     }
 }
 
+// which sync fields each browser-source page actually reads. everything omitted is dashboard config a source has
+// no use for — the rates, the six per-product maps, the timer events, the connection/authorization state — and
+// a /subcount source was being handed all of it twice a second to render one integer.
+// each page's ENTRY MUST INCLUDE THE KEY IT GATES ON: the pages branch on `"subCounts" in response` and friends,
+// so dropping the gate key doesn't degrade a source, it silences it. syncFieldsCoverPageGates() in the tests
+// pins that down. an unlisted page (the dashboard, or a socket with no page at all) gets the whole payload.
+const SYNC_CORE = ["success", "endTime"]; // endTime: the widget counts off it, the activity feed uses it as "ready"
+export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
+    widget: ["widgetSettings"],
+    subcount: ["widgetSettings", "activeSubs", "subCounts"],
+    subprogress: ["widgetSettings", "subCounts"],
+    fwprogress: ["widgetSettings", "fwUnitsSold"],
+    fwalert: ["widgetSettings"],
+    fwactivity: [],  // its rows arrive as targeted fwActivity/fwActivityEntry pushes, not on the sync
+    events: [],      // likewise for playEvent
+};
+
+export function projectSync(page: string | undefined, full: any): any {
+    const fields = page ? PAGE_SYNC_FIELDS[page] : undefined;
+    if (!fields)
+        return full;
+    const out: any = {};
+    for (const k of SYNC_CORE.concat(fields))
+        out[k] = full[k];
+    return out;
+}
+
 function wsSync(ws: TimerWebSocket) {
     if (!ws.isReady)
         return;
@@ -43,7 +70,7 @@ function wsSync(ws: TimerWebSocket) {
         return;
     const curSession = getUserSession(ws.userId);
     ws.send(
-        JSON.stringify({
+        JSON.stringify(projectSync(ws.page, {
             success: true,
             endTime: curSession.endTime,
             slStatus: curSession.slStatus,
@@ -106,7 +133,7 @@ function wsSync(ws: TimerWebSocket) {
                 youtube: curSession.subCountYoutube || 0,
                 kick: curSession.subCountKick || 0
             }
-        })
+        }))
     );
 }
 
