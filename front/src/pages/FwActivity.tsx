@@ -9,10 +9,13 @@ const WS_URL = consts.WS_URL;
 let ws: WebSocket;
 let reconnectTimer: any;
 
-// how many rows the page shows. the point of this page is thanking whoever just bought something, so anything
-// past the newest handful is scrolled-away history nobody reads — and every row on screen pulls its product
-// photo, so rendering the server's whole 300-entry backlog meant hundreds of image fetches on one page load.
-const MAX_ROWS = 10;
+// the page opens on the newest handful and reveals more only when asked. every row on screen pulls its product
+// photo, so rendering the whole backlog up front meant hundreds of image fetches nobody had asked for — this way
+// the cost of looking further back is paid by whoever chooses to look.
+const ROW_STEP = 10;
+// the backlog is held in full so "show 10 more" is instant and costs no request; this mirrors the server's own
+// FW_ACTIVITY_CAP, and exists so a long-running tab can't grow the array without bound.
+const MAX_STORED = 300;
 
 interface Entry {
 	t: number;
@@ -33,6 +36,12 @@ const CSS = `
 html, body { background: #0f1115; }
 @keyframes fwa-flash { 0% { background: #14532d; } 100% { background: #171a21; } }
 .fwa-row { animation: fwa-flash 2s ease-out both; }
+.fwa-more {
+	width: 100%; padding: 12px; margin-bottom: 14px; cursor: pointer;
+	background: #171a21; color: #86efac; border: 2px solid #22c55e; border-radius: 8px;
+	font-family: inherit; font-size: 18px; font-weight: 700;
+}
+.fwa-more:hover { background: #1d2230; }
 `;
 
 function when(t: number): string {
@@ -44,6 +53,9 @@ function when(t: number): string {
 const FwActivity: React.FC = () => {
 	const token = new URLSearchParams(window.location.search).get("token");
 	const [entries, setEntries] = useState<Entry[] | null>(null);
+	// how many of the held entries are on screen. only ever changes when the button is pressed — a purchase
+	// landing while you're reading further back must not reflow the list under you.
+	const [visible, setVisible] = useState(ROW_STEP);
 	const requestedRef = useRef(false);
 
 	const connectWs = () => {
@@ -57,12 +69,12 @@ const FwActivity: React.FC = () => {
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
 			if ("fwActivity" in response) {
-				// backlog arrives oldest-first; show newest on top, and only as many as we display
-				setEntries([...(response.fwActivity || [])].reverse().slice(0, MAX_ROWS));
+				// backlog arrives oldest-first; hold it all, newest on top, and render down to `visible`
+				setEntries([...(response.fwActivity || [])].reverse().slice(0, MAX_STORED));
 				return;
 			}
 			if ("fwActivityEntry" in response && response.fwActivityEntry) {
-				setEntries((prev) => [response.fwActivityEntry, ...(prev || [])].slice(0, MAX_ROWS));
+				setEntries((prev) => [response.fwActivityEntry, ...(prev || [])].slice(0, MAX_STORED));
 				return;
 			}
 			// first sync after login = the socket is ready; fetch the backlog once per connection
@@ -110,6 +122,8 @@ const FwActivity: React.FC = () => {
 	if (!token)
 		return <div style={page}>Missing token — open this page via the URL on the dashboard&apos;s Fourthwall tab.</div>;
 
+	const hidden = Math.max(0, (entries || []).length - visible);
+
 	return (
 		<div style={page}>
 			<style>{CSS}</style>
@@ -118,7 +132,7 @@ const FwActivity: React.FC = () => {
 			{entries !== null && entries.length === 0 && (
 				<div style={{ color: "#9ca3af", fontSize: "18px" }}>Nothing yet — purchases will appear here as they happen.</div>
 			)}
-			{(entries || []).map((e, i) => (
+			{(entries || []).slice(0, visible).map((e, i) => (
 				<div
 					key={`${e.t}-${i}`}
 					className={i === 0 ? "fwa-row" : undefined}
@@ -168,6 +182,13 @@ const FwActivity: React.FC = () => {
 					<div style={{ color: "#6b7280", fontSize: "14px", flexShrink: 0, alignSelf: "flex-start" }}>{when(e.t)}</div>
 				</div>
 			))}
+			{/* the rest of the backlog is already here — revealing it costs no request, just the photos of the rows
+			    that come into view */}
+			{hidden > 0 && (
+				<button className='fwa-more' onClick={() => setVisible((v) => v + ROW_STEP)}>
+					Show {Math.min(ROW_STEP, hidden)} more ({hidden} older)
+				</button>
+			)}
 		</div>
 	);
 };

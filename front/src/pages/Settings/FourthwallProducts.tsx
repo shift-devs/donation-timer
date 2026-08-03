@@ -522,9 +522,10 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 					<Button size='xs' onClick={() => copyUrl(activityUrl, "Activity")}>Copy</Button>
 				</Flex>
 				<Text>
-					The ten most recent purchases, donations, and memberships appear live with the buyer&apos;s name
-					and checkout message — newest on top — so you can thank people as they come in. Every row shows
-					how many were bought as a &times;count on the thumbnail. Simulated purchases show up too.
+					Purchases, donations, and memberships appear live with the buyer&apos;s name and checkout message
+					— newest on top — so you can thank people as they come in. It opens on the ten most recent, with
+					a button to load older ones ten at a time. Every row shows how many were bought as a
+					&times;count on the thumbnail. Simulated purchases show up too.
 				</Text>
 			</Box>
 
