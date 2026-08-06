@@ -31,6 +31,10 @@ const SOUNDS: string[] = typeof __FW_SOUNDS__ !== "undefined" ? __FW_SOUNDS__ : 
 // same for public/banners — the alert's name panel background, per product
 const BANNERS: string[] = typeof __BANNERS__ !== "undefined" ? __BANNERS__ : [];
 
+// how far the progress bar's offset can be nudged either way. it reads both signs: positive subtracts the
+// units already sold before a goal started, negative seeds the bar above the shop's real count.
+const OFFSET_LIMIT = 1000000000;
+
 // canonical view of the bonus map: only positive finite numbers survive (mirrors the backend normalizer),
 // so zeroing an input reads as "remove the bonus" for dirty-checking and saving alike
 function normalize(raw: any): { [id: string]: number } {
@@ -295,7 +299,13 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 	// /fwprogress url. everything lives in the url (no saved state) — changing it just re-copies the url.
 	const [progressProduct, setProgressProduct] = useState("");
 	const [progressMax, setProgressMax] = useState(1000);
-	const [progressOffset, setProgressOffset] = useState(0);
+	// the offset is held as text, not a number, because the field has to be able to sit on "-" (or empty)
+	// between keystrokes — a numeric controlled value would rewrite that back to 0 and a negative could
+	// never be typed. offsetNum is the parsed value everything else reads.
+	const [progressOffset, setProgressOffset] = useState("0");
+	const offsetNum = /^-?\d+$/.test(progressOffset)
+		? Math.min(OFFSET_LIMIT, Math.max(-OFFSET_LIMIT, Math.trunc(Number(progressOffset))))
+		: 0;
 	const [progressTitle, setProgressTitle] = useState("");
 	const [progressFill, setProgressFill] = useState("#22c55e");
 	const [progressTrack, setProgressTrack] = useState("#111827");
@@ -316,7 +326,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 		if (known)
 			setProgressProduct(id);
 		setProgressMax(intParam(sp, "max", 1, 1000000000, progressMax));
-		setProgressOffset(intParam(sp, "offset", 0, 1000000000, progressOffset));
+		setProgressOffset(String(intParam(sp, "offset", -OFFSET_LIMIT, OFFSET_LIMIT, offsetNum)));
 		setProgressTitle(textParam(sp, "title", progressTitle));
 		setProgressFill(hexParam(sp, "fill", progressFill));
 		setProgressTrack(hexParam(sp, "track", progressTrack));
@@ -545,7 +555,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 						onChange={(ev) => {
 							const id = ev.currentTarget.value;
 							setProgressProduct(id);
-							setProgressOffset(0); // the offset belongs to whichever product it was set from
+							setProgressOffset("0"); // the offset belongs to whichever product it was set from
 							// prefill the title with the name this product goes out under (still editable)
 							const p = (products || []).find((x) => x.id === id);
 							setProgressTitle(p ? (nameDraft[id] || p.name) : "");
@@ -565,19 +575,28 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				</Flex>
 				<Flex align='center' gap={2} mb={2} flexWrap='wrap'>
 					<Text w='52px' flexShrink={0}>Offset</Text>
-					<NumberInput size='sm' maxW='110px' min={0} value={progressOffset} onChange={(_, n) => setProgressOffset(Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0)}>
+					<NumberInput
+						size='sm'
+						maxW='110px'
+						min={-OFFSET_LIMIT}
+						max={OFFSET_LIMIT}
+						value={progressOffset}
+						// only digits with an optional leading minus ever stick, so a stray paste can't; "" and
+						// "-" are kept as they are, being what the field looks like mid-typing
+						onChange={(s) => { if (/^-?\d*$/.test(s)) setProgressOffset(s); }}
+					>
 						<NumberInputField />
 					</NumberInput>
 					{progressProduct && (
 						<Button
 							size='xs'
 							variant='outline'
-							onClick={() => setProgressOffset(Number(settings.fwUnitsSold && settings.fwUnitsSold[progressProduct]) || 0)}
+							onClick={() => setProgressOffset(String(Number(settings.fwUnitsSold && settings.fwUnitsSold[progressProduct]) || 0))}
 						>
 							Start from now
 						</Button>
 					)}
-					<Text color='gray.400'>subtracted from the all-time count, so the bar starts at 0 for this goal</Text>
+					<Text color='gray.400'>subtracted from the all-time count, so the bar starts at 0 for this goal — or negative to add to the baseline, seeding the bar above the shop&apos;s real number</Text>
 				</Flex>
 				<Flex align='center' gap={5} mb={3} flexWrap='wrap'>
 					<HStack><Text>Fill</Text><Input type='color' w='42px' p={1} value={progressFill} onChange={(ev) => setProgressFill(ev.currentTarget.value)} /></HStack>
@@ -587,14 +606,14 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 				{progressProduct ? (
 					(() => {
 						const sold = Number(settings.fwUnitsSold && settings.fwUnitsSold[progressProduct]) || 0;
-						const counted = Math.max(0, sold - progressOffset); // what the bar will actually show
+						const counted = Math.max(0, sold - offsetNum); // what the bar will actually show
 						const pct = 50; // preview always shows a half-full bar so colors/layout are easy to judge
 						const previewBg = (settings.widgetSettings && settings.widgetSettings.bgColor) || "#00FF00";
 						const p = new URLSearchParams({
 							token: localStorage.getItem("identity") || "",
 							product: progressProduct,
 							max: String(progressMax),
-							offset: String(progressOffset),
+							offset: String(offsetNum),
 							title: progressTitle,
 							fill: progressFill,
 							track: progressTrack,
@@ -603,7 +622,7 @@ const FourthwallProducts: React.FC<{ ws: any; settings: any; products: any[] | n
 						const progressUrl = `${BASE_URL}/fwprogress?${p.toString()}`;
 						return (
 							<>
-								<Text fontSize='xs' color='gray.500' mb={1}>Preview (live sold count — {sold.toLocaleString()} all-time{progressOffset > 0 ? `, ${counted.toLocaleString()} after the offset` : ""}):</Text>
+								<Text fontSize='xs' color='gray.500' mb={1}>Preview (live sold count — {sold.toLocaleString()} all-time{offsetNum !== 0 ? `, ${counted.toLocaleString()} after the offset` : ""}):</Text>
 								<Box borderRadius='md' p={3} mb={3} style={{ background: previewBg }}>
 									<ProgressBar
 										size='preview'

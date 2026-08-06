@@ -10,14 +10,15 @@ let reconnectTimer: any;
 // one page, one OBS URL per product. the units-sold count rides the normal sync (fwUnitsSold, keyed by
 // offer id) and refreshes as the backend polls the report. URL params (all built by the dashboard wizard):
 //   product=<offerId>  max=<goal>  title=<text left of the bar>
-//   offset=<units already sold before this goal started, subtracted from the count>
+//   offset=<units already sold before this goal started, subtracted from the count. negative adds instead,
+//           which seeds the bar above the shop's real number — for a goal counting sales made elsewhere>
 //   fill=<progress color>  track=<empty-bar color>  text=<title + number color>
 const FwProgress: React.FC = () => {
 	const params = new URLSearchParams(window.location.search);
 	const token = params.get("token");
 	const product = params.get("product") || "";
 	const max = Math.max(1, Math.trunc(Number(params.get("max")) || 100)); // avoid divide-by-zero
-	const offset = Math.max(0, Math.trunc(Number(params.get("offset")) || 0));
+	const offset = Math.trunc(Number(params.get("offset")) || 0); // negative is allowed, and adds to the count
 	const title = params.get("title") || "";
 	const textColor = params.get("text") || "#ffffff";
 	const fillColor = params.get("fill") || "#22c55e";
@@ -75,7 +76,9 @@ const FwProgress: React.FC = () => {
 	}, []);
 
 	const ready = fetched && token && product;
-	const count = Math.max(0, sold - offset); // all-time units minus what was already sold when the goal started
+	// all-time units minus what was already sold when the goal started, or plus a hand-added baseline when
+	// the offset is negative. still floored at 0 so an offset set above the real count can't show a minus.
+	const count = Math.max(0, sold - offset);
 
 	// full-viewport chroma key fill — OBS keys it out so only the row shows
 	const wrap: React.CSSProperties = {
