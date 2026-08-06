@@ -21,6 +21,13 @@
 		<!-- monospaced timer option: fixed-width digits, so the countdown doesn't jitter as they tick -->
 		<link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;700&display=swap" rel="stylesheet">
 		<!--  -->
+		<style>
+			/* every browser source paints its own fill once its page mounts, but until the js has run the
+			   browser's default canvas is white — which obs composites as a white rectangle over the scene.
+			   transparent shows nothing instead. no !important: chakra's global styles are meant to take
+			   this over for the dashboard on mount, and the feed page sets its own dark background. */
+			html, body { background: transparent; }
+		</style>
 		<link rel="icon" type="image/x-icon" href="images/favicon.ico" />
 		<title>Donation Timer</title>
 	</head>

@@ -4,19 +4,20 @@ import { textEffectStyle } from "./textEffect";
 
 var timer_text: string;
 var timer_color: string;
-const audioContext = new AudioContext(); // Context switching is slow
 
 class AAudio {
 	pBufferData: Promise<AudioBuffer>
 	sourceNode: AudioBufferSourceNode | any
+	ctx: AudioContext
 
-	constructor(src: string){
+	constructor(ctx: AudioContext, src: string){
+		this.ctx = ctx;
 		this.sourceNode = 0;
 		this.pBufferData = new Promise((resolve,reject)=>{
 			fetch(src).then((resp)=>{
 				return resp.arrayBuffer();
 			}).then((data)=>{
-				audioContext.decodeAudioData(data).then((ddata)=>{
+				ctx.decodeAudioData(data).then((ddata)=>{
 					resolve(ddata)
 				})
 			})
@@ -26,9 +27,9 @@ class AAudio {
 	async play(doLoop: boolean = false, loopStart = 0, loopEnd = 0){
 		// If sourceNode is set, it's probably already playing
 		if (!this.sourceNode){
-			this.sourceNode = audioContext.createBufferSource();
+			this.sourceNode = this.ctx.createBufferSource();
 			this.sourceNode.buffer = await this.pBufferData;
-			this.sourceNode.connect(audioContext.destination);
+			this.sourceNode.connect(this.ctx.destination);
 			this.sourceNode.start();
 		}
 		this.sourceNode.loop = doLoop;
@@ -44,8 +45,19 @@ class AAudio {
 	}
 }
 
-const beep = new AAudio('/beep.wav')
-const longBeep = new AAudio('/dead.wav')
+// built on the first countdown tick rather than at import. every page reaches this module through the
+// router, but only the two that mount a timer have any use for an audiocontext and the two wavs — a
+// progress bar or a sub counter was opening one and fetching both to never play them. the context is
+// still built once and kept, since context switching is slow.
+let audio: { ctx: AudioContext, beep: AAudio, longBeep: AAudio } | undefined;
+
+function getAudio(){
+	if (!audio){
+		const ctx = new AudioContext();
+		audio = { ctx, beep: new AAudio(ctx, '/beep.wav'), longBeep: new AAudio(ctx, '/dead.wav') };
+	}
+	return audio;
+}
 
 let suspendTimeout = 0;
 let postBeepClarity = 0;
@@ -142,11 +154,12 @@ const Timer: React.FC<{
 	 * @description Triggers whenever the input seconds changes, plays a beep according to the threshold.
 	 */
 	useEffect(() => {
+		const { ctx, beep, longBeep } = getAudio();
 		if (suspendTimeout){
 			clearTimeout(suspendTimeout);
 			suspendTimeout = 0;
 		}
-		audioContext.resume();
+		ctx.resume();
 		if (postBeepClarity > Date.now()){
 			return;
 		}
@@ -178,7 +191,7 @@ const Timer: React.FC<{
 		
 		return ()=>{
 			// Used to stop beeping if the timer disconnects while beeping
-			suspendTimeout = window.setTimeout(()=>{audioContext.suspend()},2000);
+			suspendTimeout = window.setTimeout(()=>{ctx.suspend()},2000);
 		}
 
 	},[input_seconds])
