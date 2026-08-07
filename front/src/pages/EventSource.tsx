@@ -48,6 +48,19 @@ function loadYtApi(): Promise<any> {
 	return ytApi;
 }
 
+// turn captions off for good. cc_load_policy only governs whether youtube forces them ON; a video whose owner
+// published a caption track still burns them over the clip, which on a chroma-keyed source lands as a subtitle
+// bar sitting in the scene. unloading the module is what actually stops that. both names are tried because the
+// html5 player calls it "captions" and the older one called it "cc", and neither is documented — so this stays
+// best-effort by design: it must never take the clip down with it if the api drops the module.
+function killCaptions(player: any) {
+	for (const mod of ["captions", "cc"]) {
+		try {
+			player.unloadModule(mod);
+		} catch {}
+	}
+}
+
 // one youtube clip. keyed by nonce upstream, so a fire = a fresh mount = a fresh player.
 const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, onDone }) => {
 	const hostRef = useRef<HTMLDivElement>(null);
@@ -84,12 +97,16 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 						playsinline: 1,
 						modestbranding: 1,
 						iv_load_policy: 3,
+						// captions off. this only keeps youtube from forcing them on — a video the owner
+						// published captions for still shows them, so killCaptions does the actual work.
+						cc_load_policy: 0,
 						start: Math.round(start),
 						// youtube stops at `end` and reports ENDED, which clears the source like a natural finish
 						...(item.endSec != null ? { end: Math.ceil(item.endSec) } : {}),
 					},
 					events: {
 						onReady: (e: any) => {
+							killCaptions(e.target);
 							const frame = e.target.getIframe();
 							if (frame) {
 								frame.style.width = "100%";
@@ -100,6 +117,8 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 							e.target.playVideo();
 						},
 						onStateChange: (e: any) => {
+							// the captions module loads along with playback, so onReady alone can be too early
+							killCaptions(e.target);
 							if (e.data === YT.PlayerState.ENDED)
 								onDone();
 							// watchdog for a trimmed clip: if `end` is ignored for any reason, clear the source
