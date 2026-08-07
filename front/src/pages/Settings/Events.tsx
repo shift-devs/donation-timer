@@ -37,6 +37,56 @@ import { parseYouTube } from "../../youtube";
 // dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
 const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
 const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
+const AUDIO_RE = /\.(mp3|wav|ogg|oga|m4a|aac|flac)$/i;
+
+// the path half of a media src. a direct link carries a query string ("?rlkey=…&raw=1"), and testing the
+// whole thing for an extension would never match.
+function srcPath(s: string): string {
+	const cut = (s || "").search(/[?#]/);
+	return cut === -1 ? (s || "") : s.slice(0, cut);
+}
+
+// what a direct link should play as. unknown extensions read as video rather than audio: a cdn url often
+// has no extension at all, and a <video> with an audio-only file still plays it — the reverse loses picture.
+const linkKind = (url: string) => (AUDIO_RE.test(srcPath(url)) ? "audio" : "video");
+
+// dropbox's "copy link" hands over a preview PAGE (?dl=0), not the file, so a <video> pointed at it receives
+// html and silently plays nothing. raw=1 makes dropbox stream the bytes instead. we rewrite it here rather
+// than asking whoever pastes the link to edit a query string, and rlkey is carried over untouched because
+// the link 404s without it. anything that isn't a dropbox.com url — a cdn, or the dl.dropboxusercontent.com
+// host dropbox itself redirects to — is already a direct file and passes through.
+function normalizeMediaUrl(raw: string): string {
+	const url = (raw || "").trim();
+	if (!/^https?:\/\//i.test(url))
+		return url;
+	try {
+		const u = new URL(url);
+		if (!/(^|\.)dropbox\.com$/i.test(u.hostname))
+			return url;
+		u.searchParams.delete("dl");
+		u.searchParams.set("raw", "1");
+		return u.toString();
+	} catch {
+		return url; // unparseable — leave what they typed alone rather than mangling it
+	}
+}
+
+// would saving rewrite this link? drives the hint under the box, so the change is never a surprise
+const willRewrite = (url: string) => !!url.trim() && normalizeMediaUrl(url) !== url.trim();
+
+// links the page's own <video> cannot play, each with its fix. worth catching while someone is pasting:
+// dropped into a browser source these fail silently — no picture, no error, nothing to say why. the two
+// that actually come up are bunny stream's outputs, since its dashboard offers them before the mp4.
+function linkProblem(url: string): string {
+	const u = (url || "").trim();
+	if (!u)
+		return "";
+	if (/^https?:\/\/iframe\.mediadelivery\.net\//i.test(u))
+		return "That's a Bunny Stream player embed, which brings its own controls and branding. Use the library's direct MP4 URL instead.";
+	if (/\.(m3u8|mpd)$/i.test(srcPath(u)))
+		return "HLS/DASH streams don't play here — this page uses a plain video element. Use a direct MP4 URL (on Bunny Stream, switch MP4 fallback on in the library settings).";
+	return "";
+}
 
 // the kinds of trigger an event can carry. daily/once come off the clock; the rest off live platform traffic.
 const TRIGGER_TYPES = [
@@ -268,25 +318,30 @@ const toEdit = (c: any) => {
 		minRemaining: fmtHMS(c.minRemainingMs),
 		maxRemaining: fmtHMS(c.maxRemainingMs),
 		cmdDelay: String(cmdDelaySec ?? 0),
-		source: yt ? "youtube" : "file",
-		fileSrc: yt ? "" : c.mediaSrc,
+		// a saved src is a media-folder path, a youtube link, or a direct url — split them apart so flipping
+		// the dropdown keeps whatever was set under the other two
+		source: yt ? "youtube" : /^https?:\/\//i.test(c.mediaSrc || "") ? "link" : "file",
+		fileSrc: yt || /^https?:\/\//i.test(c.mediaSrc || "") ? "" : c.mediaSrc,
 		ytUrl: yt ? c.mediaSrc : "",
+		linkUrl: !yt && /^https?:\/\//i.test(c.mediaSrc || "") ? c.mediaSrc : "",
 		clipStart: fmtClip(c.clipStartSec),
 		clipEnd: fmtClip(c.clipEndSec),
 	};
 };
 
 function toCanon(e: any) {
-	const { minRemaining, maxRemaining, cmdDelay, source, fileSrc, ytUrl, clipStart, clipEnd, ...rest } = e;
+	const { minRemaining, maxRemaining, cmdDelay, source, fileSrc, ytUrl, linkUrl, clipStart, clipEnd, ...rest } = e;
 	const yt = source === "youtube";
+	const link = source === "link";
+	const url = link ? normalizeMediaUrl(linkUrl) : "";
 	const clipStartSec = parseClip(clipStart);
 	const clipEndSec = parseClip(clipEnd);
 	return {
 		...rest,
 		triggers: e.triggers.map(toCanonTrigger),
-		// kind follows the source: youtube embeds, otherwise the file's extension picks <video> vs <audio>
-		mediaKind: yt ? "youtube" : VIDEO_RE.test(fileSrc || "") ? "video" : "audio",
-		mediaSrc: (yt ? ytUrl : fileSrc || "").trim(),
+		// kind follows the source: youtube embeds, otherwise the extension picks <video> vs <audio>
+		mediaKind: yt ? "youtube" : link ? linkKind(url) : VIDEO_RE.test(fileSrc || "") ? "video" : "audio",
+		mediaSrc: link ? url : (yt ? ytUrl : fileSrc || "").trim(),
 		clipStartSec,
 		// mirror the server: an end at or before the start would play nothing, so it saves as unset
 		clipEndSec: clipEndSec != null && clipEndSec <= (clipStartSec || 0) ? null : clipEndSec,
@@ -303,7 +358,7 @@ function clipIsBackwards(e: any): boolean {
 }
 
 // the media src an edited event would save as, i.e. what Test would play
-const editedSrc = (e: any) => ((e.source === "youtube" ? e.ytUrl : e.fileSrc) || "").trim();
+const editedSrc = (e: any) => ((e.source === "youtube" ? e.ytUrl : e.source === "link" ? e.linkUrl : e.fileSrc) || "").trim();
 
 function defaultEdit() {
 	return toEdit(canonFromServer({ id: uid(), name: "New event", triggers: [canonTrigger({ id: uid(), type: "daily", onceAt: Date.now() })] }));
@@ -637,9 +692,29 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							flexShrink={0}
 						>
 							<option value="file">Media folder</option>
+							<option value="link">Direct link</option>
 							<option value="youtube">YouTube link</option>
 						</Select>
-						{e.source === "youtube" ? (
+						{e.source === "link" ? (
+							<Box flex="1">
+								<Input
+									value={e.linkUrl}
+									placeholder="https://www.dropbox.com/scl/fi/.../clip.mp4?rlkey=..."
+									onChange={(ev) => update(i, { linkUrl: ev.currentTarget.value })}
+									isInvalid={!!e.linkUrl.trim() && (!/^https?:\/\//i.test(e.linkUrl.trim()) || !!linkProblem(e.linkUrl))}
+								/>
+								{!!e.linkUrl.trim() && !/^https?:\/\//i.test(e.linkUrl.trim()) ? (
+									<Text fontSize="xs" color="red.500" mt={1}>Needs to start with http:// or https://</Text>
+								) : linkProblem(e.linkUrl) ? (
+									<Text fontSize="xs" color="red.500" mt={1}>{linkProblem(e.linkUrl)}</Text>
+								) : willRewrite(e.linkUrl) ? (
+									<Text fontSize="xs" color="gray.500" mt={1}>
+										Dropbox preview link — saves as a direct <Code fontSize="xs">raw=1</Code> link so it streams
+										instead of loading their web page.
+									</Text>
+								) : null}
+							</Box>
+						) : e.source === "youtube" ? (
 							<Box flex="1">
 								<Input
 									value={e.ytUrl}
@@ -833,11 +908,22 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					</Text>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
-					The media dropdown lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder
+					<b>Media folder</b> lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder
 					(<Code fontSize="xs">front/public/media</Code>) and only those — drop files there and
-					rebuild/restart for them to appear. Whether a clip plays as video or audio follows its file type.
-					A YouTube link plays as an embed instead, and clears itself when the video ends; videos whose owner
-					has disabled embedding won't play.
+					rebuild/restart for them to appear.
+					<br />
+					<b>Direct link</b> plays a video file hosted anywhere, as long as the URL serves the file itself
+					rather than a web page around it. A Dropbox share link is rewritten to stream on save; a Bunny.net
+					pull-zone URL (<Code fontSize="xs">…b-cdn.net/clip.mp4</Code>) works as-is. This is the clean
+					option: it plays through the page's own player, so there's no title, watermark, captions or end
+					screen to hide. The file has to still be there at showtime, so don't move or rename it once an
+					event points at it. Player embeds and HLS (<Code fontSize="xs">.m3u8</Code>) links won't play —
+					the box will tell you if you paste one.
+					<br />
+					<b>YouTube link</b> plays as an embed. It clears itself when the video ends; videos whose owner has
+					disabled embedding won't play, and YouTube's own watermark and end screens can't be turned off.
+					<br />
+					For a file or a direct link, whether it plays as video or audio follows the file type.
 				</Text>
 				<Text fontSize="xs" color="gray.500" mt={2}>
 					Gift, donation and product triggers fire on real activity only — a typed terminal command never sets
