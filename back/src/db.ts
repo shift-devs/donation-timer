@@ -64,6 +64,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: []
     },
+    // named /events browser sources an event can render to (see migration add-event-layers)
+    eventLayers: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: []
+    },
     fwProductBonuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -187,6 +193,7 @@ export async function dbCreate(inObj: Object){
         rates: lvObj.rates,
         connections: lvObj.connections,
         timerEvents: lvObj.timerEvents,
+        eventLayers: lvObj.eventLayers,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -226,6 +233,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 rates: curSession.rates,
                 connections: curSession.connections,
                 timerEvents: curSession.timerEvents,
+                eventLayers: curSession.eventLayers,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,

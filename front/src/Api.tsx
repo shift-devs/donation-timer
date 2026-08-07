@@ -79,6 +79,11 @@ export function setTimerEvents(ws: WebSocket, timerEvents: any) {
 	return 1;
 }
 
+export function setEventLayers(ws: WebSocket, layers: any) {
+	send(ws, { event: "setEventLayers", layers: layers });
+	return 1;
+}
+
 export function testTimerEvent(ws: WebSocket, id: string) {
 	send(ws, { event: "testTimerEvent", id: id });
 	return 1;

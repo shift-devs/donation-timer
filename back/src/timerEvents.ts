@@ -7,6 +7,8 @@
 export const DEFAULT_TIMER_EVENTS: any[] = [];
 
 const MAX_EVENTS = 200;       // bound the array so a bad client can't blow up the json column / scheduler
+const MAX_LAYERS = 50;        // named /events browser sources one user can define
+const MAX_LAYER_NAME = 100;
 const MAX_TRIGGERS = 20;      // per event, for the same reason
 const MAX_FW_OFFERS = 200;    // products one purchase trigger can watch
 const MAX_SRC = 2000;         // bound the media path/url length
@@ -130,6 +132,9 @@ function normalizeOne(raw: any, i: number): any | null {
         id,
         name,
         enabled: raw.enabled !== false, // default on
+        // which /events browser source plays this. "" is the default layer — the source url with no ?layer=,
+        // which is what every existing source in obs already is, so an event that names no layer keeps working.
+        layerId: typeof raw.layerId === "string" ? raw.layerId.slice(0, 100) : "",
         triggers: normalizeTriggers(raw),
         minRemainingMs: numOrNull(raw.minRemainingMs),
         maxRemainingMs: numOrNull(raw.maxRemainingMs),
@@ -141,6 +146,27 @@ function normalizeOne(raw: any, i: number): any | null {
         cmdText,
         cmdDelaySec,
     };
+}
+
+// the user's named /events browser sources. the default layer isn't in here — it's the id "", the source url
+// with no ?layer=, and it always exists. this owns validating untrusted client input.
+export function normalizeEventLayers(raw: any): any[] {
+    if (!Array.isArray(raw))
+        return [];
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < raw.length && out.length < MAX_LAYERS; i++){
+        const r = raw[i];
+        if (!r || typeof r !== "object")
+            continue;
+        // a blank id would collide with the default layer and quietly steal its events
+        const id = typeof r.id === "string" && r.id ? r.id.slice(0, 100) : `l${i + 1}`;
+        if (seen.has(id))
+            continue;
+        seen.add(id);
+        out.push({ id, name: typeof r.name === "string" ? r.name.slice(0, MAX_LAYER_NAME) : "" });
+    }
+    return out;
 }
 
 export function normalizeTimerEvents(raw: any): any[] {

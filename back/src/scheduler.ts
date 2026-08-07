@@ -71,11 +71,13 @@ function windowMatches(ev: any, remainingMs: number): boolean {
     return true;
 }
 
-// the payload the /events page consumes
+// the payload the /events page consumes. layer is routing rather than playback: api.ts uses it to pick which
+// of the user's /events sources this goes to, and the page itself ignores it.
 function playPayload(ev: any) {
     return {
         id: ev.id,
         name: ev.name,
+        layer: ev.layerId || "",
         kind: ev.mediaKind,
         src: ev.mediaSrc,
         volume: ev.volume,

@@ -45,6 +45,8 @@ export interface TimerUserSession {
     rates: any
     connections: any
     timerEvents: any
+    // named /events browser sources ({id,name}[]); an event's layerId picks one. "" = the default source.
+    eventLayers: any
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any
@@ -79,6 +81,8 @@ export interface TimerUserSession {
 export interface TimerWebSocket extends WebSocket {
     userId: number
     page?: string
+    // for page=events only: which browser-source layer this client is. "" = the default source.
+    layer?: string
     isAlive: boolean
     isReady: boolean
     forceSyncInterval: NodeJS.Timeout | number

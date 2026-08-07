@@ -2,7 +2,7 @@ import { TimerUserSession, TimerEvent } from "./types";
 import { emitSync, reportError } from "./bus";
 import { normalizeRates } from "./rates";
 import { normalizeConnections } from "./connections";
-import { normalizeTimerEvents } from "./timerEvents";
+import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
@@ -66,6 +66,7 @@ export function loginUser(inObj: Object){
     lvObj.rates = normalizeRates(lvObj.rates);
     lvObj.connections = normalizeConnections(lvObj.connections, lvObj.name, (lvObj as any).slToken);
     lvObj.timerEvents = normalizeTimerEvents(lvObj.timerEvents);
+    lvObj.eventLayers = normalizeEventLayers(lvObj.eventLayers);
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);

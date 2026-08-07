@@ -27,7 +27,7 @@ import {
 	Wrap,
 	WrapItem,
 } from "@chakra-ui/react";
-import { setTimerEvents, testTimerEvent } from "../../Api";
+import { setTimerEvents, setEventLayers, testTimerEvent } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import { BASE_URL } from "../../Consts";
@@ -243,6 +243,8 @@ function canonFromServer(raw: any) {
 		id: typeof r.id === "string" && r.id ? r.id : uid(),
 		name: typeof r.name === "string" ? r.name : "",
 		enabled: r.enabled !== false,
+		// "" = the default browser source, i.e. the /events url with no ?layer=
+		layerId: typeof r.layerId === "string" ? r.layerId : "",
 		triggers: triggers.map(canonTrigger),
 		minRemainingMs: numOrNull(r.minRemainingMs),
 		maxRemainingMs: numOrNull(r.maxRemainingMs),
@@ -307,6 +309,29 @@ function defaultEdit() {
 	return toEdit(canonFromServer({ id: uid(), name: "New event", triggers: [canonTrigger({ id: uid(), type: "daily", onceAt: Date.now() })] }));
 }
 
+// ---- browser source layers ---------------------------------------------------------------------------------------
+// a layer is one /events browser source. the default layer is not in this list: it is the id "", the source url
+// with no ?layer=, and it always exists — which is exactly what an obs source built before layers existed is.
+
+const canonLayer = (raw: any) => {
+	const r = raw || {};
+	return {
+		id: typeof r.id === "string" && r.id ? r.id : uid(),
+		name: typeof r.name === "string" ? r.name : "",
+	};
+};
+
+const DEFAULT_LAYER_LABEL = "Main (default source)";
+
+// what an event's layer dropdown shows for a given id. a layer deleted out from under an event would otherwise
+// read as a blank option, so name the dangling case rather than letting it look like the default.
+function layerLabel(layers: any[], id: string): string {
+	if (!id)
+		return DEFAULT_LAYER_LABEL;
+	const l = layers.find((x) => x.id === id);
+	return l ? (l.name || "(unnamed layer)") : "(missing layer)";
+}
+
 // ---- component -----------------------------------------------------------------------------------------------------
 
 const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ ws, settings, products }) => {
@@ -314,6 +339,14 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 	const savedStr = JSON.stringify(savedCanon);
 	const [draft, setDraft] = useState<any[]>(savedCanon.map(toEdit));
 	const prevSavedRef = useRef(savedStr);
+
+	// layers live in their own column and their own ws message, but they share this tab's one Save button:
+	// adding a source and pointing an event at it is one thought, and making it two saves would let an event
+	// be saved against a layer that was never sent.
+	const savedLayers = Array.isArray(settings.eventLayers) ? settings.eventLayers.map(canonLayer) : [];
+	const savedLayersStr = JSON.stringify(savedLayers);
+	const [layers, setLayers] = useState<any[]>(savedLayers);
+	const prevSavedLayersRef = useRef(savedLayersStr);
 
 	// follow the server's events only when there are no unsaved local edits (mirrors TimePerAction)
 	useEffect(() => {
@@ -324,7 +357,15 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [savedStr]);
 
-	const dirty = JSON.stringify(draft.map(toCanon)) !== savedStr;
+	useEffect(() => {
+		setLayers((prev) => (JSON.stringify(prev) === prevSavedLayersRef.current ? savedLayers : prev));
+		prevSavedLayersRef.current = savedLayersStr;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [savedLayersStr]);
+
+	const eventsDirty = JSON.stringify(draft.map(toCanon)) !== savedStr;
+	const layersDirty = JSON.stringify(layers) !== savedLayersStr;
+	const dirty = eventsDirty || layersDirty;
 
 	const update = (i: number, patch: any) => setDraft((d) => d.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
 	const remove = (i: number) => setDraft((d) => d.filter((_, idx) => idx !== i));
@@ -337,6 +378,26 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 		update(i, { triggers: draft[i].triggers.filter((_: any, idx: number) => idx !== ti) });
 	const addTrigger = (i: number) => update(i, { triggers: [...draft[i].triggers, defaultTrigger()] });
 
+	const addLayer = () => setLayers((l) => [...l, canonLayer({ id: uid(), name: `Layer ${l.length + 2}` })]);
+	const updateLayer = (li: number, patch: any) =>
+		setLayers((l) => l.map((x, idx) => (idx === li ? { ...x, ...patch } : x)));
+	// deleting a layer moves whatever pointed at it back to the default source. leaving those events aimed at
+	// an id that no longer exists would look fine in the list and silently play to nothing on stream.
+	const removeLayer = (li: number) => {
+		const gone = layers[li].id;
+		setLayers((l) => l.filter((_, idx) => idx !== li));
+		setDraft((d) => d.map((e) => (e.layerId === gone ? { ...e, layerId: "" } : e)));
+	};
+
+	const save = () => {
+		setEventLayers(ws, layers);
+		setTimerEvents(ws, draft.map(toCanon));
+	};
+	const revert = () => {
+		setDraft(savedCanon.map(toEdit));
+		setLayers(savedLayers);
+	};
+
 	// the shop's product list, loaded by the dashboard when Fourthwall is connected. null = not loaded yet.
 	const productName = (id: string) => {
 		const p = (products || []).find((x: any) => x && x.id === id);
@@ -344,7 +405,10 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 	};
 
 	const token = localStorage.getItem("identity") || "";
-	const sourceUrl = `${BASE_URL}/events?token=${encodeURIComponent(token)}`;
+	// the default layer's url carries no ?layer= — same string this tab has always shown, so an existing
+	// obs source needs no edit
+	const layerUrl = (id: string) =>
+		`${BASE_URL}/events?token=${encodeURIComponent(token)}${id ? `&layer=${encodeURIComponent(id)}` : ""}`;
 
 	// the type-specific half of a trigger row
 	const triggerFields = (i: number, t: any, ti: number) => {
@@ -500,6 +564,20 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					maxW="320px"
 				/>
 				<Spacer />
+				<Text fontSize="sm" color="gray.500">renders to</Text>
+				<Select
+					size="sm"
+					width="200px"
+					value={e.layerId}
+					onChange={(ev) => update(i, { layerId: ev.currentTarget.value })}
+				>
+					<option value="">{DEFAULT_LAYER_LABEL}</option>
+					{layers.map((l) => <option key={l.id} value={l.id}>{l.name || "(unnamed layer)"}</option>)}
+					{/* an id with no layer behind it would otherwise select nothing and read as the default */}
+					{!!e.layerId && !layers.some((l) => l.id === e.layerId) && (
+						<option value={e.layerId}>{layerLabel(layers, e.layerId)}</option>
+					)}
+				</Select>
 				<Text fontSize="sm" color="gray.500">enabled</Text>
 				<Switch isChecked={e.enabled} onChange={(ev) => update(i, { enabled: ev.currentTarget.checked })} />
 			</HStack>
@@ -687,7 +765,8 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 			<Text color="gray.500" fontSize="sm" mb={3}>
 				An event holds any number of triggers — a time of day, a one-off moment, a gifted-subs bomb, a cash
 				donation, or a shop product being bought. When any of them fires, and only if the live countdown's
-				remaining time is inside the window, it plays its clip on the browser-source page below.
+				remaining time is inside the window, it plays its clip on the browser source it renders to. Set up
+				those sources under <b>OBS browser sources</b> below.
 			</Text>
 
 			{draft.length === 0 && (
@@ -702,25 +781,56 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					{dirty ? "unsaved changes" : "all changes saved"}
 				</Text>
 				<Spacer />
-				<Button variant="outline" isDisabled={!dirty} onClick={() => setDraft(savedCanon.map(toEdit))}>Revert</Button>
-				<Button colorScheme="purple" isDisabled={!dirty} onClick={() => setTimerEvents(ws, draft.map(toCanon))}>Save</Button>
+				<Button variant="outline" isDisabled={!dirty} onClick={revert}>Revert</Button>
+				<Button colorScheme="purple" isDisabled={!dirty} onClick={save}>Save</Button>
 			</Flex>
 
 			<Divider my={4} />
 
 			<Box>
 				<HStack mb={1}>
-					<Text fontWeight={600}>OBS browser source</Text>
+					<Text fontWeight={600}>OBS browser sources</Text>
 					<Badge colorScheme="purple">setup</Badge>
 				</HStack>
 				<Text fontSize="sm" color="gray.600" mb={2}>
-					In OBS add a <b>Browser</b> source with this URL, sized to your canvas (e.g. 1920×1080). The page fills
+					In OBS add a <b>Browser</b> source per URL below, sized to your canvas (e.g. 1920×1080). Each page fills
 					with <Code fontSize="xs">#00FF00</Code> — add a <b>Color Key</b> filter on that green so only the clip
 					shows, and audio plays through the source. Use a clip's <b>Test</b> button to confirm it's wired up before going live.
 				</Text>
-				<HStack>
-					<MaskedUrl url={sourceUrl} p={2} fontSize="xs" maxW="100%" overflowX="auto" whiteSpace="nowrap" />
-					<Button size="sm" onClick={() => copyText(sourceUrl)}>Copy</Button>
+				<Text fontSize="sm" color="gray.600" mb={2}>
+					Add a layer for each place a clip should appear, then point events at it with the <b>renders to</b>
+					dropdown on the event. Each layer is its own source URL and its own OBS source, so you can size and
+					position them independently. Everything defaults to Main, which is the URL this tab has always shown
+					— an OBS source you already set up needs no change.
+				</Text>
+				<VStack align="stretch" spacing={2} mb={3}>
+					<HStack>
+						<Text fontSize="sm" fontWeight={600} minW="180px">{DEFAULT_LAYER_LABEL}</Text>
+						<MaskedUrl url={layerUrl("")} p={2} fontSize="xs" flex="1" overflowX="auto" whiteSpace="nowrap" />
+						<Button size="sm" onClick={() => copyText(layerUrl(""))}>Copy</Button>
+						<Box width="64px" />
+					</HStack>
+					{layers.map((l, li) => (
+						<HStack key={l.id}>
+							<Input
+								size="sm"
+								minW="180px"
+								maxW="180px"
+								value={l.name}
+								placeholder="layer name"
+								onChange={(ev) => updateLayer(li, { name: ev.currentTarget.value })}
+							/>
+							<MaskedUrl url={layerUrl(l.id)} p={2} fontSize="xs" flex="1" overflowX="auto" whiteSpace="nowrap" />
+							<Button size="sm" onClick={() => copyText(layerUrl(l.id))}>Copy</Button>
+							<Button size="sm" variant="ghost" colorScheme="red" width="64px" onClick={() => removeLayer(li)}>Delete</Button>
+						</HStack>
+					))}
+				</VStack>
+				<HStack mb={2}>
+					<Button size="sm" onClick={addLayer}>+ Add layer</Button>
+					<Text fontSize="xs" color="gray.500">
+						New layers save with the button above. Deleting one sends its events back to Main.
+					</Text>
 				</HStack>
 				<Text fontSize="xs" color="gray.500" mt={2}>
 					The media dropdown lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder

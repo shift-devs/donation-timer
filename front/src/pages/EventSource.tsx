@@ -154,7 +154,11 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 };
 
 const EventSource: React.FC = () => {
-	const token = new URLSearchParams(window.location.search).get("token");
+	const params = new URLSearchParams(window.location.search);
+	const token = params.get("token");
+	// which browser-source layer this source is. absent = the default layer, which is what every source
+	// created before layers existed is — so those keep receiving the events that name no layer.
+	const layer = params.get("layer") || "";
 	const [item, setItem] = useState<PlayItem | null>(null);
 	const nonceRef = useRef(0);
 
@@ -164,7 +168,7 @@ const EventSource: React.FC = () => {
 			ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
 			try { ws.close(); } catch {}
 		}
-		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=events`);
+		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=events&layer=${encodeURIComponent(layer)}`);
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);

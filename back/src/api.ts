@@ -6,7 +6,7 @@ import { TimerWebSocket } from "./types";
 import { bus, emitSync, emitFwAlert, reportError } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
-import { normalizeTimerEvents } from "./timerEvents";
+import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -84,6 +84,7 @@ function wsSync(ws: TimerWebSocket) {
             // last genuine event per platform (ms) — lets the ui prove data is flowing, esp. youtube/kick which only relay
             lastEventAt: curSession.lastEventAt || {},
             timerEvents: curSession.timerEvents || [],
+            eventLayers: curSession.eventLayers || [],
             connections: {
                 twitch: { channel: curSession.connections.twitch.channel, error: curSession.twitchError || "" },
                 streamlabs: { hasToken: !!curSession.connections.streamlabs.token, error: curSession.slError || "" },
@@ -319,12 +320,18 @@ export function startApi(){
         }
     });
 
-    // play commands go ONLY to this user's /events browser source(s), not the dashboard/widget
+    // play commands go ONLY to this user's /events browser source(s), not the dashboard/widget — and only to
+    // the ones on the event's layer, so a scene can hold several sources in different places and each event
+    // renders to the one it names. "" is the default layer: a source url with no ?layer=, and an event that
+    // names none. that pairing is what keeps a setup built before layers existed working untouched.
     bus.on("playEvent", (id: number, payload: any) => {
+        const layer = String((payload && payload.layer) || "");
         const clientsArr = Array.from(wss.clients);
         for (let i = 0; i < clientsArr.length; i++){
             const ws = clientsArr[i] as TimerWebSocket;
             if (id != ws.userId || ws.page !== "events" || ws.readyState !== WebSocket.OPEN)
+                continue;
+            if (String(ws.layer || "") !== layer)
                 continue;
             try {
                 ws.send(JSON.stringify({ playEvent: payload }));
@@ -341,6 +348,8 @@ export function startApi(){
         const urlParams = url.parse(req.url, true).query;
         const accessToken = urlParams.token as string;
         ws.page = urlParams.page as string; // which page this client is (settings/widget/events) — routes play commands
+        // page=events only: which browser-source layer, so playEvent can pick out the right source(s)
+        ws.layer = typeof urlParams.layer === "string" ? urlParams.layer.slice(0, 100) : "";
 
         wsLogin(ws, accessToken).then(()=>{
             ws.isReady = true;
@@ -492,6 +501,9 @@ export function startApi(){
                     break;
                 case "setTimerEvents":
                     curSession.timerEvents = normalizeTimerEvents(jData.timerEvents);
+                    break;
+                case "setEventLayers":
+                    curSession.eventLayers = normalizeEventLayers(jData.layers);
                     break;
                 case "setFwProductBonuses":
                     curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);
