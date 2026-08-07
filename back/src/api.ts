@@ -7,7 +7,7 @@ import { bus, emitSync, emitFwAlert, reportError } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents } from "./timerEvents";
-import { testTimerEvent } from "./scheduler";
+import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
@@ -591,6 +591,13 @@ export function startApi(){
                     const perItem = Number(curSession.fwProductBonuses && curSession.fwProductBonuses[pid]) || 0;
                     if (perItem)
                         handle(curSession, { platform: "fourthwall", kind: "time", seconds: perItem, manual: true, label: `simulated product bonus: ${pname}` });
+                    // donation / product-bought event triggers fire too, so a simulated purchase exercises them the
+                    // same way it does the feed and the alert. handle() skipped them above: this order is manual,
+                    // and manual traffic must never fire triggers on its own (a mod's terminal command isn't a sale).
+                    firePlatformTriggers(curSession, {
+                        platform: "fourthwall", kind: "money", usd, unit: "order",
+                        fwOffers: [{ id: pid, qty: 1 }], label: `simulated order: ${pname}`,
+                    });
                     // feed always fires; the alert respects the per-product toggle so a simulated purchase
                     // reflects exactly what a real one would show
                     pushFwActivity(curSession, { t: Date.now(), product: pname, user: "SIMULATED", message: "this is a test purchase", image: typeof jData.image === "string" ? jData.image.slice(0, 2000) : "", unit: "order", qty: 1 });

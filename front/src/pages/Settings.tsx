@@ -7,7 +7,7 @@ import TimePerAction from "./Settings/TimePerAction";
 import Controls from "./Settings/Controls";
 import Terminal from "./Settings/Terminal";
 import Connections from "./Settings/Connections";
-import TimerEvents from "./Settings/TimerEvents";
+import Events from "./Settings/Events";
 import FourthwallProducts from "./Settings/FourthwallProducts";
 import SubCounts from "./Settings/SubCounts";
 import { runCommand } from "../Api";
@@ -178,7 +178,7 @@ const Settings: React.FC = () => {
 				>
 					<TabList>
 						<Tab>Time Per Action</Tab>
-						<Tab>Timer Events</Tab>
+						<Tab>Events</Tab>
 						<Tab>Connections</Tab>
 						<Tab>Merch</Tab>
 						<Tab>Fourthwall</Tab>
@@ -192,7 +192,7 @@ const Settings: React.FC = () => {
 							<TimePerAction ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
-							<TimerEvents ws={ws} settings={settings} />
+							<Events ws={ws} settings={settings} products={fwProducts} />
 						</TabPanel>
 						<TabPanel>
 							<Connections ws={ws} settings={settings} />

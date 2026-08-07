@@ -17,7 +17,7 @@ export function handleKickStreamlabsEvent(session: TimerUserSession, e: any, m: 
     let count = Number(m.amount) || Number(m.gift_count) || Number(m.quantity) || 1;
     count = Math.min(Math.max(Math.trunc(count), 1), 100); // guard against a misread field inflating time
     if (isGift)
-        emit({ platform: "kick", kind: "member", unit: "gift", count, label: `${count}x gift sub from ${gifter || m.name}` });
+        emit({ platform: "kick", kind: "member", unit: "gift", count, gifted: true, gifter: String(gifter || m.name || ""), label: `${count}x gift sub from ${gifter || m.name}` });
     else
         emit({ platform: "kick", kind: "member", unit: "subscription", count: 1, label: `sub from ${m.name}` });
     return true;

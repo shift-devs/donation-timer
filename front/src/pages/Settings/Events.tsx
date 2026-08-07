@@ -8,6 +8,8 @@ import {
 	Flex,
 	HStack,
 	Input,
+	InputGroup,
+	InputLeftElement,
 	NumberInput,
 	NumberInputField,
 	Select,
@@ -17,8 +19,13 @@ import {
 	SliderTrack,
 	Spacer,
 	Switch,
+	Tag,
+	TagCloseButton,
+	TagLabel,
 	Text,
 	VStack,
+	Wrap,
+	WrapItem,
 } from "@chakra-ui/react";
 import { setTimerEvents, testTimerEvent } from "../../Api";
 import { copyText } from "../../copy";
@@ -31,13 +38,43 @@ import { parseYouTube } from "../../youtube";
 const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
 const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
 
+// the kinds of trigger an event can carry. daily/once come off the clock; the rest off live platform traffic.
+const TRIGGER_TYPES = [
+	{ value: "daily", label: "Daily at" },
+	{ value: "once", label: "Once at" },
+	{ value: "gift", label: "Gifted subs" },
+	{ value: "donation", label: "Donation" },
+	{ value: "fwproduct", label: "Product bought" },
+];
+
+// services that relay gifted subs/memberships, for the gifted-subs trigger. mirrors the server's list.
+const GIFT_PLATFORMS = [
+	{ value: "any", label: "any service" },
+	{ value: "twitch", label: "Twitch" },
+	{ value: "youtube", label: "YouTube" },
+	{ value: "kick", label: "Kick" },
+];
+
+// the money events a donation trigger can watch. mirrors DONATION_SOURCES on the server — keep the values
+// identical or a saved trigger silently falls back to "any".
+const DONATION_SOURCES = [
+	{ value: "any", label: "any source" },
+	{ value: "streamlabs_donation", label: "Streamlabs donation" },
+	{ value: "streamlabs_merch", label: "Streamlabs merch" },
+	{ value: "youtube_superchat", label: "YouTube Super Chat" },
+	{ value: "fourthwall_order", label: "Fourthwall order" },
+	{ value: "fourthwall_donation", label: "Fourthwall donation" },
+];
+
+const hasValue = (list: { value: string }[], v: any) => list.some((x) => x.value === v);
+
 // ---- shape helpers -------------------------------------------------------------------------------------------------
 // canonical shape == what the server stores (min/max as ms|null). edit shape keeps min/max as "HH:MM:SS" strings and
 // the command delay as raw text so typing doesn't fight a formatter — a half-typed "1." parses to 1 and a numeric
 // value prop would rewrite the box mid-keystroke, eating the dot. it also splits the single canonical mediaSrc into
 // a picked file and a typed youtube url so flipping the source dropdown doesn't discard the other one. we convert at
 // the save/load boundary and compare canonical projections — so the edit-only keys must never displace a canonical
-// key's position, or every event would read as dirty forever.
+// key's position, or every event would read as dirty forever. triggers follow the same rules one level down.
 
 const uid = () =>
 	(typeof crypto !== "undefined" && (crypto as any).randomUUID)
@@ -47,6 +84,23 @@ const uid = () =>
 // this browser's iana zone — daily triggers resolve in it on the server (whose container clock is usually UTC)
 function browserTz(): string {
 	try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
+}
+
+// an unset bound/trim comes back as null, and Number(null) is 0 — so screen those out before coercing, or a
+// blank max would reload as 0 and the next save would pin the range shut
+function numOrNull(v: any): number | null {
+	if (v == null || v === "")
+		return null;
+	const n = Number(v);
+	return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
+// same, to the cent, for the dollar bounds
+function usdOrNull(v: any): number | null {
+	if (v == null || v === "")
+		return null;
+	const n = Number(v);
+	return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
 }
 
 function parseHMS(s: string): number | null {
@@ -61,6 +115,14 @@ function parseHMS(s: string): number | null {
 	else return null;
 	return ((h * 3600) + (m * 60) + sec) * 1000;
 }
+
+// a gifted-subs count box: blank = no limit on that side
+const parseCount = (s: string) => numOrNull((s || "").trim());
+const fmtCount = (n: number | null) => (n == null ? "" : String(n));
+
+// a dollar box: blank = no limit on that side. a typed "$" is tolerated since the field shows one.
+const parseUsd = (s: string) => usdOrNull((s || "").trim().replace(/^\$/, ""));
+const fmtUsd = (n: number | null) => (n == null ? "" : String(n));
 
 // command delay text -> seconds. decimals allowed (the backend takes them); junk/blank reads as 0 and the
 // 24h ceiling mirrors the server's clamp
@@ -103,33 +165,92 @@ function fromLocalInput(s: string): number {
 	return Number.isFinite(t) ? t : 0;
 }
 
+// ---- triggers ---------------------------------------------------------------------------------------------------
+// a trigger carries every type's fields, not just its own, so flipping the type dropdown doesn't discard what
+// was typed under the previous one (same reasoning as the media file/url pair).
+
+function canonTrigger(raw: any) {
+	const r = raw || {};
+	return {
+		id: typeof r.id === "string" && r.id ? r.id : uid(),
+		type: hasValue(TRIGGER_TYPES, r.type) ? r.type : "daily",
+		dailyTime: typeof r.dailyTime === "string" && r.dailyTime ? r.dailyTime : "00:00",
+		tz: typeof r.tz === "string" && r.tz ? r.tz : browserTz(),
+		onceAt: Number.isFinite(Number(r.onceAt)) ? Math.round(Number(r.onceAt)) : 0,
+		giftPlatform: hasValue(GIFT_PLATFORMS, r.giftPlatform) ? r.giftPlatform : "any",
+		giftMinCount: numOrNull(r.giftMinCount),
+		giftMaxCount: numOrNull(r.giftMaxCount),
+		donSource: hasValue(DONATION_SOURCES, r.donSource) ? r.donSource : "any",
+		donMinUsd: usdOrNull(r.donMinUsd),
+		donMaxUsd: usdOrNull(r.donMaxUsd),
+		fwOfferIds: Array.isArray(r.fwOfferIds) ? r.fwOfferIds.filter((x: any) => typeof x === "string" && x) : [],
+		fwMinQty: numOrNull(r.fwMinQty),
+		fwMaxQty: numOrNull(r.fwMaxQty),
+	};
+}
+
+const toEditTrigger = (t: any) => ({
+	...t,
+	giftMin: fmtCount(t.giftMinCount),
+	giftMax: fmtCount(t.giftMaxCount),
+	donMin: fmtUsd(t.donMinUsd),
+	donMax: fmtUsd(t.donMaxUsd),
+	fwMin: fmtCount(t.fwMinQty),
+	fwMax: fmtCount(t.fwMaxQty),
+});
+
+function toCanonTrigger(t: any) {
+	const { giftMin, giftMax, donMin, donMax, fwMin, fwMax, ...rest } = t;
+	return {
+		...rest,
+		giftMinCount: parseCount(giftMin),
+		giftMaxCount: parseCount(giftMax),
+		donMinUsd: parseUsd(donMin),
+		donMaxUsd: parseUsd(donMax),
+		fwMinQty: parseCount(fwMin),
+		fwMaxQty: parseCount(fwMax),
+	};
+}
+
+const defaultTrigger = () => toEditTrigger(canonTrigger({ id: uid(), type: "daily", onceAt: Date.now() }));
+
+// a range that can never match — nothing would ever fire, so warn instead of letting it look armed
+function rangeIsBackwards(lo: number | null, hi: number | null): boolean {
+	return lo != null && hi != null && hi < lo;
+}
+const giftBackwards = (t: any) => rangeIsBackwards(parseCount(t.giftMin), parseCount(t.giftMax));
+const donBackwards = (t: any) => rangeIsBackwards(parseUsd(t.donMin), parseUsd(t.donMax));
+const fwBackwards = (t: any) => rangeIsBackwards(parseCount(t.fwMin), parseCount(t.fwMax));
+
+// ---- events -----------------------------------------------------------------------------------------------------
+
 // coerce server data into a complete canonical event (fills any missing fields with defaults)
 function canonFromServer(raw: any) {
 	const r = raw || {};
-	// an unset bound/trim comes back as null, and Number(null) is 0 — so screen those out before coercing, or a
-	// blank max would reload as 00:00:00 and the next save would pin the window shut
-	const num = (v: any) => {
-		if (v == null || v === "")
-			return null;
-		const n = Number(v);
-		return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
-	};
-	const end = num(r.clipEndSec);
+	const end = numOrNull(r.clipEndSec);
+	// events saved before triggers became a list carried a single inline trigger. the server upgrades those as it
+	// loads them, but keep the fallback so a stale payload still opens with something to edit.
+	const triggers = Array.isArray(r.triggers) ? r.triggers : [{
+		type: r.triggerType,
+		dailyTime: r.dailyTime,
+		tz: r.tz,
+		onceAt: r.onceAt,
+		giftPlatform: r.giftPlatform,
+		giftMinCount: r.giftMinCount,
+		giftMaxCount: r.giftMaxCount,
+	}];
 	return {
 		id: typeof r.id === "string" && r.id ? r.id : uid(),
 		name: typeof r.name === "string" ? r.name : "",
 		enabled: r.enabled !== false,
-		triggerType: r.triggerType === "once" ? "once" : "daily",
-		dailyTime: typeof r.dailyTime === "string" && r.dailyTime ? r.dailyTime : "00:00",
-		tz: typeof r.tz === "string" && r.tz ? r.tz : browserTz(),
-		onceAt: Number.isFinite(Number(r.onceAt)) ? Math.round(Number(r.onceAt)) : 0,
-		minRemainingMs: num(r.minRemainingMs),
-		maxRemainingMs: num(r.maxRemainingMs),
+		triggers: triggers.map(canonTrigger),
+		minRemainingMs: numOrNull(r.minRemainingMs),
+		maxRemainingMs: numOrNull(r.maxRemainingMs),
 		mediaKind: r.mediaKind === "video" ? "video" : r.mediaKind === "youtube" ? "youtube" : "audio",
 		mediaSrc: typeof r.mediaSrc === "string" ? r.mediaSrc : "",
-		clipStartSec: num(r.clipStartSec),
+		clipStartSec: numOrNull(r.clipStartSec),
 		// same drop rule the server applies, so a stale row can't load as a window the editor would never save
-		clipEndSec: end != null && end <= (num(r.clipStartSec) || 0) ? null : end,
+		clipEndSec: end != null && end <= (numOrNull(r.clipStartSec) || 0) ? null : end,
 		volume: Number.isFinite(Number(r.volume)) ? Math.min(1, Math.max(0, Number(r.volume))) : 1,
 		cmdText: typeof r.cmdText === "string" ? r.cmdText : "",
 		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Number(r.cmdDelaySec) : 0,
@@ -141,6 +262,7 @@ const toEdit = (c: any) => {
 	const yt = c.mediaKind === "youtube";
 	return {
 		...rest,
+		triggers: c.triggers.map(toEditTrigger),
 		minRemaining: fmtHMS(c.minRemainingMs),
 		maxRemaining: fmtHMS(c.maxRemainingMs),
 		cmdDelay: String(cmdDelaySec ?? 0),
@@ -151,6 +273,7 @@ const toEdit = (c: any) => {
 		clipEnd: fmtClip(c.clipEndSec),
 	};
 };
+
 function toCanon(e: any) {
 	const { minRemaining, maxRemaining, cmdDelay, source, fileSrc, ytUrl, clipStart, clipEnd, ...rest } = e;
 	const yt = source === "youtube";
@@ -158,6 +281,7 @@ function toCanon(e: any) {
 	const clipEndSec = parseClip(clipEnd);
 	return {
 		...rest,
+		triggers: e.triggers.map(toCanonTrigger),
 		// kind follows the source: youtube embeds, otherwise the file's extension picks <video> vs <audio>
 		mediaKind: yt ? "youtube" : VIDEO_RE.test(fileSrc || "") ? "video" : "audio",
 		mediaSrc: (yt ? ytUrl : fileSrc || "").trim(),
@@ -180,12 +304,12 @@ function clipIsBackwards(e: any): boolean {
 const editedSrc = (e: any) => ((e.source === "youtube" ? e.ytUrl : e.fileSrc) || "").trim();
 
 function defaultEdit() {
-	return toEdit(canonFromServer({ id: uid(), name: "New event", triggerType: "daily", dailyTime: "00:00", onceAt: Date.now() }));
+	return toEdit(canonFromServer({ id: uid(), name: "New event", triggers: [canonTrigger({ id: uid(), type: "daily", onceAt: Date.now() })] }));
 }
 
 // ---- component -----------------------------------------------------------------------------------------------------
 
-const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => {
+const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ ws, settings, products }) => {
 	const savedCanon = Array.isArray(settings.timerEvents) ? settings.timerEvents.map(canonFromServer) : [];
 	const savedStr = JSON.stringify(savedCanon);
 	const [draft, setDraft] = useState<any[]>(savedCanon.map(toEdit));
@@ -206,8 +330,164 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 	const remove = (i: number) => setDraft((d) => d.filter((_, idx) => idx !== i));
 	const add = () => setDraft((d) => [...d, defaultEdit()]);
 
+	// trigger edits are patches into event i's triggers array
+	const updateTrigger = (i: number, ti: number, patch: any) =>
+		update(i, { triggers: draft[i].triggers.map((t: any, idx: number) => (idx === ti ? { ...t, ...patch } : t)) });
+	const removeTrigger = (i: number, ti: number) =>
+		update(i, { triggers: draft[i].triggers.filter((_: any, idx: number) => idx !== ti) });
+	const addTrigger = (i: number) => update(i, { triggers: [...draft[i].triggers, defaultTrigger()] });
+
+	// the shop's product list, loaded by the dashboard when Fourthwall is connected. null = not loaded yet.
+	const productName = (id: string) => {
+		const p = (products || []).find((x: any) => x && x.id === id);
+		return (p && p.name) || id;
+	};
+
 	const token = localStorage.getItem("identity") || "";
 	const sourceUrl = `${BASE_URL}/events?token=${encodeURIComponent(token)}`;
+
+	// the type-specific half of a trigger row
+	const triggerFields = (i: number, t: any, ti: number) => {
+		const set = (patch: any) => updateTrigger(i, ti, patch);
+		if (t.type === "daily")
+			return (
+				<HStack>
+					<Input type="time" size="sm" width="130px" value={t.dailyTime} onChange={(ev) => set({ dailyTime: ev.currentTarget.value })} />
+					<Text fontSize="xs" color="gray.500">{t.tz || "server time"}</Text>
+				</HStack>
+			);
+		if (t.type === "once")
+			return (
+				<Input
+					type="datetime-local"
+					size="sm"
+					width="210px"
+					value={toLocalInput(t.onceAt)}
+					onChange={(ev) => set({ onceAt: fromLocalInput(ev.currentTarget.value) })}
+				/>
+			);
+		if (t.type === "gift")
+			return (
+				<HStack wrap="wrap">
+					<Input size="sm" width="70px" placeholder="min" value={t.giftMin} onChange={(ev) => set({ giftMin: ev.currentTarget.value })} />
+					<Text fontSize="sm" color="gray.600">to</Text>
+					<Input size="sm" width="70px" placeholder="max" value={t.giftMax} onChange={(ev) => set({ giftMax: ev.currentTarget.value })} isInvalid={giftBackwards(t)} />
+					<Text fontSize="sm" color="gray.600">subs from</Text>
+					<Select size="sm" width="130px" value={t.giftPlatform} onChange={(ev) => set({ giftPlatform: ev.currentTarget.value })}>
+						{GIFT_PLATFORMS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+					</Select>
+				</HStack>
+			);
+		if (t.type === "donation")
+			return (
+				<HStack wrap="wrap">
+					{["donMin", "donMax"].map((k) => (
+						<React.Fragment key={k}>
+							{k === "donMax" && <Text fontSize="sm" color="gray.600">to</Text>}
+							<InputGroup size="sm" width="90px">
+								<InputLeftElement pointerEvents="none" color="gray.400" fontSize="sm">$</InputLeftElement>
+								<Input
+									placeholder={k === "donMin" ? "min" : "max"}
+									value={t[k]}
+									onChange={(ev) => set({ [k]: ev.currentTarget.value })}
+									isInvalid={k === "donMax" && donBackwards(t)}
+								/>
+							</InputGroup>
+						</React.Fragment>
+					))}
+					<Text fontSize="sm" color="gray.600">from</Text>
+					<Select size="sm" width="180px" value={t.donSource} onChange={(ev) => set({ donSource: ev.currentTarget.value })}>
+						{DONATION_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+					</Select>
+				</HStack>
+			);
+		// fwproduct: an empty list means any product in the shop
+		return (
+			<Box>
+				<Select
+					size="sm"
+					maxW="320px"
+					value=""
+					onChange={(ev) => {
+						const id = ev.currentTarget.value;
+						if (id && !t.fwOfferIds.includes(id))
+							set({ fwOfferIds: [...t.fwOfferIds, id] });
+					}}
+				>
+					<option value="">{t.fwOfferIds.length ? "+ add another product…" : "any product (pick to narrow)"}</option>
+					{(products || [])
+						.filter((p: any) => p && !t.fwOfferIds.includes(p.id))
+						.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+				</Select>
+				{!!t.fwOfferIds.length && (
+					<Wrap mt={2} spacing={1}>
+						{t.fwOfferIds.map((id: string) => (
+							<WrapItem key={id}>
+								<Tag size="sm" colorScheme="purple">
+									<TagLabel>{productName(id)}</TagLabel>
+									<TagCloseButton onClick={() => set({ fwOfferIds: t.fwOfferIds.filter((x: string) => x !== id) })} />
+								</Tag>
+							</WrapItem>
+						))}
+					</Wrap>
+				)}
+				<HStack mt={2} wrap="wrap">
+					<Text fontSize="sm" color="gray.600">quantity</Text>
+					<Input size="sm" width="70px" placeholder="min" value={t.fwMin} onChange={(ev) => set({ fwMin: ev.currentTarget.value })} />
+					<Text fontSize="sm" color="gray.600">to</Text>
+					<Input size="sm" width="70px" placeholder="max" value={t.fwMax} onChange={(ev) => set({ fwMax: ev.currentTarget.value })} isInvalid={fwBackwards(t)} />
+				</HStack>
+				{!products && (
+					<Text fontSize="xs" color="gray.500" mt={1}>
+						Product list not loaded — connect Fourthwall to pick specific products. Until then this fires on any purchase.
+					</Text>
+				)}
+			</Box>
+		);
+	};
+
+	// the one-line explanation under a trigger row
+	const triggerHint = (t: any) => {
+		if (t.type === "daily") return `Fires daily in ${t.tz || "the server's"} time.`;
+		if (t.type === "once") return "Fires once at this date/time (your local time).";
+		if (t.type === "gift")
+			return giftBackwards(t)
+				? "The max is below the min — as written this can never fire."
+				: "Fires when one person gifts this many subs at once (a 20-sub bomb counts as 20, a single gift sub as 1). Anonymous gifters count too.";
+		if (t.type === "donation")
+			return donBackwards(t)
+				? "The max is below the min — as written this can never fire."
+				: "Fires on a cash event in this range. A Fourthwall order matches on its whole total.";
+		if (fwBackwards(t))
+			return "The max is below the min — as written this can never fire.";
+		const what = t.fwOfferIds.length ? "these products" : "anything (pick products above to narrow it down)";
+		// the quantity is summed across the order's matching lines, so 2 of one + 3 of another reads as 5
+		const qty = parseCount(t.fwMin) != null || parseCount(t.fwMax) != null
+			? " Counts how many of them the order contains, added up across its line items."
+			: " Leave the quantity boxes blank to fire on any amount.";
+		return `Fires when a Fourthwall order contains ${what}.${qty}`;
+	};
+
+	const triggerRow = (i: number, t: any, ti: number) => (
+		<Box key={t.id} borderWidth="1px" borderRadius="md" borderColor="gray.200" p={2}>
+			<HStack align="start">
+				<Select
+					size="sm"
+					width="140px"
+					flexShrink={0}
+					value={t.type}
+					onChange={(ev) => updateTrigger(i, ti, { type: ev.currentTarget.value })}
+				>
+					{TRIGGER_TYPES.map((tt) => <option key={tt.value} value={tt.value}>{tt.label}</option>)}
+				</Select>
+				<Box flex="1">{triggerFields(i, t, ti)}</Box>
+				<Button size="xs" variant="ghost" colorScheme="red" onClick={() => removeTrigger(i, ti)} title="remove this trigger">✕</Button>
+			</HStack>
+			<Text fontSize="xs" color={giftBackwards(t) || donBackwards(t) || fwBackwards(t) ? "red.500" : "gray.500"} mt={1}>
+				{triggerHint(t)}
+			</Text>
+		</Box>
+	);
 
 	const card = (e: any, i: number) => (
 		<Box key={e.id} borderWidth="1px" borderRadius="md" p={4} mb={3} bg={e.enabled ? "white" : "gray.50"}>
@@ -225,37 +505,19 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 			</HStack>
 
 			<Flex gap={6} wrap="wrap">
-				{/* trigger */}
-				<Box minW="240px">
-					<Text fontSize="sm" fontWeight={600} mb={1}>Trigger</Text>
-					<HStack>
-						<Select
-							value={e.triggerType}
-							onChange={(ev) => update(i, { triggerType: ev.currentTarget.value })}
-							width="130px"
-						>
-							<option value="daily">Daily at</option>
-							<option value="once">Once at</option>
-						</Select>
-						{e.triggerType === "daily" ? (
-							<Input
-								type="time"
-								value={e.dailyTime}
-								onChange={(ev) => update(i, { dailyTime: ev.currentTarget.value })}
-								width="140px"
-							/>
-						) : (
-							<Input
-								type="datetime-local"
-								value={toLocalInput(e.onceAt)}
-								onChange={(ev) => update(i, { onceAt: fromLocalInput(ev.currentTarget.value) })}
-								width="220px"
-							/>
-						)}
+				{/* triggers */}
+				<Box minW="420px" flex="1">
+					<HStack mb={1}>
+						<Text fontSize="sm" fontWeight={600}>Triggers</Text>
+						<Text fontSize="xs" color="gray.500">any one of these fires the event</Text>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mt={1}>
-						{e.triggerType === "daily" ? `Fires daily in ${e.tz || "the server's"} time.` : "Fires once at this date/time (your local time)."}
-					</Text>
+					{e.triggers.length === 0 && (
+						<Text fontSize="sm" color="orange.500" mb={2}>No triggers — this event can never fire.</Text>
+					)}
+					<VStack align="stretch" spacing={2}>
+						{e.triggers.map((t: any, ti: number) => triggerRow(i, t, ti))}
+					</VStack>
+					<Button size="sm" mt={2} onClick={() => addTrigger(i)}>+ Add trigger</Button>
 				</Box>
 
 				{/* condition */}
@@ -278,10 +540,10 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						/>
 					</HStack>
 					<Text fontSize="xs" color="gray.500" mt={1}>
-						Both ends are inclusive. Leave a box blank for no limit on that side. The check
-						uses the exact countdown, while the on-screen clock rounds to whole seconds — so a
-						max of <Code fontSize="xs">0:09:59</Code> only catches the lower half of the second
-						shown as "9:59". Add a second of margin (e.g. <Code fontSize="xs">0:10:00</Code>) to
+						Applies to every trigger above. Both ends are inclusive; leave a box blank for no limit on
+						that side. The check uses the exact countdown, while the on-screen clock rounds to whole
+						seconds — so a max of <Code fontSize="xs">0:09:59</Code> only catches the lower half of the
+						second shown as "9:59". Add a second of margin (e.g. <Code fontSize="xs">0:10:00</Code>) to
 						catch the whole displayed second.
 					</Text>
 				</Box>
@@ -423,8 +685,9 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 	return (
 		<Box textAlign="left">
 			<Text color="gray.500" fontSize="sm" mb={3}>
-				An event fires at its trigger time and, only if the live countdown's remaining time is inside the window,
-				plays its clip on the browser-source page below.
+				An event holds any number of triggers — a time of day, a one-off moment, a gifted-subs bomb, a cash
+				donation, or a shop product being bought. When any of them fires, and only if the live countdown's
+				remaining time is inside the window, it plays its clip on the browser-source page below.
 			</Text>
 
 			{draft.length === 0 && (
@@ -466,9 +729,15 @@ const TimerEvents: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					A YouTube link plays as an embed instead, and clears itself when the video ends; videos whose owner
 					has disabled embedding won't play.
 				</Text>
+				<Text fontSize="xs" color="gray.500" mt={2}>
+					Gift, donation and product triggers fire on real activity only — a typed terminal command never sets
+					one off. To rehearse one, use an event's <b>Test</b> button, or click a product thumbnail on the
+					Fourthwall tab: that simulated purchase drives the product triggers exactly like a real order, as a
+					single item — so a trigger with a minimum quantity above 1 won't answer it.
+				</Text>
 			</Box>
 		</Box>
 	);
 };
 
-export default TimerEvents;
+export default Events;

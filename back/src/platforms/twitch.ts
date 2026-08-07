@@ -108,7 +108,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
     client.on("submysterygift", safe("submysterygift", (ch, username, numbOfSubs, methods, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: numbOfSubs, anonymous: isAnon(username), label: `${numbOfSubs}x Tier ${tier} gift sub from ${username}` });
+        emit({ platform: "twitch", kind: "sub", tier, count: numbOfSubs, anonymous: isAnon(username), gifted: true, gifter: String(username || ""), label: `${numbOfSubs}x Tier ${tier} gift sub from ${username}` });
     }));
 
     client.on("subgift", safe("subgift", (ch, username, streakMonths, recipient, methods, userstate) => {
@@ -116,7 +116,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             return;
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: 1, anonymous: isAnon(username), label: `Tier ${tier} gift sub from ${username} -> ${recipient}` });
+        emit({ platform: "twitch", kind: "sub", tier, count: 1, anonymous: isAnon(username), gifted: true, gifter: String(username || ""), label: `Tier ${tier} gift sub from ${username} -> ${recipient}` });
     }));
 
     client.on("anongiftpaidupgrade", safe("anongiftpaidupgrade", (_ch, _username, userstate) => {

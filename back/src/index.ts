@@ -72,7 +72,7 @@ async function main(){
     };
     dbLoop();
 
-    // self-scheduling tick that fires due timer events (separate from the db loop so a slow write can't delay playback)
+    // self-scheduling tick that fires due scheduled events (separate from the db loop so a slow write can't delay playback)
     const eventLoop = () => {
         try {
             tickTimerEvents();

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import * as consts from "../Consts";
 import { parseYouTube } from "../youtube";
 
-// the OBS browser source for timer events. add this page as a Browser Source; the backend pushes {playEvent} messages
+// the OBS browser source for events. add this page as a Browser Source; the backend pushes {playEvent} messages
 // (scheduled or via the dashboard Test button) and we play the clip here. the page is a solid #00FF00 fill that OBS
 // keys out (color key filter), so only the clip shows over the scene. mirrors Widget.tsx's connect/reconnect lifecycle.
 

@@ -62,7 +62,7 @@ export function handleYoutubeStreamlabsEvent(session: TimerUserSession, e: any, 
             const tier = ytTier(level, watching);
             const lvl = level ? ` [${level}]` : "";
             if (isGift)
-                emit({ platform: "youtube", kind: "member", unit: `membership_gift_${tier}`, count, label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
+                emit({ platform: "youtube", kind: "member", unit: `membership_gift_${tier}`, count, gifted: true, gifter: String(gifter || m.name || ""), label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
             else
                 emit({ platform: "youtube", kind: "member", unit: `membership_${tier}`, count: 1, label: `membership${lvl} from ${m.name}` });
             return true;

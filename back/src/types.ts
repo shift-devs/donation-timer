@@ -99,6 +99,12 @@ export interface TimerEvent {
     unit?: string
     seconds?: number
     anonymous?: boolean
+    // a whole gift bomb arrives as one event, so count is how many subs the one gifter gave at once
+    gifted?: boolean
+    gifter?: string
+    // a fourthwall order's product lines, so an event trigger can fire on a specific product being bought.
+    // the time an order grants comes off its total (and the per-product bonuses), not from these.
+    fwOffers?: { id: string, qty: number }[]
     manual?: boolean
     label: string
 }

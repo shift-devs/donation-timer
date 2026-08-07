@@ -3,6 +3,7 @@ import { CHAT_CMD_MAX_TIME } from "./config";
 import { toSeconds } from "./rates";
 import { addToEndTime } from "./timer";
 import { emitSync, reportError } from "./bus";
+import { firePlatformTriggers } from "./scheduler";
 
 // tally a genuine (non-command) sub/membership for the /subcount browser sources. counts each gifted
 // recipient (gift bombs carry count = N) and is independent of the anon/rate/cap logic below — those
@@ -31,6 +32,11 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         // even anon ones or ones that grant no time. typed/chat commands (manual) never touch the count.
         if (!event.manual && countSub(session, event))
             emitSync(session.userId); // push updated counts to open /subcount sources promptly
+        // a gift bomb, a donation or a shop purchase can also trigger a configured event (see scheduler.ts, which
+        // decides what matches). done here, alongside the count and before the anon/rate short-circuits, because
+        // the thing happened whether or not it grants any time.
+        if (!event.manual)
+            firePlatformTriggers(session, event);
         if (event.kind === "sub" && session.ignoreAnon && event.anonymous)
             return;
         const seconds = toSeconds(session.rates, event);
