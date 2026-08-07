@@ -112,6 +112,7 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 								frame.style.width = "100%";
 								frame.style.height = "100%";
 								frame.style.border = "0";
+								frame.style.pointerEvents = "none"; // belt and braces with the host's rule above
 							}
 							e.target.setVolume(Math.round(item.volume * 100));
 							e.target.playVideo();
@@ -145,8 +146,11 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 	}, [item.nonce]);
 
 	// the player paints its own black backdrop, so keep the box at the video's aspect: on a 16:9 canvas it fills
-	// edge to edge and no black bars land inside the green that OBS keys out
-	return <div ref={hostRef} style={{ width: "100%", maxWidth: "calc(100vh * 16 / 9)", aspectRatio: "16 / 9" }} />;
+	// edge to edge and no black bars land inside the green that OBS keys out.
+	// pointer-events off is what keeps the youtube chrome away: the title/channel bar, the share and watch-later
+	// buttons, the "watch on youtube" link and the pause overlay are all hover-triggered, and a source nobody
+	// clicks can't trigger them. it costs nothing here — obs never interacts with the page.
+	return <div ref={hostRef} style={{ width: "100%", maxWidth: "calc(100vh * 16 / 9)", aspectRatio: "16 / 9", pointerEvents: "none" }} />;
 };
 
 const EventSource: React.FC = () => {
