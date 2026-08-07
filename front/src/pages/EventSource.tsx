@@ -64,6 +64,12 @@ function killCaptions(player: any) {
 // one youtube clip. keyed by nonce upstream, so a fire = a fresh mount = a fresh player.
 const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, onDone }) => {
 	const hostRef = useRef<HTMLDivElement>(null);
+	// youtube paints a poster, a centre play button and a loading spinner before playback begins, and on a
+	// chroma-keyed source that whole sequence composites into the scene as a flash of youtube ui — including
+	// the moment the centre button turns into a pause icon on the handover to the first frame. so the clip
+	// stays invisible until real video is running; the source only ever shows moving picture.
+	// the component is keyed by nonce upstream, so every fire mounts fresh and starts hidden again.
+	const [showing, setShowing] = useState(false);
 
 	useEffect(() => {
 		const parsed = parseYouTube(item.src);
@@ -75,7 +81,35 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 		const start = item.startSec != null ? item.startSec : parsed.start;
 		let player: any = null;
 		let stopTimer: any = null;
+		let revealTimer: any = null;
+		let frameTimer: any = null;
 		let dead = false;
+		const reveal = () => {
+			clearTimeout(revealTimer);
+			clearInterval(frameTimer);
+			if (!dead)
+				setShowing(true);
+		};
+		// PLAYING is not quite the moment to show: it can arrive while the player is still swapping the
+		// poster and its centre button out for the first frame, which is the pause-icon flash. the clock
+		// moving is the honest signal that real video exists, so wait for that instead.
+		const revealOnFirstFrames = (p: any) => {
+			clearInterval(frameTimer);
+			frameTimer = setInterval(() => {
+				if (dead) {
+					clearInterval(frameTimer);
+					return;
+				}
+				let t = 0;
+				try {
+					t = Number(p.getCurrentTime()) || 0;
+				} catch {
+					// player torn down mid-poll — the cleanup below will stop us
+				}
+				if (t > start + 0.05)
+					reveal();
+			}, 50);
+		};
 		loadYtApi()
 			.then((YT: any) => {
 				if (dead || !hostRef.current)
@@ -116,10 +150,15 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 							}
 							e.target.setVolume(Math.round(item.volume * 100));
 							e.target.playVideo();
+							// last resort: if neither the state event nor the clock ever reports, show it anyway rather
+							// than leave a clip that is audibly playing invisible for its whole length
+							revealTimer = setTimeout(reveal, 4000);
 						},
 						onStateChange: (e: any) => {
 							// the captions module loads along with playback, so onReady alone can be too early
 							killCaptions(e.target);
+							if (e.data === YT.PlayerState.PLAYING)
+								revealOnFirstFrames(e.target);
 							if (e.data === YT.PlayerState.ENDED)
 								onDone();
 							// watchdog for a trimmed clip: if `end` is ignored for any reason, clear the source
@@ -137,6 +176,8 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 		return () => {
 			dead = true;
 			clearTimeout(stopTimer);
+			clearTimeout(revealTimer);
+			clearInterval(frameTimer);
 			if (player && player.destroy)
 				try { player.destroy(); } catch {}
 			if (hostRef.current)
@@ -150,7 +191,7 @@ const YouTubeClip: React.FC<{ item: PlayItem; onDone: () => void }> = ({ item, o
 	// pointer-events off is what keeps the youtube chrome away: the title/channel bar, the share and watch-later
 	// buttons, the "watch on youtube" link and the pause overlay are all hover-triggered, and a source nobody
 	// clicks can't trigger them. it costs nothing here — obs never interacts with the page.
-	return <div ref={hostRef} style={{ width: "100%", maxWidth: "calc(100vh * 16 / 9)", aspectRatio: "16 / 9", pointerEvents: "none" }} />;
+	return <div ref={hostRef} style={{ width: "100%", maxWidth: "calc(100vh * 16 / 9)", aspectRatio: "16 / 9", pointerEvents: "none", opacity: showing ? 1 : 0 }} />;
 };
 
 const EventSource: React.FC = () => {
