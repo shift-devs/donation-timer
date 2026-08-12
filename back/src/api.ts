@@ -7,6 +7,7 @@ import { bus, emitSync, emitFwAlert, reportError } from "./bus";
 import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
+import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -51,6 +52,9 @@ export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     fwalert: ["widgetSettings"],
     fwactivity: [],  // its rows arrive as targeted fwActivity/fwActivityEntry pushes, not on the sync
     events: [],      // likewise for playEvent
+    // one text box per source, the one its ?box= names — a source has no use for the other 49, and the words a
+    // mod put on one overlay have no business being pushed to every other overlay twice a second
+    text: ["textBox"],
 };
 
 export function projectSync(page: string | undefined, full: any): any {
@@ -85,6 +89,10 @@ function wsSync(ws: TimerWebSocket) {
             lastEventAt: curSession.lastEventAt || {},
             timerEvents: curSession.timerEvents || [],
             eventLayers: curSession.eventLayers || [],
+            textBoxes: curSession.textBoxes || [],
+            // per-socket, not per-user: the single box this client's ?box= resolves to (null for the dashboard,
+            // which reads the whole list above). the projection hands this to /text sources and nothing else.
+            textBox: ws.box ? findTextBox(curSession, ws.box) : null,
             connections: {
                 twitch: { channel: curSession.connections.twitch.channel, error: curSession.twitchError || "" },
                 streamlabs: { hasToken: !!curSession.connections.streamlabs.token, error: curSession.slError || "" },
@@ -246,15 +254,16 @@ export function startApi(){
         console.log("WebSocket server error:", err);
     });
 
-    // server-side error lines land in the dashboard terminal (page=settings) as red commandResult lines
-    bus.on("terminalLine", (id: number, message: string) => {
+    // server-side lines land in the dashboard terminal (page=settings) as commandResult lines — red for the
+    // errors this mostly carries, green for the successes worth showing (a mod's chat command landing)
+    bus.on("terminalLine", (id: number, message: string, ok: boolean) => {
         const clientsArr = Array.from(wss.clients);
         for (let i = 0; i < clientsArr.length; i++){
             const ws = clientsArr[i] as TimerWebSocket;
             if (id != ws.userId || ws.page !== "settings" || ws.readyState !== WebSocket.OPEN)
                 continue;
             try {
-                ws.send(JSON.stringify({ commandResult: { ok: false, message } }));
+                ws.send(JSON.stringify({ commandResult: { ok: !!ok, message } }));
             } catch (err) {
                 console.log("Failed to send a terminal line to a client:", err);
             }
@@ -350,6 +359,8 @@ export function startApi(){
         ws.page = urlParams.page as string; // which page this client is (settings/widget/events) — routes play commands
         // page=events only: which browser-source layer, so playEvent can pick out the right source(s)
         ws.layer = typeof urlParams.layer === "string" ? urlParams.layer.slice(0, 100) : "";
+        // page=text only: which text box this source shows
+        ws.box = typeof urlParams.box === "string" ? urlParams.box.slice(0, 100) : "";
 
         wsLogin(ws, accessToken).then(()=>{
             ws.isReady = true;
@@ -414,6 +425,14 @@ export function startApi(){
                     const parsed = parseCommand(typeof jData.command === "string" ? jData.command : "");
                     if (parsed.help){
                         ws.send(JSON.stringify({ commandResult: { ok: true, message: parsed.help } }));
+                        return;
+                    }
+                    if (parsed.text){
+                        // a text command changes no time, so it reports itself and skips the timer path entirely
+                        const res = setTextBoxText(curSession, parsed.text.box, parsed.text.text);
+                        ws.send(JSON.stringify({ commandResult: res }));
+                        if (res.ok)
+                            emitSync(id); // pushes the new words to that box's browser source(s)
                         return;
                     }
                     if (parsed.error || !parsed.event){
@@ -505,6 +524,18 @@ export function startApi(){
                 case "setEventLayers":
                     curSession.eventLayers = normalizeEventLayers(jData.layers);
                     break;
+                case "setTextBoxes":
+                    // the box list and how each one looks. the words are left alone — those only move through
+                    // setTextBoxText / !changetext, so this can't undo a mod's last change.
+                    curSession.textBoxes = mergeTextBoxes(curSession.textBoxes, jData.boxes);
+                    break;
+                case "setTextBoxText": {
+                    // the dashboard typing into a box, same path a chat command takes
+                    const res = setTextBoxText(curSession, jData.box, typeof jData.text === "string" ? jData.text : "");
+                    if (!res.ok)
+                        ws.send(JSON.stringify({ commandResult: res }));
+                    break;
+                }
                 case "setFwProductBonuses":
                     curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);
                     break;

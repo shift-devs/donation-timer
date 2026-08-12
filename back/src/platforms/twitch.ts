@@ -1,7 +1,8 @@
 import tmi from "tmi.js";
 import { TimerUserSession, TimerEvent } from "../types";
-import { emitSync, reportError } from "../bus";
-import { parseCommand } from "../commands";
+import { emitSync, emitTerminal, reportError } from "../bus";
+import { parseCommand, isTextCommand } from "../commands";
+import { setTextBoxText } from "../textBoxes";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -93,6 +94,22 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             return;
         if (filterMessage.charAt(0) !== "!") // only mod/broadcaster ! commands
             return;
+        if (isTextCommand(filterMessage.slice(1))){
+            // a text command's argument is prose meant for the screen, so it comes off the ORIGINAL message —
+            // the filter above lowercases and strips anything non-ascii, which is right for "twitch bits 100"
+            // and would mangle "Back in 5!" into something the mod didn't type. verb detection still uses the
+            // filtered copy, so "!ChangeText" works.
+            const raw = String(message || "").trim();
+            const parsed = parseCommand(raw.slice(raw.indexOf("!") + 1));
+            const res = parsed.text
+                ? setTextBoxText(session, parsed.text.box, parsed.text.text)
+                : { ok: false, message: parsed.error || "Invalid text command." };
+            // chat commands are invisible to the operator otherwise — a mistyped box name especially
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+            if (res.ok)
+                emitSync(session.userId); // pushes the new words to that box's browser source(s)
+            return;
+        }
         const command = chatToCommand(filterMessage.slice(1));
         if (!command)
             return;

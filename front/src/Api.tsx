@@ -84,6 +84,18 @@ export function setEventLayers(ws: WebSocket, layers: any) {
 	return 1;
 }
 
+// the box list and how each one looks. the server keeps the words that are on stream — see setTextBoxText.
+export function setTextBoxes(ws: WebSocket, boxes: any) {
+	send(ws, { event: "setTextBoxes", boxes: boxes });
+	return 1;
+}
+
+// what one box says. the same path a mod's !changetext takes, so the dashboard and chat can't disagree.
+export function setTextBoxText(ws: WebSocket, box: string, text: string) {
+	send(ws, { event: "setTextBoxText", box: box, text: text });
+	return 1;
+}
+
 export function testTimerEvent(ws: WebSocket, id: string) {
 	send(ws, { event: "testTimerEvent", id: id });
 	return 1;

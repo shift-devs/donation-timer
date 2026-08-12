@@ -70,6 +70,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: []
     },
+    // mod-editable /text browser sources: appearance plus the words currently on stream (see add-text-boxes)
+    textBoxes: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: []
+    },
     fwProductBonuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -194,6 +200,7 @@ export async function dbCreate(inObj: Object){
         connections: lvObj.connections,
         timerEvents: lvObj.timerEvents,
         eventLayers: lvObj.eventLayers,
+        textBoxes: lvObj.textBoxes,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -234,6 +241,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 connections: curSession.connections,
                 timerEvents: curSession.timerEvents,
                 eventLayers: curSession.eventLayers,
+                textBoxes: curSession.textBoxes,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,

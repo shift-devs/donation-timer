@@ -47,6 +47,8 @@ export interface TimerUserSession {
     timerEvents: any
     // named /events browser sources ({id,name}[]); an event's layerId picks one. "" = the default source.
     eventLayers: any
+    // mod-editable /text browser sources: one entry per source, carrying its look and its current words
+    textBoxes: any
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any
@@ -83,6 +85,8 @@ export interface TimerWebSocket extends WebSocket {
     page?: string
     // for page=events only: which browser-source layer this client is. "" = the default source.
     layer?: string
+    // for page=text only: which text box this source shows
+    box?: string
     isAlive: boolean
     isReady: boolean
     forceSyncInterval: NodeJS.Timeout | number

@@ -10,6 +10,7 @@ import Connections from "./Settings/Connections";
 import Events from "./Settings/Events";
 import FourthwallProducts from "./Settings/FourthwallProducts";
 import SubCounts from "./Settings/SubCounts";
+import TextBoxes from "./Settings/TextBoxes";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -185,6 +186,7 @@ const Settings: React.FC = () => {
 						<Tab>Change Time</Tab>
 						<Tab>Terminal</Tab>
 						<Tab>Subcounts</Tab>
+						<Tab>Text Boxes</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
@@ -217,6 +219,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<SubCounts ws={ws} token={token} settings={settings} />
+						</TabPanel>
+						<TabPanel>
+							<TextBoxes ws={ws} token={token} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />

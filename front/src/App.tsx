@@ -16,6 +16,7 @@ const FwActivity = lazy(() => import("./pages/FwActivity"));
 const SubCount = lazy(() => import("./pages/SubCount"));
 const SubProgress = lazy(() => import("./pages/SubProgress"));
 const FwProgress = lazy(() => import("./pages/FwProgress"));
+const TextBox = lazy(() => import("./pages/TextBox"));
 
 const App: React.FC = () => (
 	<Router>
@@ -35,6 +36,7 @@ const App: React.FC = () => (
 					<Route path='/subcount' element={<SubCount />} />
 					<Route path='/subprogress' element={<SubProgress />} />
 					<Route path='/fwprogress' element={<FwProgress />} />
+					<Route path='/text' element={<TextBox />} />
 					<Route path='*' element={<Navigate to='/' replace />} />
 				</Routes>
 			</Suspense>

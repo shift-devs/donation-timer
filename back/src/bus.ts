@@ -27,9 +27,10 @@ export function emitFwActivity(userId: number, entry: any) {
     bus.emit("fwActivityEntry", userId, entry);
 }
 
-// a line for this user's dashboard terminal. api.ts routes it to page=settings clients only.
-export function emitTerminal(userId: number, message: string) {
-    bus.emit("terminalLine", userId, message);
+// a line for this user's dashboard terminal. api.ts routes it to page=settings clients only. ok=true prints it
+// green, for the things that go right and still deserve to be visible (a mod's chat command landing).
+export function emitTerminal(userId: number, message: string, ok = false) {
+    bus.emit("terminalLine", userId, message, ok);
 }
 
 // the one way to report a recovered error: full detail to the server console, a short red line to the
