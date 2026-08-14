@@ -82,15 +82,17 @@ const Firesale: React.FC = () => {
 	const token = params.get("token");
 
 	const [run, setRun] = useState<any>(null);
-	// the nonce of the run whose announcer has already been fired, so it plays exactly once per giveaway no
-	// matter how many state pushes arrive (one lands on every !enter)
 	// which runs have already had their announcer fired, so it plays exactly once per giveaway no matter how
 	// many state pushes arrive (one lands on every !enter)
 	const announced = useRef<{ [runId: string]: boolean }>({});
-	const [announcing, setAnnouncing] = useState(0);
+	// which giveaway each one-shot belongs to. NOT a counter: these double as the mount condition for their
+	// <audio autoPlay>, and a bare "have I ever fired this" flag stays truthy after the overlay goes idle — so
+	// the element remounted, and replayed, the moment the next giveaway started. that is exactly how the win
+	// sound ended up firing at the START of a firesale. tied to a run and cleared on idle, it can't.
+	const [announceCue, setAnnounceCue] = useState("");
 	// same, for the win sound: which runs have already had theirs played
 	const won = useRef<{ [runId: string]: boolean }>({});
-	const [winning, setWinning] = useState(0);
+	const [winCue, setWinCue] = useState("");
 	// re-rendered once a second purely to move the countdown on; the bouncing is done outside react entirely
 	const [, setTick] = useState(0);
 
@@ -321,7 +323,7 @@ const Firesale: React.FC = () => {
 				continue;
 			announced.current[r.id] = true;
 			if (r.startedAt && Date.now() - r.startedAt < ANNOUNCE_WINDOW)
-				setAnnouncing((n) => n + 1);
+				setAnnounceCue(`${run.nonce}:${r.id}`);
 		}
 		// forget ids that have left, so the map can't grow across a long stream
 		for (const id of Object.keys(announced.current))
@@ -340,13 +342,24 @@ const Firesale: React.FC = () => {
 				continue;
 			won.current[r.id] = true;
 			if (r.wonAt && Date.now() - r.wonAt < ANNOUNCE_WINDOW)
-				setWinning((n) => n + 1);
+				setWinCue(`${run.nonce}:${r.id}`);
 		}
 		for (const id of Object.keys(won.current))
 			if (!runs.some((r) => r.id === id))
 				delete won.current[id];
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [active, runs.map((r) => `${r.id}:${r.phase}`).join(","), cfg.winSound]);
+
+	// going idle has to FORGET the one-shots, not just stop them. the cues above are what mount their <audio>,
+	// so anything left set here would fire again on the next giveaway.
+	useEffect(() => {
+		if (active)
+			return;
+		setAnnounceCue("");
+		setWinCue("");
+		announced.current = {};
+		won.current = {};
+	}, [active]);
 
 	// the entry countdown. only ticks while entries are open AND the clock is actually on screen — with it
 	// turned off there's nothing on the page that changes per second, so there's nothing to re-render for.
@@ -424,9 +437,9 @@ const Firesale: React.FC = () => {
 			{/* the win sound, once per giveaway that resolves. same two guards as the announcer: keyed on a
 			    counter the effect bumps, so entrant pushes can't replay it, and gated on wonAt being recent so a
 			    source loading while a winner is already on screen stays quiet. */}
-			{cfg.winSound && winning > 0 && (
+			{cfg.winSound && winCue && (
 				<audio
-					key={`w${winning}`}
+					key={`w${winCue}`}
 					src={`/media/${encodeURIComponent(cfg.winSound)}`}
 					autoPlay
 					ref={(el) => { if (el) el.volume = cfg.winVolume; }}
@@ -435,9 +448,9 @@ const Firesale: React.FC = () => {
 
 			{/* the one-shot announcer, over the top of the bed. mounted only once the effect above says this
 			    run has just started, and keyed on that run so it can never replay for the same giveaway. */}
-			{cfg.announcer && announcing > 0 && (
+			{cfg.announcer && announceCue && (
 				<audio
-					key={`a${announcing}`}
+					key={`a${announceCue}`}
 					src={`/media/${encodeURIComponent(cfg.announcer)}`}
 					autoPlay
 					ref={(el) => { if (el) el.volume = cfg.announcerVolume; }}

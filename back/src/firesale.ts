@@ -118,10 +118,38 @@ export function firesaleSettings(session: TimerUserSession): any {
 // parsing fourthwall's two announcements
 // ---------------------------------------------------------------------------
 
+// fourthwall html-escapes its own product names — its api returns "collector&#39;s items" — and the giveaway
+// announcement carries that through verbatim, so an apostrophe would land on stream as a literal &#39;.
+// this must run BEFORE the regexes below, not just on the text we display: the winner announcement writes the
+// possessive as "PSkaller&#39;s gift of", which the 's? in the winner pattern would never match, and the winner
+// would silently fail to route to its giveaway.
+const NAMED_ENTITIES: { [name: string]: string } = {
+    amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: "\u00a0",
+};
+
+export function decodeEntities(text: string): string {
+    return String(text || "").replace(/&(#[0-9]+|#x[0-9a-f]+|[a-z]+);/gi, (whole, body: string) => {
+        if (body[0] === "#"){
+            const hex = body[1] === "x" || body[1] === "X";
+            const n = parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10);
+            // leave anything out of range as it was rather than throwing on fromCodePoint
+            if (!Number.isFinite(n) || n < 1 || n > 0x10ffff)
+                return whole;
+            try {
+                return String.fromCodePoint(n);
+            } catch {
+                return whole;
+            }
+        }
+        const named = NAMED_ENTITIES[body.toLowerCase()];
+        return named === undefined ? whole : named;
+    });
+}
+
 // "NEW GIVEAWAY - !ENTER TO WIN. LaCroixFans gifted a 3 Foil Packs — 10 Years Running to the chat.
 //  Type !ENTER in the next 180 seconds for a chance to win. quickster.gg/products/foils"
 export function parseGiveawayStart(text: string): { seconds: number, prize: string, gifter: string, url: string } | null {
-    const s = String(text || "");
+    const s = decodeEntities(text);
     // both halves are required: "new giveaway" alone would also match a streamer talking about one
     if (!/new\s+giveaway/i.test(s) || !/!\s*enter/i.test(s))
         return null;
@@ -143,7 +171,7 @@ export function parseGiveawayStart(text: string): { seconds: number, prize: stri
 // the gifter and prize come back too: with several giveaways open they're what says WHICH one this winner is
 // for. a gifter whose name ends in s is written "LaCroixFans'" with no trailing s, hence 's?.
 export function parseGiveawayWinner(text: string): { winner: string, gifter: string, prize: string } | null {
-    const s = String(text || "");
+    const s = decodeEntities(text);
     if (!/giveaway\s+winner/i.test(s))
         return null;
     const full = s.match(/@([a-zA-Z0-9_]{2,25})\s+won\s+(.+?)'s?\s+gift\s+of\s+(?:an?\s+)?(.+?)\s*[!.]?\s*(?:https?:\/\/|$)/i);
