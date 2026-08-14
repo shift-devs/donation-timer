@@ -119,8 +119,16 @@ export function endFiresaleEntries(ws: WebSocket) {
 	return 1;
 }
 
-export function setFiresaleWinner(ws: WebSocket, name: string) {
-	send(ws, { event: "setFiresaleWinner", name: name });
+// runId names which giveaway, for when several are on screen at once; omit it and the server picks the one
+// closest to needing a winner
+export function setFiresaleWinner(ws: WebSocket, name: string, runId?: string) {
+	send(ws, { event: "setFiresaleWinner", name: name, runId: runId || "" });
+	return 1;
+}
+
+// take one giveaway off the overlay, leaving any others running
+export function endFiresaleRun(ws: WebSocket, runId: string) {
+	send(ws, { event: "endFiresaleRun", runId: runId });
 	return 1;
 }
 

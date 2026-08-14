@@ -24,6 +24,7 @@ import {
 	stopFiresale,
 	endFiresaleEntries,
 	setFiresaleWinner,
+	endFiresaleRun,
 } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
@@ -52,6 +53,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 	const pendingRef = useRef(0);
 	const timers = useRef<{ [key: string]: any }>({});
 	const [manualWinner, setManualWinner] = useState("");
+	const [winnerRun, setWinnerRun] = useState("");
 	const [testSec, setTestSec] = useState(60);
 	// the live run carries a deadline, so the countdown here has to tick on its own
 	const [, setTick] = useState(0);
@@ -74,14 +76,16 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 			clearTimeout(timers.current[key]);
 	}, []);
 
-	const phase = (run && run.phase) || "idle";
+	// several giveaways can be open at once, so the payload carries a list
+	const runs: any[] = run && Array.isArray(run.runs) ? run.runs : [];
+	const anyRunning = runs.some((r) => r.phase === "running");
 
 	useEffect(() => {
-		if (phase !== "running")
+		if (!anyRunning)
 			return;
 		const id = setInterval(() => setTick((n) => n + 1), 500);
 		return () => clearInterval(id);
-	}, [phase]);
+	}, [anyRunning]);
 
 	const later = (key: string, fn: () => void, delay: number) => {
 		clearTimeout(timers.current[key]);
@@ -110,10 +114,9 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 	};
 
 	const active = !!(run && run.active);
-	const left = run && run.endsAt ? run.endsAt - Date.now() : 0;
 	const entrants: string[] = run && Array.isArray(run.names) ? run.names : [];
 
-	const phaseBadge = phase === "running"
+	const badgeFor = (phase: string) => phase === "running"
 		? <Badge colorScheme="red">TAKING ENTRIES</Badge>
 		: phase === "drawing"
 			? <Badge colorScheme="yellow">DRAWING</Badge>
@@ -140,24 +143,35 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 				<Button size="sm" onClick={copyUrl}>Copy</Button>
 			</Flex>
 
-			{/* ---- the run happening right now ---- */}
+			{/* ---- the giveaways happening right now ---- */}
 			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 				<Flex align="center" gap={3} mb={2} wrap="wrap">
 					<Text fontWeight="bold">Live</Text>
-					{phaseBadge}
-					{phase === "running" && <Text fontSize="sm" color="gray.600">{countdown(left)} left</Text>}
-					{active && <Text fontSize="sm" color="gray.600">{run.total} entered</Text>}
-					{phase === "winner" && <Text fontSize="sm"><b>{run.winner}</b> won</Text>}
+					{!active && <Badge>IDLE</Badge>}
+					{runs.length > 1 && <Badge colorScheme="purple">{runs.length} AT ONCE</Badge>}
+					{active && <Text fontSize="sm" color="gray.600">{run.total} people entered in total</Text>}
 				</Flex>
 
-				{active && run.prize && (
-					<Text fontSize="sm" color="gray.600" mb={2}>
-						{run.prize}{run.gifter ? ` — from ${run.gifter}` : ""}
-					</Text>
-				)}
+				{/* one row per giveaway. each carries its OWN count and deadline, because a viewer who entered
+				    before a later giveaway opened is not in that one. */}
+				{runs.map((r) => (
+					<Flex key={r.id} align="center" gap={2} mb={2} wrap="wrap" fontSize="sm">
+						{badgeFor(r.phase)}
+						<Text flex="1" minW="180px">
+							<b>{r.prize || "(no prize named)"}</b>
+							{r.gifter ? ` — ${r.gifter}` : ""}
+						</Text>
+						<Text color="gray.600">{r.total} in</Text>
+						{r.phase === "running" && r.endsAt && (
+							<Text color="gray.600">{countdown(r.endsAt - Date.now())} left</Text>
+						)}
+						{r.phase === "winner" && <Text><b>{r.winner}</b> won</Text>}
+						<Button size="xs" variant="ghost" onClick={() => endFiresaleRun(ws, r.id)}>Clear</Button>
+					</Flex>
+				))}
 
 				{active && entrants.length > 0 && (
-					<Wrap spacing={1} mb={3}>
+					<Wrap spacing={1} mb={2} mt={2}>
 						{entrants.map((n) => (
 							<WrapItem key={n}><Badge variant="subtle">{n}</Badge></WrapItem>
 						))}
@@ -183,26 +197,33 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					</NumberInput>
 					<Text fontSize="sm" color="gray.500">sec</Text>
 					<Button size="sm" colorScheme="red" onClick={() => startFiresale(ws, testSec, "", "")}>
-						{active ? "Restart" : "Start"}
+						{active ? "Add another" : "Start"}
 					</Button>
-					<Button size="sm" isDisabled={phase !== "running"} onClick={() => endFiresaleEntries(ws)}>
+					<Button size="sm" isDisabled={!anyRunning} onClick={() => endFiresaleEntries(ws)}>
 						Close entries
 					</Button>
-					<Button size="sm" isDisabled={!active} onClick={() => stopFiresale(ws)}>Clear</Button>
+					<Button size="sm" isDisabled={!active} onClick={() => stopFiresale(ws)}>Clear all</Button>
 				</HStack>
 
 				<HStack spacing={2} wrap="wrap">
 					<Input
 						size="sm"
-						w="200px"
+						w="180px"
 						placeholder="winner's name"
 						value={manualWinner}
 						onChange={(e) => setManualWinner(e.currentTarget.value)}
 					/>
+					{/* with more than one giveaway open, a bare name is ambiguous — say which prize it won */}
+					{runs.length > 1 && (
+						<Select size="sm" w="220px" value={winnerRun} onChange={(e) => setWinnerRun(e.currentTarget.value)}>
+							<option value="">(the one drawing)</option>
+							{runs.map((r) => <option key={r.id} value={r.id}>{r.prize || r.id}</option>)}
+						</Select>
+					)}
 					<Button
 						size="sm"
 						isDisabled={!active || !manualWinner.trim()}
-						onClick={() => { setFiresaleWinner(ws, manualWinner.trim()); setManualWinner(""); }}
+						onClick={() => { setFiresaleWinner(ws, manualWinner.trim(), winnerRun); setManualWinner(""); }}
 					>
 						Set winner
 					</Button>
@@ -299,6 +320,32 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
 					Played once over the top of the music when a firesale starts. A source that loads into a giveaway
 					already in progress stays quiet and just joins the music.
+				</Text>
+
+				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
+					<Text color="gray.500" w="150px">Win sound</Text>
+					<Select size="sm" w="280px" value={draft.winSound} onChange={(e) => patch({ winSound: e.currentTarget.value })}>
+						<option value="">(none)</option>
+						{MUSIC.map((f) => <option key={f} value={f}>{f}</option>)}
+						{draft.winSound && !MUSIC.includes(draft.winSound) && <option value={draft.winSound}>{draft.winSound} (missing)</option>}
+					</Select>
+					<Input
+						type="range"
+						min={0}
+						max={1}
+						step={0.05}
+						w="130px"
+						p={0}
+						cursor="pointer"
+						value={draft.winVolume}
+						onChange={(e) => patch({ winVolume: Number(e.currentTarget.value) }, "winVolume")}
+					/>
+					<Text color="gray.500" w="46px">{Math.round(draft.winVolume * 100)}%</Text>
+				</Flex>
+				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+					Played when a winner goes up, and the looping music <b>stops</b> at that moment so it lands in the
+					clear. With several giveaways open the music keeps going until the last one resolves — cutting it
+					while chat is still entering another would leave the overlay silent mid-firesale.
 				</Text>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
@@ -409,6 +456,14 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 				The winner shown is always the one <b>Fourthwall</b> announces, so the overlay can never disagree with
 				chat or with who gets the redeem link. The random draw above is only the fallback for an announcement
 				that never arrives.
+				<br />
+				<b>Several giveaways at once</b> are handled: each keeps its own entrants, deadline and winner, and the
+				overlay lists them together over one shared field of names. Since <Code fontSize="xs">!{draft.command}</Code>{" "}
+				can&apos;t say which giveaway a viewer means, one entry joins <i>every</i> giveaway open at that moment —
+				so someone who entered before a later one started isn&apos;t in it, which is why the counts differ.
+				Winners are matched back to the right giveaway by the gifter and prize in Fourthwall&apos;s announcement;
+				one that matches nothing waiting is reported in the Terminal rather than pinned to the wrong giveaway.
+				Past four at once, the oldest is dropped to make room.
 				<br />
 				From the Terminal (or chat, as a mod):{" "}
 				<Code fontSize="xs">firesale start 180</Code>, <Code fontSize="xs">firesale stop</Code>,{" "}

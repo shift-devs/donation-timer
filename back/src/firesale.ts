@@ -1,12 +1,20 @@
-// firesale: the on-stream half of a fourthwall chat giveaway. fourthwall announces the giveaway in twitch chat,
+// firesale: the on-stream half of a fourthwall chat giveaway. fourthwall announces a giveaway in twitch chat,
 // this starts a run on the /firesale browser source — looping music, FIRESALE across the middle, and every
 // chatter who types !enter bouncing around the frame like a dvd logo. fourthwall announces the winner in chat
-// when it's over and that name goes up in the middle for a bit.
+// when it's over and that name goes up in the middle.
 //
-// the run is LIVE state, not config: it lives on the session and is never persisted (dbUpdate is field-explicit,
-// so nothing here reaches the database). a restart mid-giveaway loses the entrants, which is right — the source
-// comes back idle rather than resurrecting a giveaway that finished while the process was down.
-// firesaleSettings IS persisted, and this file owns validating it.
+// SEVERAL GIVEAWAYS CAN BE OPEN AT ONCE, so this holds a LIST of runs, not one. the important consequences:
+//   * !enter carries no way to name a giveaway, so one !enter enters the chatter into every run currently
+//     taking entries — but only those. someone who typed before a later giveaway opened is not in it, which is
+//     why two overlapping runs have similar-but-different entrant counts.
+//   * fourthwall's winner announcement names the GIFTER and the PRIZE ("@x won LaCroixFans' gift of a 3 Foil
+//     Packs — 10 Years Running"), and those match the start announcement's gifter and prize exactly. that pair
+//     is the join key, so a winner is routed to the run it actually belongs to rather than guessed at.
+//
+// the runs are LIVE state, not config: they live on the session and are never persisted (dbUpdate is
+// field-explicit, so nothing here reaches the database). a restart mid-giveaway loses the entrants, which is
+// right — the source comes back idle rather than resurrecting a giveaway that finished while the process was
+// down. firesaleSettings IS persisted, and this file owns validating it.
 //
 // the winner is always fourthwall's, never ours: it's the name that gets the redeem link, so an overlay picking
 // its own would contradict chat. we only draw one ourselves if the announcement never turns up (drawGraceSec).
@@ -20,6 +28,7 @@ const MAX_URL = 300;
 // every entrant is kept for the draw, but a giveaway that pulls thousands must not grow without bound
 const MAX_ENTRANTS = 5000;
 const MAX_BOUNCERS = 200;     // ceiling on what the source is asked to animate at once
+const MAX_RUNS = 4;           // concurrent giveaways; past this the oldest is dropped to make room
 const PUSH_COALESCE = 250;    // ms; a busy !enter burst becomes ~4 pushes a second, not one per chatter
 
 export const DEFAULT_FIRESALE = {
@@ -38,6 +47,10 @@ export const DEFAULT_FIRESALE = {
     // music loop but must not blast the announcer at whatever moment OBS happened to load it.
     announcer: "firesale announcer.mp3",
     announcerVolume: 1,
+    // played once when a giveaway's winner goes up. the looping bed stops at the same moment (see below), so
+    // this lands in the clear rather than fighting the music.
+    winSound: "congratulations-you-won.mp3",
+    winVolume: 1,
     // used when the announcement doesn't say how long ("in the next N seconds")
     fallbackSec: 180,
     // whether the entry countdown is shown ON STREAM. off by default: the announcement's "180 seconds" is what
@@ -47,7 +60,7 @@ export const DEFAULT_FIRESALE = {
     showCountdown: false,
     // how long to hold on DRAWING… waiting for fourthwall's winner announcement before drawing one ourselves
     drawGraceSec: 60,
-    // how long the winner stays up before the source goes idle
+    // how long a winner stays up before that run leaves the screen
     winnerHoldSec: 15,
     // how many names bounce at once; the rest are still entered and still counted. the source shrinks the type
     // to suit, so raising this packs the frame rather than overflowing it.
@@ -84,6 +97,8 @@ export function normalizeFiresale(raw: any): any {
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         announcer: typeof r.announcer === "string" ? r.announcer.slice(0, 200) : d.announcer,
         announcerVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.announcerVolume)) ? Number(r.announcerVolume) : d.announcerVolume)),
+        winSound: typeof r.winSound === "string" ? r.winSound.slice(0, 200) : d.winSound,
+        winVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.winVolume)) ? Number(r.winVolume) : d.winVolume)),
         fallbackSec: numIn(r.fallbackSec, 5, 3600, d.fallbackSec),
         showCountdown: r.showCountdown === undefined ? d.showCountdown : !!r.showCountdown,
         drawGraceSec: numIn(r.drawGraceSec, 0, 900, d.drawGraceSec),
@@ -123,15 +138,24 @@ export function parseGiveawayStart(text: string): { seconds: number, prize: stri
     };
 }
 
-// "GIVEAWAY WINNER ANNOUNCEMENT! @thewondermentmoogle won LaCroixFans' gift of a 3 Foil Packs …"
-export function parseGiveawayWinner(text: string): string | null {
+// "GIVEAWAY WINNER ANNOUNCEMENT! @thewondermentmoogle won LaCroixFans' gift of a 3 Foil Packs — 10 Years
+//  Running! https://quickster.gg/redeem to redeem."
+// the gifter and prize come back too: with several giveaways open they're what says WHICH one this winner is
+// for. a gifter whose name ends in s is written "LaCroixFans'" with no trailing s, hence 's?.
+export function parseGiveawayWinner(text: string): { winner: string, gifter: string, prize: string } | null {
     const s = String(text || "");
     if (!/giveaway\s+winner/i.test(s))
         return null;
-    // anchored on " won" so an @mention inside the prize name can't be mistaken for the winner; the bare
-    // fallback covers a wording change that keeps the @name but drops the verb
-    const won = s.match(/@([a-zA-Z0-9_]{2,25})\s+won\b/i) || s.match(/@([a-zA-Z0-9_]{2,25})/);
-    return won ? won[1] : null;
+    const full = s.match(/@([a-zA-Z0-9_]{2,25})\s+won\s+(.+?)'s?\s+gift\s+of\s+(?:an?\s+)?(.+?)\s*[!.]?\s*(?:https?:\/\/|$)/i);
+    if (full)
+        return {
+            winner: full[1],
+            gifter: full[2].trim().slice(0, MAX_NAME),
+            prize: full[3].trim().slice(0, MAX_PRIZE),
+        };
+    // wording changed but the @name survived — still worth reporting, just without anything to match on
+    const bare = s.match(/@([a-zA-Z0-9_]{2,25})\s+won\b/i) || s.match(/@([a-zA-Z0-9_]{2,25})/);
+    return bare ? { winner: bare[1], gifter: "", prize: "" } : null;
 }
 
 // the trailing product/redeem link. takes the last domain-looking token so a url anywhere earlier in the
@@ -142,72 +166,105 @@ function lastUrl(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// the run
+// the runs
 // ---------------------------------------------------------------------------
 
-// phase timers, keyed by user. deliberately not on the session: a Timeout is not state anyone should be able
-// to serialize, sync or copy, and keeping them here means clearing a run can never leave one behind.
-const timers: { [userId: number]: { end?: any, grace?: any, hold?: any, push?: any } } = {};
+// phase timers, per run, keyed by user. deliberately not on the session: a Timeout is not state anyone should
+// be able to serialize, sync or copy, and keeping them here means clearing a run can never leave one behind.
+const timers: { [userId: number]: { push?: any, runs: { [runId: string]: { end?: any, grace?: any, hold?: any } } } } = {};
 
 function slots(userId: number){
-    return timers[userId] || (timers[userId] = {});
+    return timers[userId] || (timers[userId] = { runs: {} });
 }
 
-function clearTimers(userId: number){
+function runSlots(userId: number, runId: string){
     const t = slots(userId);
+    return t.runs[runId] || (t.runs[runId] = {});
+}
+
+function clearRunTimers(userId: number, runId: string){
+    const t = slots(userId).runs[runId];
+    if (!t)
+        return;
     clearTimeout(t.end);
     clearTimeout(t.grace);
     clearTimeout(t.hold);
-    t.end = t.grace = t.hold = undefined;
+    delete slots(userId).runs[runId];
 }
 
-function blank(){
-    return {
-        active: false,
-        phase: "idle" as string,
-        nonce: 0,
-        startedAt: 0,
-        endsAt: 0,
-        prize: "",
-        gifter: "",
-        url: "",
-        winner: "",
-        // display names in entry order; `seen` dedupes on the login so one chatter can't fill the screen
-        entrants: [] as string[],
-        seen: new Set<string>(),
-    };
+function clearAllTimers(userId: number){
+    const t = slots(userId);
+    for (const id of Object.keys(t.runs))
+        clearRunTimers(userId, id);
 }
 
 export function getFiresale(session: TimerUserSession): any {
-    return session.firesale || (session.firesale = blank());
+    if (!session.firesale || !Array.isArray(session.firesale.runs))
+        session.firesale = { nonce: 0, seq: 0, runs: [] };
+    return session.firesale;
 }
 
-// what the browser source is handed. only the tail of the entrant list travels: the source animates the most
-// recent maxBouncers names and shows `total` for everyone else, so a giveaway that pulls hundreds stays
-// readable (and cheap to animate) instead of turning the frame into confetti.
+export function firesaleRuns(session: TimerUserSession): any[] {
+    return getFiresale(session).runs;
+}
+
+// runs still taking entries — the ones an !enter joins
+function runningRuns(session: TimerUserSession): any[] {
+    return firesaleRuns(session).filter((r) => r.phase === "running");
+}
+
+// ---------------------------------------------------------------------------
+// what the browser source is handed
+// ---------------------------------------------------------------------------
+
+// the bouncing field is the UNION of everyone entered in any run that's still open, most recent first, capped
+// at maxBouncers. the per-run counts travel separately in `runs` — those are what differ between two
+// overlapping giveaways, and what the overlay lists next to each prize.
 export function firesaleView(session: TimerUserSession): any {
     const f = getFiresale(session);
     const cfg = firesaleSettings(session);
+    const runs = f.runs;
+
+    // union in entry order, deduped. a name entered in two runs shouldn't bounce twice.
+    const seen = new Set<string>();
+    const union: string[] = [];
+    for (const r of runs)
+        for (const n of r.entrants){
+            const k = n.toLowerCase();
+            if (!seen.has(k)){
+                seen.add(k);
+                union.push(n);
+            }
+        }
+
     return {
-        active: f.active,
-        phase: f.phase,
+        active: runs.length > 0,
         nonce: f.nonce,
-        // the source needs this to tell "this giveaway just started" from "i connected into one already
-        // running", which is what decides whether the announcer fires
-        startedAt: f.startedAt,
-        endsAt: f.endsAt,
-        prize: f.prize,
-        gifter: f.gifter,
-        url: f.url,
-        winner: f.winner,
-        total: f.entrants.length,
-        names: f.entrants.slice(-cfg.maxBouncers),
+        names: union.slice(-cfg.maxBouncers),
+        total: union.length,
+        // one entry per concurrent giveaway, oldest first, each with its own deadline, count and winner
+        runs: runs.map((r: any) => ({
+            id: r.id,
+            phase: r.phase,
+            startedAt: r.startedAt,
+            endsAt: r.endsAt,
+            prize: r.prize,
+            gifter: r.gifter,
+            url: r.url,
+            winner: r.winner,
+            // when the winner went up. the source needs it to tell "this just resolved" from "i reconnected
+            // while a winner was already on screen", so a reload doesn't replay the win sound.
+            wonAt: r.wonAt,
+            total: r.entrants.length,
+        })),
         command: cfg.command,
         showCountdown: cfg.showCountdown,
         music: cfg.music,
         volume: cfg.volume,
         announcer: cfg.announcer,
         announcerVolume: cfg.announcerVolume,
+        winSound: cfg.winSound,
+        winVolume: cfg.winVolume,
         bgColor: cfg.bgColor,
         titleColor: cfg.titleColor,
         nameColor: cfg.nameColor,
@@ -234,149 +291,215 @@ function pushSoon(session: TimerUserSession){
     }, PUSH_COALESCE);
 }
 
-export function startFiresale(session: TimerUserSession, opts: { seconds?: number, prize?: string, gifter?: string, url?: string } = {}){
-    const cfg = firesaleSettings(session);
-    const prev = getFiresale(session);
-    clearTimers(session.userId);
-    const seconds = numIn(opts.seconds, 5, 3600, cfg.fallbackSec);
-    const f = blank();
-    // a fresh nonce every run, carried past the old one so a source that missed the end of the last firesale
-    // still sees this as a new one and resets its bouncers
-    f.nonce = (prev.nonce || 0) + 1;
-    f.active = true;
-    f.phase = "running";
-    f.startedAt = Date.now();
-    f.endsAt = f.startedAt + seconds * 1000;
-    f.prize = String(opts.prize || "").slice(0, MAX_PRIZE);
-    f.gifter = String(opts.gifter || "").slice(0, MAX_NAME);
-    f.url = String(opts.url || "").slice(0, MAX_URL);
-    session.firesale = f;
+// ---------------------------------------------------------------------------
+// starting / ending a run
+// ---------------------------------------------------------------------------
 
-    slots(session.userId).end = setTimeout(() => {
+// a giveaway is identified by its gifter+prize while it's open, so a repeated announcement (twitch can deliver
+// the same one twice, e.g. on a reconnect) doesn't open a second run for the same giveaway.
+function sameGiveaway(r: any, gifter: string, prize: string): boolean {
+    return r.prize === prize && r.gifter === gifter;
+}
+
+export function startFiresale(session: TimerUserSession, opts: { seconds?: number, prize?: string, gifter?: string, url?: string } = {}): any {
+    const cfg = firesaleSettings(session);
+    const f = getFiresale(session);
+    const seconds = numIn(opts.seconds, 5, 3600, cfg.fallbackSec);
+    const prize = String(opts.prize || "").slice(0, MAX_PRIZE);
+    const gifter = String(opts.gifter || "").slice(0, MAX_NAME);
+
+    // at the cap, drop the oldest to make room — better to lose the one closest to finishing than to ignore a
+    // giveaway that's actively taking entries
+    if (f.runs.length >= MAX_RUNS){
+        const dropped = f.runs.shift();
+        if (dropped){
+            clearRunTimers(session.userId, dropped.id);
+            emitTerminal(session.userId, `FIRESALE — ${MAX_RUNS} giveaways already on screen, dropped the oldest (${dropped.prize || dropped.id}).`);
+        }
+    }
+
+    f.seq = (f.seq || 0) + 1;
+    const run = {
+        id: `r${f.seq}`,
+        phase: "running",
+        startedAt: Date.now(),
+        endsAt: Date.now() + seconds * 1000,
+        prize,
+        gifter,
+        url: String(opts.url || "").slice(0, MAX_URL),
+        winner: "",
+        wonAt: 0,
+        // display names in entry order; `seen` dedupes on the login so one chatter can't enter twice
+        entrants: [] as string[],
+        seen: new Set<string>(),
+    };
+    // the music is one bed for the whole batch, so the nonce (which restarts it) only moves when the overlay
+    // goes from empty to busy — not every time another giveaway joins one already on screen
+    if (!f.runs.length)
+        f.nonce = (f.nonce || 0) + 1;
+    f.runs.push(run);
+
+    runSlots(session.userId, run.id).end = setTimeout(() => {
         try {
-            beginDraw(session);
+            beginDraw(session, run.id);
         } catch (err) {
-            reportError(session.userId, "ending the firesale entry window", err);
+            reportError(session.userId, "ending a firesale entry window", err);
         }
     }, seconds * 1000);
 
-    emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${f.prize ? ` for ${f.prize}` : ""}`, true);
+    emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);
     pushFiresale(session);
+    return run;
 }
 
-// entry window closed. hold on DRAWING… and wait for fourthwall to announce its winner, because that's the
-// name that actually gets the prize. only if the announcement never comes do we pick one ourselves.
-export function beginDraw(session: TimerUserSession){
-    const f = getFiresale(session);
-    if (!f.active || f.phase !== "running")
+// entry window closed for one run. hold it on DRAWING… and wait for fourthwall to announce its winner, because
+// that's the name that actually gets the prize. only if the announcement never comes do we pick one ourselves.
+export function beginDraw(session: TimerUserSession, runId: string){
+    const run = firesaleRuns(session).find((r) => r.id === runId);
+    if (!run || run.phase !== "running")
         return;
     const cfg = firesaleSettings(session);
-    clearTimers(session.userId);
-    f.phase = "drawing";
+    clearRunTimers(session.userId, run.id);
+    run.phase = "drawing";
     pushFiresale(session);
 
-    slots(session.userId).grace = setTimeout(() => {
+    runSlots(session.userId, run.id).grace = setTimeout(() => {
         try {
-            const cur = getFiresale(session);
-            if (!cur.active || cur.phase !== "drawing")
+            const cur = firesaleRuns(session).find((r) => r.id === runId);
+            if (!cur || cur.phase !== "drawing")
                 return;
             if (!cur.entrants.length){
-                emitTerminal(session.userId, `FIRESALE ended — nobody entered.`);
-                stopFiresale(session);
+                emitTerminal(session.userId, `FIRESALE ended — nobody entered${cur.prize ? ` for ${cur.prize}` : ""}.`);
+                endRun(session, cur.id);
                 return;
             }
             const pick = cur.entrants[Math.floor(Math.random() * cur.entrants.length)];
-            emitTerminal(session.userId, `FIRESALE — no winner announcement from Fourthwall, drew ${pick} locally.`);
-            declareFiresaleWinner(session, pick);
+            emitTerminal(session.userId, `FIRESALE — no winner announcement from Fourthwall${cur.prize ? ` for ${cur.prize}` : ""}, drew ${pick} locally.`);
+            declareFiresaleWinner(session, pick, cur.id);
         } catch (err) {
             reportError(session.userId, "drawing a firesale winner", err);
         }
     }, cfg.drawGraceSec * 1000);
 }
 
-export function addFiresaleEntry(session: TimerUserSession, login: string, displayName: string): boolean {
-    const f = getFiresale(session);
-    if (!f.active || f.phase !== "running")
-        return false;
+// one !enter joins every run still taking entries. returns how many it was added to (0 = nothing open, or the
+// chatter is already in all of them).
+export function addFiresaleEntry(session: TimerUserSession, login: string, displayName: string): number {
     const key = String(login || "").toLowerCase().trim();
-    if (!key || f.seen.has(key))
-        return false;
-    if (f.entrants.length >= MAX_ENTRANTS)
-        return false;
-    f.seen.add(key);
-    f.entrants.push(String(displayName || login).slice(0, MAX_NAME));
-    pushSoon(session);
-    return true;
+    if (!key)
+        return 0;
+    let added = 0;
+    for (const run of runningRuns(session)){
+        if (run.seen.has(key) || run.entrants.length >= MAX_ENTRANTS)
+            continue;
+        run.seen.add(key);
+        run.entrants.push(String(displayName || login).slice(0, MAX_NAME));
+        added++;
+    }
+    if (added)
+        pushSoon(session);
+    return added;
 }
 
-// the winner goes up in the middle and the run ends after winnerHoldSec. accepted from any phase of a live run:
-// fourthwall's announcement is the authority, so if it lands early (clock drift, a giveaway cut short) it wins
-// over our own countdown rather than being ignored.
-export function declareFiresaleWinner(session: TimerUserSession, name: string){
-    const f = getFiresale(session);
-    if (!f.active)
+// the winner for one run goes up in the middle; that run leaves the screen after winnerHoldSec while any others
+// carry on. accepted from any phase of a live run: fourthwall's announcement is the authority, so if it lands
+// early (clock drift, a giveaway cut short) it wins over our own countdown rather than being ignored.
+export function declareFiresaleWinner(session: TimerUserSession, name: string, runId?: string){
+    const runs = firesaleRuns(session);
+    if (!runs.length)
+        return;
+    // no run named: take the one closest to needing a winner — the oldest already drawing, else the oldest
+    const run = runId
+        ? runs.find((r) => r.id === runId)
+        : (runs.find((r) => r.phase === "drawing") || runs[0]);
+    if (!run)
         return;
     const cfg = firesaleSettings(session);
-    clearTimers(session.userId);
-    f.phase = "winner";
-    f.winner = String(name || "").replace(/^@/, "").slice(0, MAX_NAME);
-    emitTerminal(session.userId, `FIRESALE winner: ${f.winner} (${f.entrants.length} entered)`, true);
+    clearRunTimers(session.userId, run.id);
+    run.phase = "winner";
+    run.winner = String(name || "").replace(/^@/, "").slice(0, MAX_NAME);
+    run.wonAt = Date.now();
+    emitTerminal(session.userId, `FIRESALE winner: ${run.winner}${run.prize ? ` — ${run.prize}` : ""} (${run.entrants.length} entered)`, true);
     pushFiresale(session);
 
-    slots(session.userId).hold = setTimeout(() => {
+    runSlots(session.userId, run.id).hold = setTimeout(() => {
         try {
-            stopFiresale(session);
+            endRun(session, run.id);
         } catch (err) {
-            reportError(session.userId, "clearing the firesale", err);
+            reportError(session.userId, "clearing a finished firesale", err);
         }
     }, cfg.winnerHoldSec * 1000);
 }
 
-// clear the source. keeps the nonce so the next run is still seen as new.
+// take one run off the screen, leaving any others alone
+export function endRun(session: TimerUserSession, runId: string){
+    const f = getFiresale(session);
+    const i = f.runs.findIndex((r: any) => r.id === runId);
+    if (i === -1)
+        return;
+    clearRunTimers(session.userId, runId);
+    f.runs.splice(i, 1);
+    pushFiresale(session);
+}
+
+// clear the whole overlay. keeps the nonce/seq so the next batch is still seen as new.
 export function stopFiresale(session: TimerUserSession){
-    const prev = getFiresale(session);
-    clearTimers(session.userId);
-    const f = blank();
-    f.nonce = prev.nonce || 0;
-    session.firesale = f;
+    const f = getFiresale(session);
+    clearAllTimers(session.userId);
+    f.runs = [];
     pushFiresale(session);
 }
 
 // tear down on logout so a timer can't fire against a detached session
 export function endFiresaleTimers(userId: number){
-    clearTimers(userId);
+    clearAllTimers(userId);
     const t = slots(userId);
     clearTimeout(t.push);
     delete timers[userId];
 }
 
-// the "firesale <action>" command, from the dashboard terminal or from chat — one implementation so the two
-// can't drift. returns a line for whoever ran it, the same contract setTextBoxText uses.
+// ---------------------------------------------------------------------------
+// the "firesale <action>" command, from the dashboard terminal or from chat
+// ---------------------------------------------------------------------------
+
+// one implementation so the two can't drift. returns a line for whoever ran it, the same contract
+// setTextBoxText uses.
 export function runFiresaleCommand(session: TimerUserSession, cmd: { action: string, seconds: number, name: string }): { ok: boolean, message: string } {
     const cfg = firesaleSettings(session);
-    const f = getFiresale(session);
+    const runs = firesaleRuns(session);
     if (cmd.action === "start"){
         const seconds = numIn(cmd.seconds, 5, 3600, cfg.fallbackSec);
         startFiresale(session, { seconds });
-        return { ok: true, message: `Firesale started — ${seconds}s to !${cfg.command}.` };
+        const n = firesaleRuns(session).length;
+        return { ok: true, message: `Firesale started — ${seconds}s to !${cfg.command}.${n > 1 ? ` ${n} now running at once.` : ""}` };
     }
     if (cmd.action === "stop"){
-        if (!f.active)
+        if (!runs.length)
             return { ok: false, message: "No firesale is running." };
+        const n = runs.length;
         stopFiresale(session);
-        return { ok: true, message: "Firesale cleared." };
+        return { ok: true, message: n > 1 ? `Cleared all ${n} giveaways.` : "Firesale cleared." };
     }
     if (cmd.action === "draw"){
-        if (!f.active || f.phase !== "running")
+        const open = runningRuns(session);
+        if (!open.length)
             return { ok: false, message: "No firesale is taking entries right now." };
-        beginDraw(session);
-        return { ok: true, message: `Entries closed — ${f.entrants.length} in. Waiting on Fourthwall's winner.` };
+        // closes every open giveaway: with more than one running, picking just some would be arbitrary
+        for (const r of open)
+            beginDraw(session, r.id);
+        return {
+            ok: true,
+            message: open.length > 1
+                ? `Entries closed on ${open.length} giveaways (${open.map((r) => `${r.prize || r.id}: ${r.entrants.length}`).join(", ")}). Waiting on Fourthwall.`
+                : `Entries closed — ${open[0].entrants.length} in. Waiting on Fourthwall's winner.`,
+        };
     }
     // winner
-    if (!f.active)
+    if (!runs.length)
         return { ok: false, message: "No firesale is running." };
-    declareFiresaleWinner(session, cmd.name);
-    return { ok: true, message: `Firesale winner set to ${cmd.name}.` };
+    const target = runs.find((r) => r.phase === "drawing") || runs[0];
+    declareFiresaleWinner(session, cmd.name, target.id);
+    return { ok: true, message: `Firesale winner set to ${cmd.name}${target.prize ? ` for ${target.prize}` : ""}.` };
 }
 
 // ---------------------------------------------------------------------------
@@ -406,10 +529,33 @@ export function handleFiresaleChat(session: TimerUserSession, login: string, dis
     if (!fromBot)
         return false;
 
-    const winner = parseGiveawayWinner(body);
-    if (winner){
-        if (getFiresale(session).active)
-            declareFiresaleWinner(session, winner);
+    const win = parseGiveawayWinner(body);
+    if (win){
+        const runs = firesaleRuns(session);
+        if (runs.length){
+            // route it by gifter+prize — with several giveaways open, that pair is what says which one this
+            // winner belongs to. no match (or a reworded announcement with nothing to match on) falls back to
+            // the run closest to needing a winner, which is what declareFiresaleWinner does with no id.
+            const match = win.prize
+                ? runs.find((r) => sameGiveaway(r, win.gifter, win.prize))
+                    || runs.find((r) => r.prize === win.prize)
+                : undefined;
+            if (match){
+                declareFiresaleWinner(session, win.winner, match.id);
+                return true;
+            }
+            // nothing matched. only fall back to a run that is actually WAITING for a winner — a giveaway still
+            // taking entries can't be the one this announcement is about, and pinning the name to it would put
+            // a wrong winner on stream while people are still entering. with none waiting, say so and leave the
+            // screen alone; the operator has "Set winner" on the tab.
+            const waiting = runs.find((r) => r.phase === "drawing");
+            if (!waiting){
+                emitTerminal(session.userId, `FIRESALE — winner announcement for "${win.prize || win.winner}" matched no giveaway that's waiting on one; ignored.`);
+                return true;
+            }
+            emitTerminal(session.userId, `FIRESALE — winner announcement for "${win.prize || win.winner}" didn't match on name; applying it to "${waiting.prize || waiting.id}", which was waiting.`);
+            declareFiresaleWinner(session, win.winner, waiting.id);
+        }
         return true;
     }
 
@@ -419,7 +565,10 @@ export function handleFiresaleChat(session: TimerUserSession, login: string, dis
             emitTerminal(session.userId, `Fourthwall giveaway detected, but the firesale overlay is turned off.`);
             return true;
         }
-        // a second giveaway supersedes whatever is on screen rather than being dropped
+        // the same announcement delivered twice (a chat reconnect can replay one) must not open a second run
+        // for the same giveaway
+        if (start.prize && firesaleRuns(session).some((r) => r.phase === "running" && sameGiveaway(r, start.gifter, start.prize)))
+            return true;
         startFiresale(session, { seconds: start.seconds || cfg.fallbackSec, prize: start.prize, gifter: start.gifter, url: start.url });
         return true;
     }

@@ -8,7 +8,7 @@ import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
-import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, beginDraw, pushFiresale, runFiresaleCommand } from "./firesale";
+import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -593,16 +593,25 @@ export function startApi(){
                     stopFiresale(curSession);
                     break;
                 case "endFiresaleEntries":
-                    // close entries early and go to DRAWING…, still waiting on fourthwall for the winner
-                    beginDraw(curSession);
-                    break;
+                    // close entries early and go to DRAWING…, still waiting on fourthwall for the winner.
+                    // routed through the shared command so it closes every open giveaway, not just one.
+                    ws.send(JSON.stringify({ commandResult: runFiresaleCommand(curSession, { action: "draw", seconds: 0, name: "" }) }));
+                    return;
                 case "setFiresaleWinner": {
-                    // the operator naming the winner by hand, for when fourthwall's announcement never lands
+                    // the operator naming the winner by hand, for when fourthwall's announcement never lands.
+                    // runId is optional: the dashboard sends it when several giveaways are on screen and the
+                    // operator picked which one, and omits it otherwise.
                     const name = typeof jData.name === "string" ? jData.name.trim() : "";
+                    const runId = typeof jData.runId === "string" && jData.runId ? jData.runId : undefined;
                     if (name)
-                        declareFiresaleWinner(curSession, name);
+                        declareFiresaleWinner(curSession, name, runId);
                     break;
                 }
+                case "endFiresaleRun":
+                    // take one giveaway off the overlay, leaving any others running
+                    if (typeof jData.runId === "string" && jData.runId)
+                        endRun(curSession, jData.runId);
+                    break;
                 case "setFwProductBonuses":
                     curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);
                     break;

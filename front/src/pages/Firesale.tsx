@@ -84,8 +84,13 @@ const Firesale: React.FC = () => {
 	const [run, setRun] = useState<any>(null);
 	// the nonce of the run whose announcer has already been fired, so it plays exactly once per giveaway no
 	// matter how many state pushes arrive (one lands on every !enter)
-	const announced = useRef(0);
+	// which runs have already had their announcer fired, so it plays exactly once per giveaway no matter how
+	// many state pushes arrive (one lands on every !enter)
+	const announced = useRef<{ [runId: string]: boolean }>({});
 	const [announcing, setAnnouncing] = useState(0);
+	// same, for the win sound: which runs have already had theirs played
+	const won = useRef<{ [runId: string]: boolean }>({});
+	const [winning, setWinning] = useState(0);
 	// re-rendered once a second purely to move the countdown on; the bouncing is done outside react entirely
 	const [, setTick] = useState(0);
 
@@ -164,7 +169,18 @@ const Firesale: React.FC = () => {
 	}, []);
 
 	const cfg = canonFiresale(run || {});
-	const phase = (run && run.phase) || "idle";
+	// several giveaways can be open at once, so the payload carries a list. the bouncing field is the union of
+	// everyone entered in any of them (the server already merged it); these split the list by what each run is
+	// doing, because a resolved giveaway and one still taking entries share the screen.
+	const runs: any[] = (run && Array.isArray(run.runs) ? run.runs : []);
+	const winners = runs.filter((r) => r.phase === "winner");
+	const openRuns = runs.filter((r) => r.phase !== "winner");
+	const anyRunning = runs.some((r) => r.phase === "running");
+	const allDrawing = openRuns.length > 0 && openRuns.every((r) => r.phase === "drawing");
+	// exactly one giveaway on screen: the overlay draws what it always drew for a single firesale. every
+	// concession to fitting several in (compact rows, per-run counts, smaller type) is gated on this being false,
+	// so the common case is untouched by the multi-giveaway support.
+	const solo = runs.length === 1;
 	const active = !!(run && run.active);
 	const names: string[] = (run && Array.isArray(run.names) ? run.names : []);
 	const namesKey = names.join(" ");
@@ -293,34 +309,57 @@ const Firesale: React.FC = () => {
 		return () => cancelAnimationFrame(raf);
 	}, []);
 
-	// fire the announcer once, on a run that has genuinely just begun. gated on the nonce (so the pushes that
-	// arrive on every !enter can't retrigger it) and on how long ago the run started (so a source loading into
-	// a giveaway that's been going for a minute stays quiet and just joins the music).
+	// fire the announcer once per giveaway. tracked by run id rather than a single flag, because a second
+	// giveaway opening while the first is still on screen is its own announcement — and the pushes that arrive
+	// on every !enter must not retrigger either of them. the startedAt check is what keeps a source that loaded
+	// into a giveaway already in progress quiet: it joins the music without blasting the stinger.
 	useEffect(() => {
-		if (!active || phase !== "running" || !cfg.announcer)
+		if (!active || !cfg.announcer)
 			return;
-		const nonce = Number(run.nonce) || 0;
-		if (nonce === announced.current)
-			return;
-		announced.current = nonce;
-		if (run.startedAt && Date.now() - run.startedAt < ANNOUNCE_WINDOW)
-			setAnnouncing(nonce);
+		for (const r of runs){
+			if (r.phase !== "running" || announced.current[r.id])
+				continue;
+			announced.current[r.id] = true;
+			if (r.startedAt && Date.now() - r.startedAt < ANNOUNCE_WINDOW)
+				setAnnouncing((n) => n + 1);
+		}
+		// forget ids that have left, so the map can't grow across a long stream
+		for (const id of Object.keys(announced.current))
+			if (!runs.some((r) => r.id === id))
+				delete announced.current[id];
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [active, phase, run && run.nonce, cfg.announcer]);
+	}, [active, runs.map((r) => `${r.id}:${r.phase}`).join(","), cfg.announcer]);
+
+	// the win sound, once per giveaway that resolves. mirrors the announcer exactly, including the recency
+	// check — a source that loads while a winner is already up joins silently instead of re-firing the sting.
+	useEffect(() => {
+		if (!active || !cfg.winSound)
+			return;
+		for (const r of runs){
+			if (r.phase !== "winner" || won.current[r.id])
+				continue;
+			won.current[r.id] = true;
+			if (r.wonAt && Date.now() - r.wonAt < ANNOUNCE_WINDOW)
+				setWinning((n) => n + 1);
+		}
+		for (const id of Object.keys(won.current))
+			if (!runs.some((r) => r.id === id))
+				delete won.current[id];
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [active, runs.map((r) => `${r.id}:${r.phase}`).join(","), cfg.winSound]);
 
 	// the entry countdown. only ticks while entries are open AND the clock is actually on screen — with it
 	// turned off there's nothing on the page that changes per second, so there's nothing to re-render for.
 	useEffect(() => {
-		if (phase !== "running" || !cfg.showCountdown)
+		if (!anyRunning || !cfg.showCountdown)
 			return;
 		const id = setInterval(() => setTick((n) => n + 1), 250);
 		return () => clearInterval(id);
-	}, [phase, cfg.showCountdown]);
+	}, [anyRunning, cfg.showCountdown]);
 
 	if (!token || !active)
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
 
-	const left = run.endsAt ? run.endsAt - Date.now() : 0;
 	const display = cfg.bgColor === "transparent";
 
 	// the stage sits centred in the source; the wrapper is the only thing that paints a fill, so a transparent
@@ -366,15 +405,31 @@ const Firesale: React.FC = () => {
 			{display && <style>{TRANSPARENT_BODY_CSS}</style>}
 			<style>{CSS}</style>
 
-			{/* the bed for the whole run, looped. keyed on the nonce so a back-to-back giveaway restarts it
-			    from the top rather than carrying on mid-track. */}
-			{cfg.music && (
+			{/* the looping bed, keyed on the nonce so a back-to-back giveaway restarts it from the top rather
+			    than carrying on mid-track.
+			    it stops the moment there's nothing left taking entries or waiting on a draw — unmounting the
+			    element ends playback — so a winner reveal lands in the clear with only the win sound on it.
+			    with several giveaways open it keeps going until the LAST one resolves: cutting the music while
+			    chat is still entering another would leave the overlay silent mid-firesale. */}
+			{cfg.music && openRuns.length > 0 && (
 				<audio
 					key={`m${run.nonce}`}
 					src={`/media/${encodeURIComponent(cfg.music)}`}
 					autoPlay
 					loop
 					ref={(el) => { if (el) el.volume = cfg.volume; }}
+				/>
+			)}
+
+			{/* the win sound, once per giveaway that resolves. same two guards as the announcer: keyed on a
+			    counter the effect bumps, so entrant pushes can't replay it, and gated on wonAt being recent so a
+			    source loading while a winner is already on screen stays quiet. */}
+			{cfg.winSound && winning > 0 && (
+				<audio
+					key={`w${winning}`}
+					src={`/media/${encodeURIComponent(cfg.winSound)}`}
+					autoPlay
+					ref={(el) => { if (el) el.volume = cfg.winVolume; }}
 				/>
 			)}
 
@@ -409,8 +464,10 @@ const Firesale: React.FC = () => {
 							letterSpacing: "0.02em",
 							// a hard black edge so a name stays readable wherever it drifts over the scene
 							textShadow: `${ring}px ${ring}px 0 #000, -${ring}px ${ring}px 0 #000, ${ring}px -${ring}px 0 #000, -${ring}px -${ring}px 0 #000, 0 0 ${ring * 6}px rgba(0,0,0,0.85)`,
-							// the winner is the thing to read at the end, so the field drops back behind it
-							opacity: phase === "winner" ? 0.35 : 1,
+							// a winner is the thing to read, so the field drops back behind it — but only once
+							// every giveaway has resolved. dimming while another is still taking entries would
+							// mute the names of people who are actively entering it.
+							opacity: winners.length > 0 && !openRuns.length ? 0.35 : 1,
 							transition: "opacity 400ms linear",
 							// no transform here on purpose — position belongs to the layout effect and the rAF
 							// loop, and a value in this style prop would fight them on every re-render
@@ -421,140 +478,172 @@ const Firesale: React.FC = () => {
 				))}
 
 				<div style={centre}>
-					{phase !== "winner" && (
-						<>
-							<div style={{ animation: "fs-rock 700ms ease-in-out infinite" }}>
-								<div
-									style={{
-										animation: "fs-flash 420ms steps(1, end) infinite",
-										color: cfg.titleColor,
-										fontSize: 148,
-										lineHeight: 0.95,
-										letterSpacing: "0.03em",
-										WebkitTextStrokeWidth: "6px",
-										WebkitTextStrokeColor: "#000",
-										paintOrder: "stroke fill",
-										textShadow: "0 0 40px rgba(255,60,0,0.9), 0 8px 0 rgba(0,0,0,0.55)",
-									}}
-								>
-									FIRESALE
-								</div>
-							</div>
-
-							{run.prize && (
-								<div
-									style={{
-										marginTop: 6,
-										fontSize: 38,
-										lineHeight: 1.1,
-										color: "#fff",
-										WebkitTextStrokeWidth: "4px",
-										WebkitTextStrokeColor: "#000",
-										paintOrder: "stroke fill",
-										// kept well inside the frame: a long prize name wraps rather than running
-										// into the edges of the source
-										maxWidth: STAGE_W - 200,
-										overflowWrap: "break-word",
-									}}
-								>
-									{run.prize}
-									{run.gifter && (
-										<div style={{ fontSize: 28, opacity: 0.85 }}>from {run.gifter}</div>
-									)}
-								</div>
-							)}
-
-							{phase === "running" ? (
-								<div
-									style={{
-										marginTop: 18,
-										fontSize: 62,
-										color: "#ffe600",
-										WebkitTextStrokeWidth: "5px",
-										WebkitTextStrokeColor: "#000",
-										paintOrder: "stroke fill",
-									}}
-								>
-									TYPE !{cfg.command.toUpperCase()}
-									{cfg.showCountdown ? ` — ${countdown(left)}` : ""}
-								</div>
-							) : (
-								<div
-									style={{
-										marginTop: 18,
-										fontSize: 62,
-										color: "#ffe600",
-										WebkitTextStrokeWidth: "5px",
-										WebkitTextStrokeColor: "#000",
-										paintOrder: "stroke fill",
-										animation: "fs-pulse 900ms ease-in-out infinite",
-									}}
-								>
-									DRAWING…
-								</div>
-							)}
-
+					{/* a resolved giveaway takes the headline; FIRESALE holds it the rest of the time. with a winner up
+					    there is no room for both, and WINNER is the thing to read. */}
+					{winners.length === 0 ? (
+						<div style={{ animation: "fs-rock 700ms ease-in-out infinite" }}>
 							<div
 								style={{
-									marginTop: 10,
-									fontSize: 44,
-									color: cfg.nameColor,
-									WebkitTextStrokeWidth: "4px",
-									WebkitTextStrokeColor: "#000",
-									paintOrder: "stroke fill",
-								}}
-							>
-								{run.total} ENTERED
-							</div>
-						</>
-					)}
-
-					{phase === "winner" && (
-						<div style={{ animation: "fs-pop 500ms cubic-bezier(.2,1.4,.4,1) both" }}>
-							<div
-								style={{
-									fontSize: 78,
-									color: "#ffe600",
-									WebkitTextStrokeWidth: "5px",
-									WebkitTextStrokeColor: "#000",
-									paintOrder: "stroke fill",
-								}}
-							>
-								WINNER
-							</div>
-							<div
-								style={{
-									// twitch names run to 25 characters, and at a fixed size a long one wraps in the
-									// middle of itself and runs off both edges. size it to the name instead, so the
-									// winner is always one line inside the frame — big for a short name, smaller for
-									// a long one, never cut off.
-									fontSize: winnerFontSize(run.winner),
-									lineHeight: 1.05,
-									whiteSpace: "nowrap",
-									color: cfg.nameColor,
+									animation: "fs-flash 420ms steps(1, end) infinite",
+									color: cfg.titleColor,
+									// a second giveaway adds another line below, so the title gives up some height for it
+									fontSize: openRuns.length >= 2 ? 116 : 148,
+									lineHeight: 0.95,
+									letterSpacing: "0.03em",
 									WebkitTextStrokeWidth: "6px",
 									WebkitTextStrokeColor: "#000",
 									paintOrder: "stroke fill",
-									textShadow: "0 0 45px rgba(255,230,0,0.85)",
+									textShadow: "0 0 40px rgba(255,60,0,0.9), 0 8px 0 rgba(0,0,0,0.55)",
 								}}
 							>
-								{run.winner}
+								FIRESALE
 							</div>
-							{run.prize && (
+						</div>
+					) : (
+						winners.map((w) => (
+							<div key={w.id} style={{ animation: "fs-pop 500ms cubic-bezier(.2,1.4,.4,1) both", marginBottom: 6 }}>
 								<div
 									style={{
-										marginTop: 8,
-										fontSize: 40,
+										fontSize: winners.length > 1 ? 52 : 78,
+										color: "#ffe600",
+										WebkitTextStrokeWidth: "5px",
+										WebkitTextStrokeColor: "#000",
+										paintOrder: "stroke fill",
+									}}
+								>
+									WINNER
+								</div>
+								<div
+									style={{
+										// twitch names run to 25 characters, and at a fixed size a long one wraps in the
+										// middle of itself and runs off both edges. size it to the name instead, then scale
+										// that down again when it has to share the screen.
+										fontSize: Math.round(winnerFontSize(w.winner) * (winners.length > 1 ? 0.55 : openRuns.length ? 0.72 : 1)),
+										lineHeight: 1.05,
+										whiteSpace: "nowrap",
+										color: cfg.nameColor,
+										WebkitTextStrokeWidth: "6px",
+										WebkitTextStrokeColor: "#000",
+										paintOrder: "stroke fill",
+										textShadow: "0 0 45px rgba(255,230,0,0.85)",
+									}}
+								>
+									{w.winner}
+								</div>
+								{/* WHICH prize was won. never optional when more than one giveaway is in play — a bare
+								    name would leave viewers guessing which one they just won. */}
+								{w.prize && (
+									<div
+										style={{
+											marginTop: 4,
+											fontSize: winners.length > 1 ? 28 : 40,
+											color: "#fff",
+											WebkitTextStrokeWidth: "4px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+											maxWidth: STAGE_W - 120,
+										}}
+									>
+										{w.prize}
+									</div>
+								)}
+							</div>
+						))
+					)}
+
+					{/* every giveaway still in play, one line each: prize, who gifted it, and its OWN entry count —
+					    those differ between overlapping runs, because someone who entered before the later one opened
+					    isn't in it. a run that's closed says so here instead of showing a count. */}
+					{openRuns.length > 0 && (
+						<div style={{ marginTop: winners.length ? 10 : 6, display: "flex", flexDirection: "column", gap: 2 }}>
+							{openRuns.map((r) => (
+								<div
+									key={r.id}
+									style={{
+										// a winner card above eats the space these rows would otherwise have, so they go
+										// compact whenever one is up — not only when several giveaways are listed
+										fontSize: winners.length || openRuns.length >= 2 ? 30 : 38,
+										lineHeight: 1.15,
 										color: "#fff",
 										WebkitTextStrokeWidth: "4px",
 										WebkitTextStrokeColor: "#000",
 										paintOrder: "stroke fill",
-										maxWidth: STAGE_W - 120,
+										maxWidth: solo ? STAGE_W - 200 : STAGE_W - 160,
+										overflowWrap: "break-word",
 									}}
 								>
-									{run.prize}
+									{r.prize || "GIVEAWAY"}
+									{/* the gifter drops to its own smaller line when this is the only giveaway on
+									    screen — there's room for it, and it's the layout a single firesale has
+									    always had. sharing the screen, it goes inline to save the height. */}
+									{r.gifter && (solo
+										? <div style={{ fontSize: 28, opacity: 0.85 }}>from {r.gifter}</div>
+										: <span style={{ opacity: 0.8 }}> — {r.gifter}</span>)}
+									{/* the per-run count and status only exist to tell several giveaways apart. with
+									    one on screen the big "N ENTERED" / "DRAWING…" below already says it, and
+									    printing it twice was just noise. */}
+									{!solo && (
+										<span style={{ color: r.phase === "drawing" ? "#ffe600" : cfg.nameColor }}>
+											{r.phase === "drawing"
+												? "  ·  DRAWING…"
+												: `  ·  ${r.total} in${cfg.showCountdown && r.endsAt ? ` · ${countdown(r.endsAt - Date.now())}` : ""}`}
+										</span>
+									)}
 								</div>
-							)}
+							))}
+						</div>
+					)}
+
+					{/* the call to action, once for the whole overlay — !enter carries no way to name a giveaway, so
+					    one of these covers every run that's open. */}
+					{anyRunning && (
+						<div
+							style={{
+								marginTop: 14,
+								fontSize: winners.length || openRuns.length >= 2 ? 48 : 62,
+								color: "#ffe600",
+								WebkitTextStrokeWidth: "5px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+							}}
+						>
+							TYPE !{cfg.command.toUpperCase()}
+							{cfg.showCountdown && openRuns.length === 1 && openRuns[0].endsAt
+								? ` — ${countdown(openRuns[0].endsAt - Date.now())}`
+								: ""}
+						</div>
+					)}
+
+					{/* nothing is taking entries any more and nothing has been won yet */}
+					{!anyRunning && allDrawing && winners.length === 0 && (
+						<div
+							style={{
+								marginTop: 14,
+								fontSize: 62,
+								color: "#ffe600",
+								WebkitTextStrokeWidth: "5px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+								animation: "fs-pulse 900ms ease-in-out infinite",
+							}}
+						>
+							DRAWING…
+						</div>
+					)}
+
+					{/* the union across every open giveaway — the same people the field is bouncing */}
+					{openRuns.length > 0 && (
+						<div
+							style={{
+								marginTop: 8,
+								fontSize: winners.length || openRuns.length >= 2 ? 34 : 44,
+								color: cfg.nameColor,
+								WebkitTextStrokeWidth: "4px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+							}}
+						>
+							{run.total} ENTERED
 						</div>
 					)}
 				</div>
