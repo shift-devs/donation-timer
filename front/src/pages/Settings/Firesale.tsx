@@ -367,7 +367,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						min={1}
 						max={MAX_BOUNCERS}
 						value={draft.maxBouncers}
-						onChange={(_, n) => patch({ maxBouncers: Number.isFinite(n) ? Math.min(MAX_BOUNCERS, Math.max(1, Math.trunc(n))) : 40 }, "maxBouncers")}
+						onChange={(_, n) => patch({ maxBouncers: Number.isFinite(n) ? Math.min(MAX_BOUNCERS, Math.max(1, Math.trunc(n))) : 120 }, "maxBouncers")}
 					>
 						<NumberInputField />
 					</NumberInput>

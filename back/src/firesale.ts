@@ -49,8 +49,9 @@ export const DEFAULT_FIRESALE = {
     drawGraceSec: 60,
     // how long the winner stays up before the source goes idle
     winnerHoldSec: 15,
-    // how many names bounce at once; the rest are still entered and still counted
-    maxBouncers: 40,
+    // how many names bounce at once; the rest are still entered and still counted. the source shrinks the type
+    // to suit, so raising this packs the frame rather than overflowing it.
+    maxBouncers: 120,
     bgColor: "transparent",
     titleColor: "#ff2d0f",
     nameColor: "#ffffff",

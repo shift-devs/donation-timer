@@ -15,7 +15,7 @@ export const DEFAULT_FIRESALE = {
 	showCountdown: false,
 	drawGraceSec: 60,
 	winnerHoldSec: 15,
-	maxBouncers: 40,
+	maxBouncers: 120,
 	bgColor: "transparent",
 	titleColor: "#ff2d0f",
 	nameColor: "#ffffff",
