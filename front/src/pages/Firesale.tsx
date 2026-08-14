@@ -614,8 +614,10 @@ const Firesale: React.FC = () => {
 						</div>
 					)}
 
-					{/* nothing is taking entries any more and nothing has been won yet */}
-					{!anyRunning && allDrawing && winners.length === 0 && (
+					{/* nothing is taking entries any more and nothing has been won yet. solo only: with several
+					    giveaways listed each row already says DRAWING… next to its own prize, and this would be a
+					    third copy of the same word with nothing to attach it to. */}
+					{solo && !anyRunning && allDrawing && winners.length === 0 && (
 						<div
 							style={{
 								marginTop: 14,

@@ -217,9 +217,10 @@ function runningRuns(session: TimerUserSession): any[] {
 // what the browser source is handed
 // ---------------------------------------------------------------------------
 
-// the bouncing field is the UNION of everyone entered in any run that's still open, most recent first, capped
-// at maxBouncers. the per-run counts travel separately in `runs` — those are what differ between two
-// overlapping giveaways, and what the overlay lists next to each prize.
+// the bouncing field is the UNION of everyone entered in any run still on screen — including one that has
+// already been won, so the field stays full through its winner reveal instead of thinning out. capped at
+// maxBouncers. the per-run counts travel separately in `runs` — those are what differ between two overlapping
+// giveaways, and what the overlay lists next to each prize.
 export function firesaleView(session: TimerUserSession): any {
     const f = getFiresale(session);
     const cfg = firesaleSettings(session);
