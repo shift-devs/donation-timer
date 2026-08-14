@@ -29,6 +29,9 @@ const MAX_URL = 300;
 const MAX_ENTRANTS = 5000;
 const MAX_BOUNCERS = 200;     // ceiling on what the source is asked to animate at once
 const MAX_RUNS = 4;           // concurrent giveaways; past this the oldest is dropped to make room
+// a giveaway of several items is announced as one message PER WINNER, all naming the same gifter and prize, so a
+// run collects a list. bounded so a malformed/repeated stream of announcements can't grow it without end.
+const MAX_WINNERS = 25;
 const PUSH_COALESCE = 250;    // ms; a busy !enter burst becomes ~4 pushes a second, not one per chatter
 
 export const DEFAULT_FIRESALE = {
@@ -280,8 +283,8 @@ export function firesaleView(session: TimerUserSession): any {
             prize: r.prize,
             gifter: r.gifter,
             url: r.url,
-            winner: r.winner,
-            // when the winner went up. the source needs it to tell "this just resolved" from "i reconnected
+            winners: r.winners,
+            // when the LAST winner went up. the source needs it to tell "this just resolved" from "i reconnected
             // while a winner was already on screen", so a reload doesn't replay the win sound.
             wonAt: r.wonAt,
             total: r.entrants.length,
@@ -356,7 +359,8 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
         prize,
         gifter,
         url: String(opts.url || "").slice(0, MAX_URL),
-        winner: "",
+        // every winner announced for this giveaway, in the order they were announced
+        winners: [] as string[],
         wonAt: 0,
         // display names in entry order; `seen` dedupes on the login so one chatter can't enter twice
         entrants: [] as string[],
@@ -430,9 +434,14 @@ export function addFiresaleEntry(session: TimerUserSession, login: string, displ
     return added;
 }
 
-// the winner for one run goes up in the middle; that run leaves the screen after winnerHoldSec while any others
-// carry on. accepted from any phase of a live run: fourthwall's announcement is the authority, so if it lands
-// early (clock drift, a giveaway cut short) it wins over our own countdown rather than being ignored.
+// a winner for one run goes up in the middle; that run leaves the screen winnerHoldSec after its LAST winner
+// while any other giveaways carry on. accepted from any phase of a live run: fourthwall's announcement is the
+// authority, so if it lands early (clock drift, a giveaway cut short) it wins over our own countdown rather than
+// being ignored.
+// APPENDS rather than replaces. a giveaway of several items is announced one message per winner, all naming the
+// same gifter and prize, so they all route to this same run — overwriting would flip the name on screen and leave
+// only the last one. the hold restarting on each arrival is deliberate: it keeps the whole list up for the full
+// hold after the last winner lands, instead of expiring while they're still trickling in.
 export function declareFiresaleWinner(session: TimerUserSession, name: string, runId?: string){
     const runs = firesaleRuns(session);
     if (!runs.length)
@@ -443,12 +452,21 @@ export function declareFiresaleWinner(session: TimerUserSession, name: string, r
         : (runs.find((r) => r.phase === "drawing") || runs[0]);
     if (!run)
         return;
+    const clean = String(name || "").replace(/^@/, "").slice(0, MAX_NAME);
+    if (!clean)
+        return;
+    // the same announcement delivered twice must not list the same person twice
+    if (run.winners.some((w: string) => w.toLowerCase() === clean.toLowerCase()))
+        return;
+    if (run.winners.length >= MAX_WINNERS)
+        return;
     const cfg = firesaleSettings(session);
     clearRunTimers(session.userId, run.id);
     run.phase = "winner";
-    run.winner = String(name || "").replace(/^@/, "").slice(0, MAX_NAME);
+    run.winners.push(clean);
     run.wonAt = Date.now();
-    emitTerminal(session.userId, `FIRESALE winner: ${run.winner}${run.prize ? ` — ${run.prize}` : ""} (${run.entrants.length} entered)`, true);
+    const nth = run.winners.length;
+    emitTerminal(session.userId, `FIRESALE winner${nth > 1 ? ` #${nth}` : ""}: ${clean}${run.prize ? ` — ${run.prize}` : ""} (${run.entrants.length} entered)`, true);
     pushFiresale(session);
 
     runSlots(session.userId, run.id).hold = setTimeout(() => {
@@ -577,7 +595,9 @@ export function handleFiresaleChat(session: TimerUserSession, login: string, dis
             // taking entries can't be the one this announcement is about, and pinning the name to it would put
             // a wrong winner on stream while people are still entering. with none waiting, say so and leave the
             // screen alone; the operator has "Set winner" on the tab.
-            const waiting = runs.find((r) => r.phase === "drawing");
+            // prefer a giveaway already handing out winners (a later item of a multi-item one), then one
+            // still waiting on its first
+            const waiting = runs.find((r) => r.phase === "winner") || runs.find((r) => r.phase === "drawing");
             if (!waiting){
                 emitTerminal(session.userId, `FIRESALE — winner announcement for "${win.prize || win.winner}" matched no giveaway that's waiting on one; ignored.`);
                 return true;

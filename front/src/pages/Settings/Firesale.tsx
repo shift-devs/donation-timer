@@ -165,7 +165,10 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						{r.phase === "running" && r.endsAt && (
 							<Text color="gray.600">{countdown(r.endsAt - Date.now())} left</Text>
 						)}
-						{r.phase === "winner" && <Text><b>{r.winner}</b> won</Text>}
+						{/* a multi-item giveaway is announced one winner per message, so a run can hold several */}
+						{r.phase === "winner" && (
+							<Text><b>{(r.winners || []).join(", ")}</b> won</Text>
+						)}
 						<Button size="xs" variant="ghost" onClick={() => endFiresaleRun(ws, r.id)}>Clear</Button>
 					</Flex>
 				))}

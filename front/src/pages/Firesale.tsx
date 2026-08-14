@@ -49,11 +49,16 @@ interface Bouncer {
 // classic DVD behaviour: every wall (and every collision) kicks the colour on
 const rehue = (b: Bouncer) => { b.hue = (b.hue + 47 + Math.random() * 60) % 360; };
 
-// the winner's name, sized to fit the frame on one line. 0.55em is about the average glyph width of the
-// display face; the cap keeps a short name from looking comical and the floor keeps a 25-character one legible.
-function winnerFontSize(name: string): number {
-	const len = Math.max(1, String(name || "").length);
-	return Math.max(52, Math.min(130, Math.floor((STAGE_W - 120) / (len * 0.55))));
+// winner names have to fit the frame in BOTH directions at once: across (the longest name on one line) and down
+// (every winner of every giveaway that has resolved — a multi-item giveaway is announced one winner per message,
+// so one run can hold several). take whichever limit is tighter, and trim again when an open giveaway is still
+// listed underneath. 0.55em is about the average glyph width of the display face.
+function winnerNameSize(names: string[], lines: number, sharing: boolean): number {
+	const longest = names.reduce((m, n) => Math.max(m, String(n || "").length), 1);
+	const across = Math.floor((STAGE_W - 120) / (longest * 0.55));
+	// how much height each line can have before the stack runs past the middle of the frame
+	const down = lines <= 1 ? 130 : lines === 2 ? 86 : lines === 3 ? 64 : lines <= 5 ? 48 : 36;
+	return Math.max(26, Math.min(130, across, down, sharing ? 84 : 130));
 }
 
 const CSS = `
@@ -179,6 +184,10 @@ const Firesale: React.FC = () => {
 	const openRuns = runs.filter((r) => r.phase !== "winner");
 	const anyRunning = runs.some((r) => r.phase === "running");
 	const allDrawing = openRuns.length > 0 && openRuns.every((r) => r.phase === "drawing");
+	// every winner name currently on screen, across every resolved giveaway. one giveaway can have several: a
+	// multi-item one is announced a message per winner, and they all belong to the same run.
+	const allWinnerNames: string[] = winners.flatMap((r) => (Array.isArray(r.winners) ? r.winners : []));
+	const winnerLines = allWinnerNames.length;
 	// exactly one giveaway on screen: the overlay draws what it always drew for a single firesale. every
 	// concession to fitting several in (compact rows, per-run counts, smaller type) is gated on this being false,
 	// so the common case is untouched by the multi-giveaway support.
@@ -517,32 +526,33 @@ const Firesale: React.FC = () => {
 							<div key={w.id} style={{ animation: "fs-pop 500ms cubic-bezier(.2,1.4,.4,1) both", marginBottom: 6 }}>
 								<div
 									style={{
-										fontSize: winners.length > 1 ? 52 : 78,
+										fontSize: winners.length > 1 || winnerLines > 2 ? 52 : 78,
 										color: "#ffe600",
 										WebkitTextStrokeWidth: "5px",
 										WebkitTextStrokeColor: "#000",
 										paintOrder: "stroke fill",
 									}}
 								>
-									WINNER
+									{/* a multi-item giveaway has several, and calling that "WINNER" reads as a mistake */}
+									{(w.winners || []).length > 1 ? "WINNERS" : "WINNER"}
 								</div>
-								<div
-									style={{
-										// twitch names run to 25 characters, and at a fixed size a long one wraps in the
-										// middle of itself and runs off both edges. size it to the name instead, then scale
-										// that down again when it has to share the screen.
-										fontSize: Math.round(winnerFontSize(w.winner) * (winners.length > 1 ? 0.55 : openRuns.length ? 0.72 : 1)),
-										lineHeight: 1.05,
-										whiteSpace: "nowrap",
-										color: cfg.nameColor,
-										WebkitTextStrokeWidth: "6px",
-										WebkitTextStrokeColor: "#000",
-										paintOrder: "stroke fill",
-										textShadow: "0 0 45px rgba(255,230,0,0.85)",
-									}}
-								>
-									{w.winner}
-								</div>
+								{(w.winners || []).map((name: string) => (
+									<div
+										key={name}
+										style={{
+											fontSize: winnerNameSize(allWinnerNames, winnerLines, openRuns.length > 0),
+											lineHeight: 1.08,
+											whiteSpace: "nowrap",
+											color: cfg.nameColor,
+											WebkitTextStrokeWidth: "6px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+											textShadow: "0 0 45px rgba(255,230,0,0.85)",
+										}}
+									>
+										{name}
+									</div>
+								))}
 								{/* WHICH prize was won. never optional when more than one giveaway is in play — a bare
 								    name would leave viewers guessing which one they just won. */}
 								{w.prize && (
