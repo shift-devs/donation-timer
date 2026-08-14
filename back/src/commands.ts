@@ -19,6 +19,10 @@ const SPEC: { [platform: string]: { [action: string]: Kind } } = {
 // same parser so chat and the terminal keep one grammar and one place that decides what a command means.
 const TEXT_VERBS = ["changetext", "settext"];
 
+// the firesale giveaway overlay. normally fourthwall's chat announcement drives it start to finish; this is the
+// manual handle for a rehearsal, a missed announcement, or killing a run that's still on screen.
+const FIRESALE_ACTIONS = ["start", "stop", "draw", "winner"];
+
 // twitch chat lowercases and strips non-ascii before parsing, which is right for "<platform> <action> <qty>" and
 // wrong for prose a mod typed — the adapter asks this first so it knows to take a text command off the raw line.
 export function isTextCommand(text: string): boolean {
@@ -47,17 +51,18 @@ function unquote(s: string): string {
 }
 
 export function commandHelp(): string {
-    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   help"];
+    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   help"];
     for (const p of Object.keys(SPEC))
         lines.push(`  ${p}: ${Object.keys(SPEC[p]).join(", ")}`);
     lines.push("  qty = dollars for money, count for subs/bits/members (subs & members default to 1)");
     lines.push("  changetext puts words on a /text browser source, e.g. changetext topic \"speedruns all night\"");
+    lines.push("  firesale: start [seconds], stop, draw, winner <name> — the giveaway overlay, normally started by Fourthwall");
     return lines.join("\n");
 }
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -75,6 +80,20 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         if (!box)
             return { error: `Usage: ${head} <box name> "text here"` };
         return { text: { box, text: unquote(rest) } };
+    }
+
+    if (head === "firesale") {
+        const action = (parts[1] || "").toLowerCase();
+        if (!FIRESALE_ACTIONS.includes(action))
+            return { error: `Usage: firesale ${FIRESALE_ACTIONS.join(" | ")} — e.g. "firesale start 180".` };
+        if (action === "winner" && !parts[2])
+            return { error: `Usage: firesale winner <name>` };
+        // start takes an optional length; anything else is ignored so "firesale stop" can't be tripped up by
+        // a stray word after it
+        const seconds = action === "start" && parts[2] !== undefined ? Number(parts[2]) : 0;
+        if (action === "start" && parts[2] !== undefined && !Number.isFinite(seconds))
+            return { error: `Usage: firesale start [seconds]` };
+        return { firesale: { action, seconds: Number.isFinite(seconds) ? seconds : 0, name: (parts[2] || "").replace(/^@/, "") } };
     }
 
     if (head === "time") {

@@ -3,6 +3,7 @@ import { TimerUserSession, TimerEvent } from "../types";
 import { emitSync, emitTerminal, reportError } from "../bus";
 import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
+import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -90,7 +91,14 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         console.log(`(${channel}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
         if (!tags.username)
             return;
-        if (!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase()))
+        const isMod = !!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase());
+        // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
+        // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
+        // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)
+        // and cost us the display name's capitalisation on stream.
+        if (handleFiresaleChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+            return;
+        if (!isMod)
             return;
         if (filterMessage.charAt(0) !== "!") // only mod/broadcaster ! commands
             return;
@@ -114,12 +122,30 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (!command)
             return;
         const parsed = parseCommand(command);
+        if (parsed.firesale){
+            // "!firesale start/stop/draw/winner" — mods driving the overlay when fourthwall isn't
+            const res = runFiresaleCommand(session, parsed.firesale);
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+            return;
+        }
         if (parsed.error || !parsed.event){
             console.log(`(${channel}) chat command "${filterMessage}" rejected: ${parsed.error || "no event"}`);
             return;
         }
         parsed.event.label = `Chat: ${filterMessage} (${tags.username})`; // keep who ran it in the audit log
         emit(parsed.event);
+    }));
+
+    // twitch ANNOUNCEMENTS are USERNOTICE, not PRIVMSG, so they never reach the message handler above — tmi.js
+    // has no case for msg-id "announcement" and drops them here instead. fourthwall posts both halves of a
+    // giveaway (the "!ENTER TO WIN" call and the winner) as announcements, so this is the path that sees them.
+    // the event isn't in @types/tmi.js either, hence the cast.
+    (client as any).on("usernotice", safe("usernotice", (msgid: string, ch: string, tags: any, message: string) => {
+        if (msgid !== "announcement")
+            return;
+        const login = String((tags && (tags.login || tags["display-name"])) || "");
+        // only mods and the broadcaster can announce, so this is trusted as mod-level by definition
+        handleFiresaleChat(session, login, String((tags && tags["display-name"]) || login), String(message || ""), true);
     }));
 
     client.on("submysterygift", safe("submysterygift", (ch, username, numbOfSubs, methods, userstate) => {

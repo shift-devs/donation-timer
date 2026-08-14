@@ -4,6 +4,7 @@ import { normalizeRates } from "./rates";
 import { normalizeConnections } from "./connections";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { normalizeTextBoxes } from "./textBoxes";
+import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
@@ -69,6 +70,8 @@ export function loginUser(inObj: Object){
     lvObj.timerEvents = normalizeTimerEvents(lvObj.timerEvents);
     lvObj.eventLayers = normalizeEventLayers(lvObj.eventLayers);
     lvObj.textBoxes = normalizeTextBoxes(lvObj.textBoxes); // words included: a box comes back saying what it said
+    lvObj.firesaleSettings = normalizeFiresale(lvObj.firesaleSettings);
+    lvObj.firesale = undefined; // a run never survives a restart — the source comes back idle
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);
@@ -141,6 +144,7 @@ export function logoutUser(id: number){
     // mark detached so a late platform event (fired before the clients fully close) is dropped by the handler.
     // teardown is best-effort: one connector failing to close must not keep the session (or the others) alive.
     curSession.loggedOut = true;
+    endFiresaleTimers(id); // a pending phase timer must not fire against a detached session
     try {
         if (curSession.conSL)
             curSession.conSL.disconnect();

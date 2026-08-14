@@ -11,6 +11,7 @@ import Events from "./Settings/Events";
 import FourthwallProducts from "./Settings/FourthwallProducts";
 import SubCounts from "./Settings/SubCounts";
 import TextBoxes from "./Settings/TextBoxes";
+import Firesale from "./Settings/Firesale";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -36,6 +37,7 @@ const Settings: React.FC = () => {
 	const [log, setLog] = useState<any[]>([]);
 	const [logHasMore, setLogHasMore] = useState(false);
 	const [tabIndex, setTabIndex] = useState(0);
+	const [firesale, setFiresale] = useState<any>(null);
 	const [fwProducts, setFwProducts] = useState<any[] | null>(null);
 	const [fwProductsError, setFwProductsError] = useState("");
 	const logLoadingRef = useRef(false);
@@ -80,6 +82,15 @@ const Settings: React.FC = () => {
 				setFwProducts(Array.isArray(response.fwProducts) ? response.fwProducts : []);
 				setFwProductsError(response.fwProductsError || "");
 				return;
+			}
+
+			// the live giveaway. it arrives two ways: on the sync (alongside everything else) and as a targeted
+			// push the moment it changes, which carries ONLY this field — so that one has to be taken out here
+			// before setSettings below would replace the whole settings object with it.
+			if ("firesale" in response) {
+				setFiresale(response.firesale);
+				if (!("endTime" in response))
+					return;
 			}
 
 			setSettings(response);
@@ -187,6 +198,7 @@ const Settings: React.FC = () => {
 						<Tab>Terminal</Tab>
 						<Tab>Subcounts</Tab>
 						<Tab>Text Boxes</Tab>
+						<Tab>Firesale</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
@@ -222,6 +234,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<TextBoxes ws={ws} token={token} settings={settings} />
+						</TabPanel>
+						<TabPanel>
+							<Firesale ws={ws} token={token} settings={settings} run={firesale} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />

@@ -76,6 +76,13 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: []
     },
+    // how the /firesale browser source looks and behaves (see migration add-firesale). the giveaway itself is
+    // live state and is never written here.
+    firesaleSettings: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     fwProductBonuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -201,6 +208,7 @@ export async function dbCreate(inObj: Object){
         timerEvents: lvObj.timerEvents,
         eventLayers: lvObj.eventLayers,
         textBoxes: lvObj.textBoxes,
+        firesaleSettings: lvObj.firesaleSettings,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -242,6 +250,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 timerEvents: curSession.timerEvents,
                 eventLayers: curSession.eventLayers,
                 textBoxes: curSession.textBoxes,
+                firesaleSettings: curSession.firesaleSettings,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,

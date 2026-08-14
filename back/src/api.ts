@@ -8,6 +8,7 @@ import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
+import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, beginDraw, pushFiresale, runFiresaleCommand } from "./firesale";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -55,6 +56,9 @@ export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     // one text box per source, the one its ?box= names — a source has no use for the other 49, and the words a
     // mod put on one overlay have no business being pushed to every other overlay twice a second
     text: ["textBox"],
+    // the whole run in one field (phase, entrants, winner) plus the look. targeted firesale pushes keep it
+    // live between syncs — a 5s force sync would have names turning up long after the chatter typed !enter.
+    firesale: ["firesale"],
 };
 
 export function projectSync(page: string | undefined, full: any): any {
@@ -93,6 +97,10 @@ function wsSync(ws: TimerWebSocket) {
             // per-socket, not per-user: the single box this client's ?box= resolves to (null for the dashboard,
             // which reads the whole list above). the projection hands this to /text sources and nothing else.
             textBox: ws.box ? findTextBox(curSession, ws.box) : null,
+            // the giveaway currently on screen (idle when there isn't one). carried on the sync so a source
+            // that connects mid-firesale, or reconnects after a blip, picks the run straight back up.
+            firesale: firesaleView(curSession),
+            firesaleSettings: curSession.firesaleSettings || {},
             connections: {
                 twitch: { channel: curSession.connections.twitch.channel, error: curSession.twitchError || "" },
                 streamlabs: { hasToken: !!curSession.connections.streamlabs.token, error: curSession.slError || "" },
@@ -329,6 +337,25 @@ export function startApi(){
         }
     });
 
+    // firesale state goes to this user's /firesale browser source(s) and to the dashboard, which shows the run
+    // (entrants, countdown, winner) on its Firesale tab. everything else on the sync is unchanged, so a source
+    // that missed a push still catches up on the next one.
+    bus.on("firesale", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.readyState !== WebSocket.OPEN)
+                continue;
+            if (ws.page !== "firesale" && ws.page !== "settings")
+                continue;
+            try {
+                ws.send(JSON.stringify({ firesale: payload }));
+            } catch (err) {
+                console.log("Failed to send firesale state to a client:", err);
+            }
+        }
+    });
+
     // play commands go ONLY to this user's /events browser source(s), not the dashboard/widget — and only to
     // the ones on the event's layer, so a scene can hold several sources in different places and each event
     // renders to the one it names. "" is the default layer: a source url with no ?layer=, and an event that
@@ -435,6 +462,12 @@ export function startApi(){
                             emitSync(id); // pushes the new words to that box's browser source(s)
                         return;
                     }
+                    if (parsed.firesale){
+                        // drives the giveaway overlay; grants no time, so it reports itself and stops here
+                        const res = runFiresaleCommand(curSession, parsed.firesale);
+                        ws.send(JSON.stringify({ commandResult: res }));
+                        return;
+                    }
                     if (parsed.error || !parsed.event){
                         ws.send(JSON.stringify({ commandResult: { ok: false, message: parsed.error || "Invalid command." } }));
                         return;
@@ -534,6 +567,40 @@ export function startApi(){
                     const res = setTextBoxText(curSession, jData.box, typeof jData.text === "string" ? jData.text : "");
                     if (!res.ok)
                         ws.send(JSON.stringify({ commandResult: res }));
+                    break;
+                }
+                case "setFiresaleSettings": {
+                    // merged onto what's stored, so the tab can push one field without resending the rest
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.firesaleSettings = normalizeFiresale({ ...(curSession.firesaleSettings || {}), ...patch });
+                    // the look (colours, music, bouncer cap) rides the firesale payload, so a source already on
+                    // screen picks up a change immediately rather than at the next force sync
+                    pushFiresale(curSession);
+                    break;
+                }
+                case "startFiresale":
+                    // the dashboard starting one by hand — a rehearsal, or a giveaway whose announcement we
+                    // missed. same path fourthwall's announcement takes.
+                    startFiresale(curSession, {
+                        seconds: Number(jData.seconds) || 0,
+                        prize: typeof jData.prize === "string" ? jData.prize : "",
+                        gifter: typeof jData.gifter === "string" ? jData.gifter : "",
+                    });
+                    break;
+                case "stopFiresale":
+                    stopFiresale(curSession);
+                    break;
+                case "endFiresaleEntries":
+                    // close entries early and go to DRAWING…, still waiting on fourthwall for the winner
+                    beginDraw(curSession);
+                    break;
+                case "setFiresaleWinner": {
+                    // the operator naming the winner by hand, for when fourthwall's announcement never lands
+                    const name = typeof jData.name === "string" ? jData.name.trim() : "";
+                    if (name)
+                        declareFiresaleWinner(curSession, name);
                     break;
                 }
                 case "setFwProductBonuses":

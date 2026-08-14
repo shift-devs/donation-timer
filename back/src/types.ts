@@ -49,6 +49,11 @@ export interface TimerUserSession {
     eventLayers: any
     // mod-editable /text browser sources: one entry per source, carrying its look and its current words
     textBoxes: any
+    // how the /firesale browser source looks and behaves (persisted config — see firesale.ts)
+    firesaleSettings: any
+    // the giveaway currently on screen: phase, entrants, winner. transient — never persisted, because a
+    // giveaway that finished while the process was down must not come back up with it.
+    firesale?: any
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any

@@ -27,6 +27,12 @@ export function emitFwActivity(userId: number, entry: any) {
     bus.emit("fwActivityEntry", userId, entry);
 }
 
+// firesale state for this user's /firesale browser source(s). api.ts routes it to page=firesale clients, and
+// also to the dashboard so the Firesale tab can show the run live.
+export function emitFiresale(userId: number, payload: any) {
+    bus.emit("firesale", userId, payload);
+}
+
 // a line for this user's dashboard terminal. api.ts routes it to page=settings clients only. ok=true prints it
 // green, for the things that go right and still deserve to be visible (a mod's chat command landing).
 export function emitTerminal(userId: number, message: string, ok = false) {

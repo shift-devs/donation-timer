@@ -96,6 +96,34 @@ export function setTextBoxText(ws: WebSocket, box: string, text: string) {
 	return 1;
 }
 
+// how the /firesale source looks and behaves. merged server-side, so one field can be pushed on its own.
+export function setFiresaleSettings(ws: WebSocket, settings: any) {
+	send(ws, { event: "setFiresaleSettings", settings: settings });
+	return 1;
+}
+
+// start a giveaway by hand — a rehearsal, or one whose Fourthwall announcement never arrived
+export function startFiresale(ws: WebSocket, seconds: number, prize: string, gifter: string) {
+	send(ws, { event: "startFiresale", seconds: seconds, prize: prize, gifter: gifter });
+	return 1;
+}
+
+export function stopFiresale(ws: WebSocket) {
+	send(ws, { event: "stopFiresale" });
+	return 1;
+}
+
+// close entries early; the winner is still whoever Fourthwall announces
+export function endFiresaleEntries(ws: WebSocket) {
+	send(ws, { event: "endFiresaleEntries" });
+	return 1;
+}
+
+export function setFiresaleWinner(ws: WebSocket, name: string) {
+	send(ws, { event: "setFiresaleWinner", name: name });
+	return 1;
+}
+
 export function testTimerEvent(ws: WebSocket, id: string) {
 	send(ws, { event: "testTimerEvent", id: id });
 	return 1;
