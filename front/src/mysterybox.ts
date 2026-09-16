@@ -9,6 +9,7 @@ export const DEFAULT_MYSTERYBOX = {
 	music: "",
 	volume: 0.7,
 	spinSec: 6,
+	spinTiles: 20,
 	revealHoldSec: 8,
 	bgColor: "transparent",
 	titleColor: "#ffd400",
@@ -28,6 +29,10 @@ export const DEFAULT_PRIZE = {
 };
 
 export const MAX_PRIZES = 30;
+// how many prizes may fly past the marker on one spin. the spin always takes spinSec, so this is the reel's
+// speed rather than its length — more prizes over the same seconds is a faster reel.
+export const MIN_SPIN_TILES = 5;
+export const MAX_SPIN_TILES = 200;
 
 // every effect a prize can have, in the order the editor lists them. `needs` is what the tab has to ask for
 // once that kind is picked — it's why the editor can show one set of inputs per kind without a switch.
@@ -94,6 +99,7 @@ export function canonMysteryBox(raw: any) {
 		music: typeof r.music === "string" ? r.music : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
 		spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
+		spinTiles: numIn(r.spinTiles, MIN_SPIN_TILES, MAX_SPIN_TILES, d.spinTiles),
 		revealHoldSec: numIn(r.revealHoldSec, 1, 60, d.revealHoldSec),
 		bgColor: hexOr(r.bgColor, d.bgColor, "transparent"),
 		titleColor: hexOr(r.titleColor, d.titleColor),

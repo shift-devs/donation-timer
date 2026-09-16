@@ -28,7 +28,7 @@ import {
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import { BASE_URL } from "../../Consts";
-import { canonMysteryBox, prizeImageSrc, prizeOdds, countdown, EFFECT_KINDS, MAX_PRIZES, DEFAULT_PRIZE } from "../../mysterybox";
+import { canonMysteryBox, prizeImageSrc, prizeOdds, countdown, EFFECT_KINDS, MAX_PRIZES, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
 
 // prize art in public/prizes, audio in public/media (vite.config.ts bakes both lists in at build time)
 const PRIZE_IMAGES: string[] = typeof __PRIZES__ !== "undefined" ? __PRIZES__ : [];
@@ -556,6 +556,20 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="sm" color="gray.500">sec</Text>
 					</HStack>
 					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">flying past</Text>
+						<NumberInput
+							size="sm"
+							maxW="100px"
+							min={MIN_SPIN_TILES}
+							max={MAX_SPIN_TILES}
+							value={draft.spinTiles}
+							onChange={(_, n) => patch({ spinTiles: Number.isFinite(n) ? Math.min(MAX_SPIN_TILES, Math.max(MIN_SPIN_TILES, Math.trunc(n))) : 20 }, "tiles")}
+						>
+							<NumberInputField />
+						</NumberInput>
+						<Text fontSize="sm" color="gray.500">prizes</Text>
+					</HStack>
+					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">Hold the prize</Text>
 						<NumberInput
 							size="sm"
@@ -570,6 +584,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="sm" color="gray.500">sec</Text>
 					</HStack>
 				</HStack>
+
+				<Text fontSize="xs" color="gray.500">
+					That averages <b>{(draft.spinTiles / draft.spinSec).toFixed(1)} prizes a second</b> — nearer{" "}
+					{((draft.spinTiles / draft.spinSec) * 3).toFixed(0)} off the line, easing down to a stop on the
+					one that won. The spin always takes the seconds you set, so sending more past it makes the reel
+					faster rather than the spin longer.
+				</Text>
 
 				<HStack spacing={2} wrap="wrap">
 					<Text fontSize="sm" color="gray.600">Spin music</Text>

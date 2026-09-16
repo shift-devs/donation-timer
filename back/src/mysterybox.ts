@@ -31,8 +31,10 @@ const MAX_BLURB = 120;        // the line under the prize name on stream
 const MAX_PATH = 300;         // an image/sound filename, or a full url
 const MAX_OWNERS = 5000;      // ledger rows; past this the smallest holdings are dropped (see normalizeBoxes)
 const MAX_HELD = 9999;        // boxes one person can be holding
-const REEL_MIN = 14;          // images the reel steps through before it lands, however few prizes exist
-const REEL_MAX = 60;
+// how many prizes may be sent past the marker on one spin. the spin always takes spinSec whatever this is,
+// so raising it doesn't lengthen the spin — it speeds the reel up, which is the point of having it.
+const MIN_SPIN_TILES = 5;
+const MAX_SPIN_TILES = 200;
 // tiles held either side of the run so the strip never shows its own ends. the source has room for ~3.5 at a
 // time, so three each side means there is always art to the left of where the spin starts and to the right of
 // where it lands — which is the whole illusion: a reel that could have carried on turning either way.
@@ -56,6 +58,9 @@ export const DEFAULT_MYSTERYBOX = {
     volume: 0.7,
     // how long the reel cycles before it lands. the source eases it to a stop over exactly this long.
     spinSec: 6,
+    // how many prizes fly past the marker in that time. this is the reel's SPEED: the spin lasts spinSec
+    // either way, so more prizes over the same seconds is a faster reel, not a longer one.
+    spinTiles: 20,
     // how long the prize stays up after the reel lands, before the source goes back to drawing nothing
     revealHoldSec: 8,
     bgColor: "transparent",
@@ -165,6 +170,7 @@ export function normalizeMysteryBox(raw: any): any {
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
+        spinTiles: numIn(r.spinTiles, MIN_SPIN_TILES, MAX_SPIN_TILES, d.spinTiles),
         revealHoldSec: numIn(r.revealHoldSec, 1, 60, d.revealHoldSec),
         bgColor: hexOr(r.bgColor, d.bgColor, TRANSPARENT),
         titleColor: hexOr(r.titleColor, d.titleColor),
@@ -336,6 +342,7 @@ export function mysteryBoxView(session: TimerUserSession): any {
         music: cfg.music,
         volume: cfg.volume,
         spinSec: cfg.spinSec,
+        spinTiles: cfg.spinTiles,
         revealHoldSec: cfg.revealHoldSec,
         bgColor: cfg.bgColor,
         titleColor: cfg.titleColor,
@@ -440,11 +447,12 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
     const pool = winnablePrizes(session).map((p: any) => ({ id: p.id, weight: p.weight }));
     if (!pool.length)
         return { reel: [winnerId], startIndex: 0, landIndex: 0 };
-    const run = Math.max(REEL_MIN, Math.min(REEL_MAX, pool.length * 4));
-    const total = run + REEL_PAD * 2;
+    // the strip is the run the operator asked for, the tile it lands on, and the padding either side
+    const travel = mbSettings(session).spinTiles;
+    const total = travel + 1 + REEL_PAD * 2;
     const reel = arrangeTiles(tileCounts(pool, total));
     const startIndex = REEL_PAD;
-    const landIndex = total - 1 - REEL_PAD;
+    const landIndex = REEL_PAD + travel;
 
     // the tile under the marker has to be the prize that was drawn, and the strip is TURNED to bring one of
     // that prize's own tiles there rather than having one written into place. the layout above is circular —
