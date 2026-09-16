@@ -1,7 +1,7 @@
 import { TimerUserSession, TimerEvent } from "./types";
 import { CHAT_CMD_MAX_TIME } from "./config";
 import { toSeconds } from "./rates";
-import { addToEndTime } from "./timer";
+import { addToEndTime, boostFactor } from "./timer";
 import { emitSync, reportError } from "./bus";
 import { firePlatformTriggers } from "./scheduler";
 
@@ -39,15 +39,30 @@ export function handle(session: TimerUserSession, event: TimerEvent){
             firePlatformTriggers(session, event);
         if (event.kind === "sub" && session.ignoreAnon && event.anonymous)
             return;
-        const seconds = toSeconds(session.rates, event);
-        if (!seconds)
+        const rated = toSeconds(session.rates, event);
+        if (!rated)
             return;
+        // a boost ("bonfire sale") multiplies what a CONTRIBUTION is worth, for as long as it lasts. this is
+        // the one point every sub, cheer, donation and order passes through, so it's the only place it has
+        // to be applied.
+        // what it skips is a typed "time <seconds>", which is not a contribution but somebody stating the
+        // exact number of seconds they want added — doubling that would fight an operator correcting the
+        // clock, and would silently double the time commands that scheduled events fire. everything else is
+        // in, including the flat and per-product bonuses a fourthwall order carries, because those ARE part
+        // of what the purchase granted.
+        const factor = event.kind === "time" && event.manual ? 1 : boostFactor(session);
+        const seconds = factor === 1 ? rated : Math.round(rated * factor);
+        const label = factor === 1
+            ? event.label
+            : `${event.label} (x${factor} ${(session.timeBoost && session.timeBoost.reason) || "boost"})`;
+        // the command ceiling is checked on the BOOSTED number: it's a ceiling on how much time one typed
+        // command may move the clock, and a boost that could carry it past would defeat the point of it
         if (event.manual && Math.abs(seconds) > CHAT_CMD_MAX_TIME){
             console.log(`Time change would be greater than ${CHAT_CMD_MAX_TIME} seconds!`);
             return;
         }
         // tag every logged action with its platform (one chokepoint -> covers organic + chat + terminal commands)
-        addToEndTime(session, seconds, `[${event.platform}] ${event.label}`);
+        addToEndTime(session, seconds, `[${event.platform}] ${label}`);
     } catch (err) {
         reportError(session.userId, `applying event "${(event && event.label) || "?"}"`, err);
     }

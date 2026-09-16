@@ -20,7 +20,7 @@
 
 import { TimerUserSession } from "./types";
 import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
-import { addToEndTime, pauseTimerFor } from "./timer";
+import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
 
@@ -42,7 +42,8 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timeBoost", "playEvent", "textBox"];
+const MAX_BOOST = 10;
 
 export const DEFAULT_MYSTERYBOX = {
     // off = "!mb open" does nothing and firesales credit nobody. the boxes people already hold are kept.
@@ -84,7 +85,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -118,6 +119,8 @@ function normalizeEffect(raw: any): any {
         // shared by every timed effect: how much time to add/take, how long to pause, how long a text box
         // holds its words. one field rather than four, because only one of them is ever live at a time.
         seconds: numIn(r.seconds, 0, 24 * 3600, 0),
+        // timeBoost: what every contribution's time is multiplied by while it lasts. 2 is the bonfire sale.
+        factor: Math.min(MAX_BOOST, Math.max(1, Number.isFinite(Number(r.factor)) ? Number(r.factor) : 2)),
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
@@ -608,6 +611,12 @@ export function applyEffect(session: TimerUserSession, prize: any){
         pauseTimerFor(session, e.seconds * 1000, label);
         return;
     }
+    if (e.kind === "timeBoost" && e.seconds > 0 && e.factor > 1){
+        // the prize's own name is what chat will hear it called, so that's what the terminal and the on-stream
+        // banner say — "Bonfire Sale", not "x2 for 60s"
+        startTimeBoost(session, e.seconds * 1000, e.factor, prize.name || "Boost");
+        return;
+    }
     if (e.kind === "playEvent" && e.eventId){
         // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
         // and the event's delayed command (if it has one) runs too
@@ -658,6 +667,10 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0 ? `takes ${mins(e.seconds)}` : "takes nothing (set the seconds)";
     if (e.kind === "pauseTimer")
         return e.seconds > 0 ? `pauses the timer ${mins(e.seconds)}` : "pauses nothing (set the seconds)";
+    if (e.kind === "timeBoost")
+        return e.seconds > 0 && e.factor > 1
+            ? `every contribution is worth x${e.factor} for ${mins(e.seconds)}`
+            : "boosts nothing (set the seconds and a multiplier above 1)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")

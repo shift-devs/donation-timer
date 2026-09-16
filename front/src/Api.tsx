@@ -169,6 +169,12 @@ export function resumeTimer(ws: WebSocket) {
 	return 1;
 }
 
+// call a bonfire sale off early
+export function endTimeBoost(ws: WebSocket) {
+	send(ws, { event: "endTimeBoost" });
+	return 1;
+}
+
 export function testTimerEvent(ws: WebSocket, id: string) {
 	send(ws, { event: "testTimerEvent", id: id });
 	return 1;

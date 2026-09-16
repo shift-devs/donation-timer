@@ -25,7 +25,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -41,6 +41,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "addTime", label: "Add time", needs: ["seconds"], hint: "Goes through the timer's own cap, exactly like a donation." },
 	{ key: "removeTime", label: "Take time away", needs: ["seconds"], hint: "Ignored if the timer is at 0 with \"stop at zero\" on." },
 	{ key: "pauseTimer", label: "Pause the timer", needs: ["seconds"], hint: "The countdown holds still, then carries on where it left off. Time won during a pause still counts." },
+	{ key: "timeBoost", label: "Multiply all contributions", needs: ["factor", "seconds"], hint: "A bonfire sale: for this long, every sub, cheer, donation and order grants multiplied time. A typed \"time\" command is left alone, so you can still correct the clock. Overlapping sales take the later end and the bigger multiplier rather than compounding." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
 	{ key: "textBox", label: "Set a text box", needs: ["box", "text", "seconds"], hint: "Puts words on a /text source. Seconds = how long before whatever was there goes back; 0 keeps them up." },
 ];
@@ -81,6 +82,7 @@ export function canonPrize(raw: any, i: number) {
 		effect: {
 			kind: EFFECT_KINDS.some((k) => k.key === e.kind) ? e.kind : "none",
 			seconds: numIn(e.seconds, 0, 24 * 3600, 0),
+			factor: Math.min(10, Math.max(1, Number.isFinite(Number(e.factor)) ? Number(e.factor) : 2)),
 			eventId: typeof e.eventId === "string" ? e.eventId : "",
 			box: typeof e.box === "string" ? e.box : "",
 			text: typeof e.text === "string" ? e.text : "",

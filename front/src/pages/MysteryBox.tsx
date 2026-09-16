@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as consts from "../Consts";
 import { TRANSPARENT_BODY_CSS } from "../textEffect";
-import { canonMysteryBox, prizeImageSrc, STAGE_W, STAGE_H } from "../mysterybox";
+import { canonMysteryBox, prizeImageSrc, countdown, STAGE_W, STAGE_H } from "../mysterybox";
 
 // the OBS browser source for the mystery box: /mysterybox?token=… . add it as a Browser Source and size it
 // 4:3, the same as the firesale source. when a viewer spends a box with "!mb open" the backend pushes the
@@ -47,6 +47,10 @@ const CSS = `
 	0%, 100% { box-shadow: 0 0 30px 6px rgba(255,212,0,0.55); }
 	50%      { box-shadow: 0 0 60px 18px rgba(255,212,0,0.95); }
 }
+@keyframes mb-pulse {
+	0%, 100% { opacity: 1; }
+	50%      { opacity: 0.72; }
+}
 @keyframes mb-bob {
 	0%, 100% { transform: translateY(0) rotate(-2deg); }
 	50%      { transform: translateY(-10px) rotate(2deg); }
@@ -58,6 +62,9 @@ const MysteryBox: React.FC = () => {
 	const token = params.get("token");
 
 	const [state, setState] = useState<any>(null);
+	// a bonfire sale outlives the reveal that started it by a long way, so it's tracked apart from the open:
+	// the source keeps a banner up for as long as one runs, which is the only way chat learns it's on.
+	const [boost, setBoost] = useState<any>(null);
 	// which open's prize sound has already been played, keyed on the open's nonce. NOT a bare "have i played
 	// one" flag: that stays truthy after the overlay goes idle, so the element would remount — and replay —
 	// the moment the next box was opened. (the firesale source learned this the hard way.)
@@ -84,7 +91,11 @@ const MysteryBox: React.FC = () => {
 			// periodic sync, which is what recovers a source that reconnected mid-spin
 			if ("mysterybox" in response && response.mysterybox)
 				setState(response.mysterybox);
-			else if ("error" in response)
+			// only the sync carries this, and it carries it every time (null included) — a targeted mysterybox
+			// push has no opinion on it, so the key's absence must not read as "the sale ended"
+			if ("timeBoost" in response)
+				setBoost(response.timeBoost);
+			if (!("mysterybox" in response) && "error" in response)
 				console.log(`error: ${response.error}`);
 		};
 
@@ -191,6 +202,15 @@ const MysteryBox: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [phase, nonce]);
 
+	// re-render once a second purely to move the banner's countdown on
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		if (!boost)
+			return;
+		const id = setInterval(() => setTick((n) => n + 1), 500);
+		return () => clearInterval(id);
+	}, [!!boost]);
+
 	useEffect(() => {
 		if (phase === "idle"){
 			setLandCue("");   // let the element unmount, so the next open can mount a fresh one and play
@@ -198,7 +218,11 @@ const MysteryBox: React.FC = () => {
 		}
 	}, [phase]);
 
-	if (!token || !active)
+	// a sale keeps the source on screen after the box that granted it has gone, and can bring it back with no
+	// box open at all
+	const boostLeft = boost ? boost.until - Date.now() : 0;
+	const showBoost = !!boost && boostLeft > 0;
+	if (!token || (!active && !showBoost))
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
 
 	const transparent = cfg.bgColor === "transparent";
@@ -299,6 +323,39 @@ const MysteryBox: React.FC = () => {
 			)}
 
 			<div style={stage}>
+				{showBoost && (
+					<div
+						style={{
+							position: "absolute",
+							top: 0,
+							left: 0,
+							right: 0,
+							padding: "10px 0 14px",
+							background: "linear-gradient(180deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0) 100%)",
+							zIndex: 5,
+							animation: "mb-pulse 1100ms ease-in-out infinite",
+						}}
+					>
+						<div
+							style={{
+								color: cfg.titleColor,
+								fontSize: 52,
+								lineHeight: 1,
+								letterSpacing: "0.03em",
+								WebkitTextStrokeWidth: "4px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+							}}
+						>
+							{boost.reason}
+						</div>
+						<div style={{ color: cfg.nameColor, fontSize: 34, textShadow: outline }}>
+							EVERYTHING IS WORTH x{boost.factor} — {countdown(boostLeft)}
+						</div>
+					</div>
+				)}
+
+				{active && (<>
 				<div
 					style={{
 						color: cfg.titleColor,
@@ -397,6 +454,7 @@ const MysteryBox: React.FC = () => {
 						</div>
 					)}
 				</div>
+				</>)}
 			</div>
 
 			{/* every prize's art, fetched once and never drawn: the first spin of a session would otherwise be

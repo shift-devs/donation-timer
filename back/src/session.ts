@@ -6,7 +6,7 @@ import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { normalizeTextBoxes } from "./textBoxes";
 import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
-import { endPauseTimer } from "./timer";
+import { endPauseTimer, endBoostTimer } from "./timer";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
@@ -78,6 +78,7 @@ export function loginUser(inObj: Object){
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
     lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
     lvObj.timerPause = undefined;   // nor does a pause: the deadline in the db is already the paused one
+    lvObj.timeBoost = undefined;    // nor a bonfire sale — it lapses with the process that was running it
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);
@@ -153,6 +154,7 @@ export function logoutUser(id: number){
     endFiresaleTimers(id); // a pending phase timer must not fire against a detached session
     endMysteryBoxTimers(id);
     endPauseTimer(id);     // otherwise the pause tick keeps dragging a detached session's deadline forward
+    endBoostTimer(id);
     try {
         if (curSession.conSL)
             curSession.conSL.disconnect();

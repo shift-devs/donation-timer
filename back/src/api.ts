@@ -15,7 +15,7 @@ import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreaml
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwitchSubsDeviceAuth, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
-import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer } from "./timer";
+import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer, timeBoostView, endTimeBoost } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
 import { parseCommand } from "./commands";
@@ -45,10 +45,12 @@ function wsCloseError(ws: TimerWebSocket, reason: string){
 // each page's ENTRY MUST INCLUDE THE KEY IT GATES ON: the pages branch on `"subCounts" in response` and friends,
 // so dropping the gate key doesn't degrade a source, it silences it. syncFieldsCoverPageGates() in the tests
 // pins that down. an unlisted page (the dashboard, or a socket with no page at all) gets the whole payload.
+// timeBoost rides the core for a different reason: it changes what a contribution is worth, which is worth
+// SAYING on stream — the /mysterybox source puts a banner up for as long as one lasts.
 // timerPause rides the core rather than a per-page list because EVERY surface that draws the countdown has to
 // know about it: a source only hears a new endTime every few seconds, so without this it would tick down from
 // the last one it heard and then jump back when the next sync arrives. it's null the rest of the time.
-const SYNC_CORE = ["success", "endTime", "timerPause"]; // endTime: the widget counts off it, the activity feed uses it as "ready"
+const SYNC_CORE = ["success", "endTime", "timerPause", "timeBoost"]; // endTime: the widget counts off it, the activity feed uses it as "ready"
 export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     widget: ["widgetSettings"],
     subcount: ["widgetSettings", "activeSubs", "subCounts"],
@@ -116,6 +118,8 @@ function wsSync(ws: TimerWebSocket) {
             mysteryBoxes: curSession.mysteryBoxes || {},
             // non-null only while a prize is holding the countdown still; carries the remaining time to freeze on
             timerPause: timerPauseView(curSession),
+            // non-null only while a prize has every contribution granting multiplied time
+            timeBoost: timeBoostView(curSession),
             connections: {
                 twitch: { channel: curSession.connections.twitch.channel, error: curSession.twitchError || "" },
                 streamlabs: { hasToken: !!curSession.connections.streamlabs.token, error: curSession.slError || "" },
@@ -692,6 +696,10 @@ export function startApi(){
                 case "resumeTimer":
                     // cut a prize's timer pause short
                     resumeTimer(curSession);
+                    break;
+                case "endTimeBoost":
+                    // call a bonfire sale off early
+                    endTimeBoost(curSession);
                     break;
                 case "setFwProductBonuses":
                     curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);

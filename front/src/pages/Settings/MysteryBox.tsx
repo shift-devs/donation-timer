@@ -22,6 +22,7 @@ import {
 	testMysteryBox,
 	stopMysteryBox,
 	resumeTimer,
+	endTimeBoost,
 } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
@@ -80,7 +81,8 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 	const phase: string = (run && run.phase) || "idle";
 	const pause = settings.timerPause || null;
-	const ticking = phase !== "idle" || !!pause;
+	const boost = settings.timeBoost || null;
+	const ticking = phase !== "idle" || !!pause || !!boost;
 
 	useEffect(() => {
 		if (!ticking)
@@ -161,7 +163,10 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{spec.needs.includes("seconds") && (
 						<HStack spacing={1}>
 							<Text fontSize="sm" color="gray.600">
-								{prize.effect.kind === "pauseTimer" ? "Pause for" : prize.effect.kind === "textBox" ? "Hold for" : "Seconds"}
+								{prize.effect.kind === "pauseTimer" ? "Pause for"
+									: prize.effect.kind === "textBox" ? "Hold for"
+									: prize.effect.kind === "timeBoost" ? "for"
+									: "Seconds"}
 							</Text>
 							<NumberField
 								width="110px"
@@ -173,6 +178,19 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							<Text fontSize="sm" color="gray.500">
 								{prize.effect.seconds >= 60 ? `= ${countdown(prize.effect.seconds * 1000)}` : "sec"}
 							</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("factor") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Everything is worth</Text>
+							<Text fontSize="sm" color="gray.500">x</Text>
+							<NumberField
+								width="80px"
+								min={2}
+								max={10}
+								value={prize.effect.factor}
+								onCommit={(n) => patchEffect(prize.id, { factor: n }, `f${prize.id}`)}
+							/>
 						</HStack>
 					)}
 					{spec.needs.includes("eventId") && (
@@ -259,6 +277,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							{countdown(pause.until - Date.now())} left — {pause.reason}
 						</Text>
 						<Button size="xs" onClick={() => resumeTimer(ws)}>Resume now</Button>
+					</Flex>
+				)}
+
+				{boost && (
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Badge colorScheme="red">x{boost.factor} ON EVERYTHING</Badge>
+						<Text fontSize="sm" color="gray.600">
+							{countdown(boost.until - Date.now())} left — {boost.reason}
+						</Text>
+						<Button size="xs" onClick={() => endTimeBoost(ws)}>End now</Button>
 					</Flex>
 				)}
 

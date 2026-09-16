@@ -63,6 +63,10 @@ export interface TimerUserSession {
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
     // the firesale run above — a spin that was interrupted by a restart must not come back with it.
     mysterybox?: any
+    // set while a prize has every contribution granting more time than its rate says (the "bonfire sale").
+    // `factor` is what a contribution's seconds are multiplied by, `until` is when it lapses. the rates
+    // themselves are never touched — see timer.ts.
+    timeBoost?: { until: number, factor: number, reason: string }
     // set while a prize is holding the countdown still. `until` is when it resumes and `remainingMs` is the
     // time being held — that one is authoritative, and endTime is re-derived from it by the tick in timer.ts.
     timerPause?: { until: number, reason: string, remainingMs: number }

@@ -159,3 +159,78 @@ export function endPauseTimer(userId: number){
         clearInterval(slot.handle);
     delete pauseTicks[userId];
 }
+
+// ---------------------------------------------------------------------------
+// boosting
+// ---------------------------------------------------------------------------
+//
+// a window during which every contribution grants MORE time than its rate says — the "bonfire sale" a mystery
+// box can hand out. it multiplies what a sub, a cheer, a donation or an order is worth for as long as it
+// lasts, and then lapses on its own.
+//
+// it deliberately does NOT touch the rates themselves. rates are configuration the operator owns, a boost is
+// a thing that is happening; writing one into the other would mean a crash mid-sale left the stream paying
+// double forever, and would fight the dashboard the moment somebody edited a rate while it ran.
+// the multiplication happens in events.ts, at the one point that turns an event into seconds.
+
+const boostTimers: { [userId: number]: any } = {};
+
+// start (or extend) a boost. an overlapping one takes the LATER end and the LARGER factor rather than
+// multiplying the two together — two sales landing back to back should feel generous, not compound into a
+// x4 nobody chose.
+export function startTimeBoost(session: TimerUserSession, ms: number, factor: number, reason: string){
+    const duration = Math.max(0, Math.trunc(ms));
+    const mult = Number.isFinite(factor) ? factor : 1;
+    if (!duration || mult <= 1)
+        return;
+    const now = Date.now();
+    const cur = session.timeBoost && session.timeBoost.until > now ? session.timeBoost : undefined;
+    session.timeBoost = {
+        until: Math.max(now + duration, cur ? cur.until : 0),
+        factor: Math.max(mult, cur ? cur.factor : 0),
+        reason,
+    };
+    clearTimeout(boostTimers[session.userId]);
+    boostTimers[session.userId] = setTimeout(() => {
+        try {
+            endTimeBoost(session);
+        } catch (err) {
+            reportError(session.userId, "ending a time boost", err);
+        }
+    }, session.timeBoost.until - now);
+    emitTerminal(session.userId, `${reason} — everything is worth x${session.timeBoost.factor} for ${Math.round((session.timeBoost.until - now) / 1000)}s.`, true);
+    emitSync(session.userId);
+}
+
+export function endTimeBoost(session: TimerUserSession){
+    const was = session.timeBoost;
+    clearTimeout(boostTimers[session.userId]);
+    delete boostTimers[session.userId];
+    session.timeBoost = undefined;
+    if (was){
+        emitTerminal(session.userId, `${was.reason} is over — back to the normal rates.`, true);
+        emitSync(session.userId);
+    }
+}
+
+// what a contribution's time should be multiplied by right now. 1 = nothing doing. the clock is checked here
+// as well as by the timer above, so a boost can never outlive its window even if that timer never fired.
+export function boostFactor(session: TimerUserSession): number {
+    const b = session.timeBoost;
+    if (!b || b.until <= Date.now())
+        return 1;
+    return b.factor > 1 ? b.factor : 1;
+}
+
+export function timeBoostView(session: TimerUserSession): any {
+    const b = session.timeBoost;
+    if (!b || b.until <= Date.now())
+        return null;
+    return { until: b.until, factor: b.factor, reason: b.reason };
+}
+
+// tear down on logout so the expiry can't fire against a detached session
+export function endBoostTimer(userId: number){
+    clearTimeout(boostTimers[userId]);
+    delete boostTimers[userId];
+}
