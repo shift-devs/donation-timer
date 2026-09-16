@@ -9,12 +9,13 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwitchSubsDeviceAuth, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
-import { setEndTime, isStoppedAtZero } from "./timer";
+import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
 import { parseCommand } from "./commands";
@@ -44,7 +45,10 @@ function wsCloseError(ws: TimerWebSocket, reason: string){
 // each page's ENTRY MUST INCLUDE THE KEY IT GATES ON: the pages branch on `"subCounts" in response` and friends,
 // so dropping the gate key doesn't degrade a source, it silences it. syncFieldsCoverPageGates() in the tests
 // pins that down. an unlisted page (the dashboard, or a socket with no page at all) gets the whole payload.
-const SYNC_CORE = ["success", "endTime"]; // endTime: the widget counts off it, the activity feed uses it as "ready"
+// timerPause rides the core rather than a per-page list because EVERY surface that draws the countdown has to
+// know about it: a source only hears a new endTime every few seconds, so without this it would tick down from
+// the last one it heard and then jump back when the next sync arrives. it's null the rest of the time.
+const SYNC_CORE = ["success", "endTime", "timerPause"]; // endTime: the widget counts off it, the activity feed uses it as "ready"
 export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     widget: ["widgetSettings"],
     subcount: ["widgetSettings", "activeSubs", "subCounts"],
@@ -59,6 +63,9 @@ export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     // the whole run in one field (phase, entrants, winner) plus the look. targeted firesale pushes keep it
     // live between syncs — a 5s force sync would have names turning up long after the chatter typed !enter.
     firesale: ["firesale"],
+    // the reel, who is opening it and the prize art, in one field — same arrangement as the firesale above,
+    // and kept live between syncs by targeted mysterybox pushes
+    mysterybox: ["mysterybox"],
 };
 
 export function projectSync(page: string | undefined, full: any): any {
@@ -101,6 +108,14 @@ function wsSync(ws: TimerWebSocket) {
             // that connects mid-firesale, or reconnects after a blip, picks the run straight back up.
             firesale: firesaleView(curSession),
             firesaleSettings: curSession.firesaleSettings || {},
+            // the box being opened right now (idle when there isn't one), so a source that connects mid-spin
+            // picks the reel straight back up
+            mysterybox: mysteryBoxView(curSession),
+            mysteryBoxSettings: curSession.mysteryBoxSettings || {},
+            // the ledger, for the dashboard tab's list of who is holding what
+            mysteryBoxes: curSession.mysteryBoxes || {},
+            // non-null only while a prize is holding the countdown still; carries the remaining time to freeze on
+            timerPause: timerPauseView(curSession),
             connections: {
                 twitch: { channel: curSession.connections.twitch.channel, error: curSession.twitchError || "" },
                 streamlabs: { hasToken: !!curSession.connections.streamlabs.token, error: curSession.slError || "" },
@@ -356,6 +371,24 @@ export function startApi(){
         }
     });
 
+    // the mystery box goes to this user's /mysterybox browser source(s) and to the dashboard, whose tab shows
+    // the reel and who is opening it. same shape as the firesale route above.
+    bus.on("mysterybox", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.readyState !== WebSocket.OPEN)
+                continue;
+            if (ws.page !== "mysterybox" && ws.page !== "settings")
+                continue;
+            try {
+                ws.send(JSON.stringify({ mysterybox: payload }));
+            } catch (err) {
+                console.log("Failed to send mystery box state to a client:", err);
+            }
+        }
+    });
+
     // play commands go ONLY to this user's /events browser source(s), not the dashboard/widget — and only to
     // the ones on the event's layer, so a scene can hold several sources in different places and each event
     // renders to the one it names. "" is the default layer: a source url with no ?layer=, and an event that
@@ -466,6 +499,15 @@ export function startApi(){
                         // drives the giveaway overlay; grants no time, so it reports itself and stops here
                         const res = runFiresaleCommand(curSession, parsed.firesale);
                         ws.send(JSON.stringify({ commandResult: res }));
+                        return;
+                    }
+                    if (parsed.mb){
+                        // the mystery box: hand out / take back boxes, open one on someone's behalf, rehearse a
+                        // prize. a prize's effect may well add time, but that goes through handle() itself, so
+                        // there's nothing to measure here.
+                        const res = runMysteryBoxCommand(curSession, parsed.mb);
+                        ws.send(JSON.stringify({ commandResult: res }));
+                        emitSync(id); // the ledger may have moved
                         return;
                     }
                     if (parsed.error || !parsed.event){
@@ -611,6 +653,45 @@ export function startApi(){
                     // take one giveaway off the overlay, leaving any others running
                     if (typeof jData.runId === "string" && jData.runId)
                         endRun(curSession, jData.runId);
+                    break;
+                case "setMysteryBoxSettings": {
+                    // merged onto what's stored, so the tab can push one field (or just the prize list)
+                    // without resending the rest
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.mysteryBoxSettings = normalizeMysteryBox({ ...(curSession.mysteryBoxSettings || {}), ...patch });
+                    // the look and the prize art ride the mysterybox payload, so a source already in the scene
+                    // picks a change up immediately rather than at the next force sync
+                    pushMysteryBox(curSession);
+                    break;
+                }
+                case "giveMysteryBox": {
+                    // the operator handing out a box by hand — a firesale whose announcement we missed, or a
+                    // gifter whose fourthwall name didn't match their twitch login
+                    const name = typeof jData.name === "string" ? jData.name.trim() : "";
+                    const n = Math.trunc(Number(jData.count) || 1);
+                    if (name && n)
+                        grantMysteryBox(curSession, name, name, n);
+                    break;
+                }
+                case "renameMysteryBoxOwner": {
+                    // move one ledger row onto another name, for exactly that mismatch
+                    const res = renameOwner(curSession, jData.from, jData.to);
+                    ws.send(JSON.stringify({ commandResult: res }));
+                    break;
+                }
+                case "testMysteryBox":
+                    // spin the reel for real onto a named prize (or a fair draw), without spending anyone's box.
+                    // the effect fires exactly as it would in front of chat — that's the point of a rehearsal.
+                    ws.send(JSON.stringify({ commandResult: testMysteryBox(curSession, typeof jData.prizeId === "string" ? jData.prizeId : "") }));
+                    break;
+                case "stopMysteryBox":
+                    endMysteryBox(curSession);
+                    break;
+                case "resumeTimer":
+                    // cut a prize's timer pause short
+                    resumeTimer(curSession);
                     break;
                 case "setFwProductBonuses":
                     curSession.fwProductBonuses = normalizeFwProductBonuses(jData.bonuses);

@@ -83,6 +83,20 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // how the /mysterybox browser source looks plus the prize list (see migration add-mysterybox). the spin
+    // happening right now is live state and is never written here.
+    mysteryBoxSettings: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    // the box ledger: { [twitch login]: { name, count } }. persisted, unlike everything else about a spin —
+    // an unopened box is owed to a viewer and has to survive a restart.
+    mysteryBoxes: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     fwProductBonuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -209,6 +223,8 @@ export async function dbCreate(inObj: Object){
         eventLayers: lvObj.eventLayers,
         textBoxes: lvObj.textBoxes,
         firesaleSettings: lvObj.firesaleSettings,
+        mysteryBoxSettings: lvObj.mysteryBoxSettings,
+        mysteryBoxes: lvObj.mysteryBoxes,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -251,6 +267,8 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 eventLayers: curSession.eventLayers,
                 textBoxes: curSession.textBoxes,
                 firesaleSettings: curSession.firesaleSettings,
+                mysteryBoxSettings: curSession.mysteryBoxSettings,
+                mysteryBoxes: curSession.mysteryBoxes,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,

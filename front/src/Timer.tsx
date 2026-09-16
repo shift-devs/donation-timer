@@ -122,6 +122,8 @@ export function timerTextStyle(o: {
 
 const Timer: React.FC<{
 	endTime: number;
+	// non-null while a mystery box prize has the countdown paused: the remaining time to hold on screen
+	pausedMs?: number | null;
 	textAlign?: any;
 	color?: any;
 	background?: string;
@@ -129,10 +131,10 @@ const Timer: React.FC<{
 	effect?: string;
 	effectColor?: string;
 	effectWidth?: number;
-}> = ({ endTime, textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
+}> = ({ endTime, pausedMs = null, textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
 	// the countdown state lives here (the only thing that changes every second) so the pages that mount
 	// the timer don't re-render — and drag their whole tree along — on every tick.
-	const input_seconds = useCountdownSeconds(endTime);
+	const input_seconds = useCountdownSeconds(endTime, pausedMs);
 
 	if (input_seconds > 0) {
 		let hour = Math.floor(input_seconds / 3600);

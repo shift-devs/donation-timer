@@ -23,6 +23,10 @@ const TEXT_VERBS = ["changetext", "settext"];
 // manual handle for a rehearsal, a missed announcement, or killing a run that's still on screen.
 const FIRESALE_ACTIONS = ["start", "stop", "draw", "winner"];
 
+// the mystery box. "open" and "count" are what chat uses on itself; the rest are the operator's handles —
+// handing out a box the firesale hook missed, taking back one given by mistake, or rehearsing a prize.
+const MB_ACTIONS = ["open", "count", "give", "take", "stop", "test"];
+
 // twitch chat lowercases and strips non-ascii before parsing, which is right for "<platform> <action> <qty>" and
 // wrong for prose a mod typed — the adapter asks this first so it knows to take a text command off the raw line.
 export function isTextCommand(text: string): boolean {
@@ -51,18 +55,19 @@ function unquote(s: string): string {
 }
 
 export function commandHelp(): string {
-    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   help"];
+    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   mb <action>   |   help"];
     for (const p of Object.keys(SPEC))
         lines.push(`  ${p}: ${Object.keys(SPEC[p]).join(", ")}`);
     lines.push("  qty = dollars for money, count for subs/bits/members (subs & members default to 1)");
     lines.push("  changetext puts words on a /text browser source, e.g. changetext topic \"speedruns all night\"");
     lines.push("  firesale: start [seconds], stop, draw, winner <name> — the giveaway overlay, normally started by Fourthwall");
+    lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     return lines.join("\n");
 }
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; mb?: { action: string, name: string, count: number }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -94,6 +99,19 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         if (action === "start" && parts[2] !== undefined && !Number.isFinite(seconds))
             return { error: `Usage: firesale start [seconds]` };
         return { firesale: { action, seconds: Number.isFinite(seconds) ? seconds : 0, name: (parts[2] || "").replace(/^@/, "") } };
+    }
+
+    if (head === "mb") {
+        const action = (parts[1] || "").toLowerCase();
+        if (!MB_ACTIONS.includes(action))
+            return { error: `Usage: mb ${MB_ACTIONS.join(" | ")} — e.g. "mb give someone 2".` };
+        // every action but stop/test names somebody (or, from chat, defaults to whoever typed it)
+        if (["give", "take"].includes(action) && !parts[2])
+            return { error: `Usage: mb ${action} <name> [count]` };
+        const count = parts[3] !== undefined ? Number(parts[3]) : 1;
+        if (!Number.isFinite(count))
+            return { error: `Usage: mb ${action} <name> [count]` };
+        return { mb: { action, name: (parts[2] || "").replace(/^@/, ""), count } };
     }
 
     if (head === "time") {

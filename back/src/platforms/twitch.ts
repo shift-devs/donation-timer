@@ -4,6 +4,7 @@ import { emitSync, emitTerminal, reportError } from "../bus";
 import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
+import { handleMysteryBoxChat, runMysteryBoxCommand } from "../mysterybox";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -98,6 +99,11 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // and cost us the display name's capitalisation on stream.
         if (handleFiresaleChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
             return;
+        // "!mb open" is likewise open to every chatter — they're spending a box they earned — so it goes in
+        // ahead of the mod gate too, and for the same reason it gets the ORIGINAL message: the display name
+        // is what goes up on the overlay, capitals and all.
+        if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+            return;
         if (!isMod)
             return;
         if (filterMessage.charAt(0) !== "!") // only mod/broadcaster ! commands
@@ -125,6 +131,14 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (parsed.firesale){
             // "!firesale start/stop/draw/winner" — mods driving the overlay when fourthwall isn't
             const res = runFiresaleCommand(session, parsed.firesale);
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+            return;
+        }
+        if (parsed.mb){
+            // "!mb ..." in the canonical grammar. only reachable when the configured chat command is
+            // something OTHER than "mb" (handleMysteryBoxChat above consumes the configured one, whatever it
+            // is) — so this is the escape hatch that keeps the documented command working after a rename.
+            const res = runMysteryBoxCommand(session, parsed.mb, { login: tags.username, displayName: String(tags["display-name"] || tags.username) });
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }

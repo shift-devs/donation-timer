@@ -1,0 +1,708 @@
+// mysterybox: a prize wheel chat earns by putting items up for firesale. fourthwall announces a giveaway,
+// firesale.ts parses out who gifted it, and that person is credited ONE box (see grantMysteryBox below).
+// they spend it with "!mb open" in chat, which takes over the /mysterybox browser source: the music plays,
+// the prize images cycle past, and the reel lands on one. that prize's effect then fires for real.
+//
+// two halves, and they are stored differently on purpose:
+//   * WHO OWNS WHAT is a ledger. it's earned, it's spent, and it has to survive a restart the way a wallet
+//     does — so it's persisted (session.mysteryBoxes, its own jsonb column).
+//   * THE OPEN HAPPENING RIGHT NOW is live state, like a firesale run: never persisted, so a process that
+//     dies mid-spin comes back with the source idle rather than resurrecting a reel nobody is watching. the
+//     box is already spent at that point, which is the right way round — a crash must not mint boxes.
+//
+// ONE OPEN AT A TIME. the whole point is that the overlay is a single reel with a single soundtrack, so while
+// a box is open every other "!mb open" is dropped on the floor, silently, and those chatters keep their boxes.
+// what does NOT hold that lock is a prize's AFTER-EFFECT: a 3 minute timer pause outlives the reveal by a long
+// way, and blocking the next open until it wore off would make the rarest prizes feel like a punishment.
+//
+// the effects are the part that actually touches the rest of the app (the timer, the /events sources, the text
+// boxes), so they all go through applyEffect() — one place that knows what a prize is allowed to do.
+
+import { TimerUserSession } from "./types";
+import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
+import { addToEndTime, pauseTimerFor } from "./timer";
+import { setTextBoxText } from "./textBoxes";
+import { testTimerEvent } from "./scheduler";
+
+const MAX_NAME = 25;          // twitch's own username ceiling
+const MAX_PRIZES = 30;
+const MAX_PRIZE_NAME = 60;
+const MAX_BLURB = 120;        // the line under the prize name on stream
+const MAX_PATH = 300;         // an image/sound filename, or a full url
+const MAX_OWNERS = 5000;      // ledger rows; past this the smallest holdings are dropped (see normalizeBoxes)
+const MAX_HELD = 9999;        // boxes one person can be holding
+const REEL_MIN = 14;          // images the reel steps through before it lands, however few prizes exist
+const REEL_MAX = 60;
+
+// the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
+// from the dashboard can only ever produce a dud.
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "playEvent", "textBox"];
+
+export const DEFAULT_MYSTERYBOX = {
+    // off = "!mb open" does nothing and firesales credit nobody. the boxes people already hold are kept.
+    enabled: true,
+    // what chatters type, without the "!". the actions after it (open / count) are fixed.
+    command: "mb",
+    // credit the gifter named in fourthwall's giveaway announcement with one box per giveaway. off = boxes
+    // are only handed out by hand, from the tab or the terminal.
+    grantOnFiresale: true,
+    // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
+    // one open, and looping it would have the tail of the last spin still going under the reveal.
+    music: "",
+    volume: 0.7,
+    // how long the reel cycles before it lands. the source eases it to a stop over exactly this long.
+    spinSec: 6,
+    // how long the prize stays up after the reel lands, before the source goes back to drawing nothing
+    revealHoldSec: 8,
+    bgColor: "transparent",
+    titleColor: "#ffd400",
+    nameColor: "#ffffff",
+    // the prize list itself — see normalizePrize
+    prizes: [] as any[],
+};
+
+export const DEFAULT_PRIZE = {
+    name: "",
+    enabled: true,
+    // relative rarity: a prize's odds are its weight over the total weight of every ENABLED prize with a
+    // weight above zero. so 1 against three 10s is roughly a 3% prize, and the operator never has to make
+    // the numbers add up to anything in particular.
+    weight: 10,
+    // a file in public/prizes, or a full url. this is what cycles past in the reel.
+    image: "",
+    // a file in public/media, played once when the reel lands on this prize
+    sound: "",
+    volume: 1,
+    // an optional second line under the name on stream, e.g. "+5 MINUTES"
+    blurb: "",
+    effect: { kind: "none", seconds: 0, eventId: "", box: "", text: "" },
+};
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const TRANSPARENT = "transparent";
+
+function hexOr(v: any, fallback: string, extra?: string): string {
+    const s = typeof v === "string" ? v.trim() : "";
+    if (extra && s === extra)
+        return s;
+    return HEX.test(s) ? s : fallback;
+}
+
+function numIn(v: any, min: number, max: number, fallback: number): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
+}
+
+function str(v: any, max: number): string {
+    return typeof v === "string" ? v.slice(0, max) : "";
+}
+
+// ---------------------------------------------------------------------------
+// config
+// ---------------------------------------------------------------------------
+
+function normalizeEffect(raw: any): any {
+    const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const kind = EFFECT_KINDS.includes(r.kind) ? r.kind : "none";
+    return {
+        kind,
+        // shared by every timed effect: how much time to add/take, how long to pause, how long a text box
+        // holds its words. one field rather than four, because only one of them is ever live at a time.
+        seconds: numIn(r.seconds, 0, 24 * 3600, 0),
+        eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
+        box: str(r.box, 100),                  // textBox: which /text source, by name or id
+        text: str(r.text, 500),                // textBox: the words to put on it
+    };
+}
+
+function normalizePrize(raw: any, i: number): any | null {
+    if (!raw || typeof raw !== "object")
+        return null;
+    const d = DEFAULT_PRIZE;
+    return {
+        id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 100) : `p${i + 1}`,
+        name: str(raw.name, MAX_PRIZE_NAME).trim(),
+        enabled: raw.enabled === undefined ? d.enabled : !!raw.enabled,
+        weight: numIn(raw.weight, 0, 1000, d.weight),
+        image: str(raw.image, MAX_PATH),
+        sound: str(raw.sound, MAX_PATH),
+        volume: Math.min(1, Math.max(0, Number.isFinite(Number(raw.volume)) ? Number(raw.volume) : d.volume)),
+        blurb: str(raw.blurb, MAX_BLURB),
+        effect: normalizeEffect(raw.effect),
+    };
+}
+
+export function normalizePrizes(raw: any): any[] {
+    if (!Array.isArray(raw))
+        return [];
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < raw.length && out.length < MAX_PRIZES; i++){
+        const prize = normalizePrize(raw[i], i);
+        if (!prize)
+            continue;
+        // ids have to be unique: a landed reel names one, and duplicates would fight over which effect fires
+        if (seen.has(prize.id))
+            prize.id = `${prize.id}_${i}`;
+        seen.add(prize.id);
+        out.push(prize);
+    }
+    return out;
+}
+
+export function normalizeMysteryBox(raw: any): any {
+    const d = DEFAULT_MYSTERYBOX;
+    const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    return {
+        enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
+        // stored without the "!" so the ui and the chat matcher can't disagree about whether it's there
+        command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
+        grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
+        music: str(r.music, MAX_PATH),
+        volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
+        spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
+        revealHoldSec: numIn(r.revealHoldSec, 1, 60, d.revealHoldSec),
+        bgColor: hexOr(r.bgColor, d.bgColor, TRANSPARENT),
+        titleColor: hexOr(r.titleColor, d.titleColor),
+        nameColor: hexOr(r.nameColor, d.nameColor),
+        prizes: normalizePrizes(r.prizes),
+    };
+}
+
+export function mbSettings(session: TimerUserSession): any {
+    return session.mysteryBoxSettings || (session.mysteryBoxSettings = normalizeMysteryBox(null));
+}
+
+// the prizes that can actually be landed on. a disabled prize, or one with no weight, still cycles past in
+// the reel if it has an image — it just can't win.
+function winnablePrizes(session: TimerUserSession): any[] {
+    return mbSettings(session).prizes.filter((p: any) => p.enabled && p.weight > 0);
+}
+
+export function findPrize(session: TimerUserSession, key: any): any | null {
+    const prizes = mbSettings(session).prizes;
+    const want = String(key || "").trim();
+    if (!want)
+        return null;
+    const lower = want.toLowerCase();
+    return prizes.find((p: any) => String(p.id) === want)
+        || prizes.find((p: any) => String(p.name || "").trim().toLowerCase() === lower)
+        || null;
+}
+
+// ---------------------------------------------------------------------------
+// the ledger: who is holding how many boxes
+// ---------------------------------------------------------------------------
+//
+// keyed by the LOGIN, lowercased, because that's the only name twitch guarantees is stable — display names
+// differ in case and can be changed. the display name is carried alongside purely so the dashboard can show
+// people as they write themselves.
+//
+// one wrinkle worth knowing about: a box earned from a firesale is credited to the gifter name FOURTHWALL
+// printed, which is a display name and not necessarily the login that later types "!mb open". when they
+// differ, the box lands under a key its owner can't spend — hence renameOwner(), which the tab uses to merge
+// one row into another.
+
+export function boxKey(name: any): string {
+    return String(name || "").trim().replace(/^@/, "").toLowerCase().slice(0, MAX_NAME);
+}
+
+export function normalizeBoxes(raw: any): any {
+    const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const rows: { key: string, name: string, count: number }[] = [];
+    for (const k of Object.keys(r)){
+        const key = boxKey(k);
+        if (!key)
+            continue;
+        const v = r[k];
+        // tolerate a bare number as well as the {name,count} row, so a hand-edited column still loads
+        const count = numIn(typeof v === "object" && v ? v.count : v, 0, MAX_HELD, 0);
+        if (count <= 0) // nothing held: drop the row rather than carry an empty one forever
+            continue;
+        rows.push({ key, name: str(typeof v === "object" && v ? v.name : "", MAX_NAME) || key, count });
+    }
+    // over the cap, keep the biggest holdings — those are the ones someone is still waiting to spend
+    rows.sort((a, b) => b.count - a.count);
+    const out: any = {};
+    for (const row of rows.slice(0, MAX_OWNERS))
+        out[row.key] = { name: row.name, count: row.count };
+    return out;
+}
+
+export function mbBoxes(session: TimerUserSession): any {
+    return session.mysteryBoxes || (session.mysteryBoxes = {});
+}
+
+export function boxCount(session: TimerUserSession, login: any): number {
+    const row = mbBoxes(session)[boxKey(login)];
+    return row ? Math.max(0, Math.trunc(Number(row.count) || 0)) : 0;
+}
+
+// hand someone boxes (or take them, with a negative n). returns what they hold afterwards.
+export function grantMysteryBox(session: TimerUserSession, login: any, displayName: any, n = 1, why = ""): number {
+    const key = boxKey(login);
+    if (!key)
+        return 0;
+    const boxes = mbBoxes(session);
+    const row = boxes[key];
+    const next = Math.min(MAX_HELD, Math.max(0, (row ? row.count : 0) + Math.trunc(n)));
+    if (next <= 0)
+        delete boxes[key];
+    else if (Object.keys(boxes).length < MAX_OWNERS || row)
+        boxes[key] = { name: str(displayName, MAX_NAME) || (row && row.name) || key, count: next };
+    if (why && n > 0)
+        emitTerminal(session.userId, `MYSTERYBOX — ${str(displayName, MAX_NAME) || key} earned ${n === 1 ? "a box" : `${n} boxes`} (${why}); they hold ${next}.`, true);
+    emitSync(session.userId); // the tab lists the ledger, so it has to see this promptly
+    return next;
+}
+
+// merge one ledger row into another, for when fourthwall's gifter name isn't the login that spends the box
+export function renameOwner(session: TimerUserSession, from: any, to: any): { ok: boolean, message: string } {
+    const src = boxKey(from);
+    const dst = boxKey(to);
+    if (!src || !dst)
+        return { ok: false, message: "Both names are required." };
+    if (src === dst)
+        return { ok: false, message: "Those are the same name." };
+    const boxes = mbBoxes(session);
+    const row = boxes[src];
+    if (!row)
+        return { ok: false, message: `Nobody called "${from}" is holding a box.` };
+    const moved = row.count;
+    delete boxes[src];
+    grantMysteryBox(session, dst, to, moved);
+    return { ok: true, message: `Moved ${moved} box${moved === 1 ? "" : "es"} from ${from} to ${to}.` };
+}
+
+// ---------------------------------------------------------------------------
+// the open happening right now
+// ---------------------------------------------------------------------------
+
+// phase timers per user. deliberately off the session, for the same reason firesale's are: a Timeout is not
+// state anyone should be able to serialize or sync, and holding them here means ending an open can never
+// leave one behind. `restore` is the odd one out — it belongs to a text-box effect that outlives the reveal.
+const timers: { [userId: number]: { land?: any, done?: any, restore?: any } } = {};
+
+function slots(userId: number){
+    return timers[userId] || (timers[userId] = {});
+}
+
+export function getMysteryBox(session: TimerUserSession): any {
+    if (!session.mysterybox || typeof session.mysterybox !== "object")
+        session.mysterybox = { nonce: 0, phase: "idle", opener: "", openerName: "", prizeId: "", reel: [], startedAt: 0, endsAt: 0, wonAt: 0 };
+    return session.mysterybox;
+}
+
+// is a box being opened right now? this is the lock every "!mb open" is checked against.
+export function isOpening(session: TimerUserSession): boolean {
+    return getMysteryBox(session).phase !== "idle";
+}
+
+// what the browser source is handed. the whole prize list travels with it so the source can preload the
+// images and draw the reel; the winner is named up front because the reel is built server-side and its last
+// step IS the winner — there's nothing to hide from a source that already has the whole sequence.
+export function mysteryBoxView(session: TimerUserSession): any {
+    const cfg = mbSettings(session);
+    const mb = getMysteryBox(session);
+    const prize = mb.prizeId ? findPrize(session, mb.prizeId) : null;
+    return {
+        active: mb.phase !== "idle",
+        nonce: mb.nonce,
+        phase: mb.phase,
+        opener: mb.openerName || mb.opener,
+        startedAt: mb.startedAt,
+        // when the reel lands. the source eases its spin to a stop on this instant.
+        endsAt: mb.endsAt,
+        // when the prize went up. the source needs it to tell "this just landed" from "i connected while a
+        // prize was already on screen", so a reload mid-open doesn't replay the prize sound.
+        wonAt: mb.wonAt,
+        reel: mb.reel,
+        prize: prize ? {
+            id: prize.id, name: prize.name, image: prize.image, blurb: prize.blurb,
+            sound: prize.sound, volume: prize.volume,
+        } : null,
+        // every prize, for the reel art and the preload — ids and images only, since the source has no use
+        // for the weights or the effects
+        prizes: cfg.prizes.map((p: any) => ({ id: p.id, name: p.name, image: p.image })),
+        command: cfg.command,
+        music: cfg.music,
+        volume: cfg.volume,
+        spinSec: cfg.spinSec,
+        revealHoldSec: cfg.revealHoldSec,
+        bgColor: cfg.bgColor,
+        titleColor: cfg.titleColor,
+        nameColor: cfg.nameColor,
+    };
+}
+
+export function pushMysteryBox(session: TimerUserSession){
+    emitMysteryBox(session.userId, mysteryBoxView(session));
+}
+
+// weighted pick over the winnable prizes
+function drawPrize(session: TimerUserSession): any | null {
+    const pool = winnablePrizes(session);
+    if (!pool.length)
+        return null;
+    const total = pool.reduce((sum, p) => sum + p.weight, 0);
+    let roll = Math.random() * total;
+    for (const p of pool){
+        roll -= p.weight;
+        if (roll < 0)
+            return p;
+    }
+    return pool[pool.length - 1]; // float drift only; the loop above all but always returns
+}
+
+// the sequence of prizes that cycles past, ending on the winner. built here rather than in the source so
+// that what OBS draws and what the server decided can never be two different things.
+function buildReel(session: TimerUserSession, winnerId: string): string[] {
+    const cfg = mbSettings(session);
+    // anything with art cycles past, winnable or not — a disabled prize is still part of the set chat has
+    // seen, and leaving it out would quietly tell them which prizes are live
+    const pool = cfg.prizes.filter((p: any) => p.image || p.name).map((p: any) => p.id);
+    if (!pool.length)
+        return [winnerId];
+    const want = Math.max(REEL_MIN, Math.min(REEL_MAX, pool.length * 4));
+    const reel: string[] = [];
+    while (reel.length < want - 1){
+        // shuffle each pass so the order isn't obviously a loop, then trim to what's left to fill
+        const pass = pool.slice();
+        for (let i = pass.length - 1; i > 0; i--){
+            const j = Math.floor(Math.random() * (i + 1));
+            [pass[i], pass[j]] = [pass[j], pass[i]];
+        }
+        for (const id of pass){
+            if (reel.length >= want - 1)
+                break;
+            // never the same image twice in a row: that reads as the reel sticking rather than spinning
+            if (reel.length && reel[reel.length - 1] === id)
+                continue;
+            reel.push(id);
+        }
+    }
+    if (reel.length && reel[reel.length - 1] === winnerId)
+        reel.pop();
+    reel.push(winnerId);
+    return reel;
+}
+
+// open one box for someone. this is the only place a box is spent.
+// returns a line for whoever asked; `ok: false` with a blank message means "ignored on purpose, say nothing"
+// — which is what a second opener during a spin gets.
+export function openMysteryBox(session: TimerUserSession, login: any, displayName: any): { ok: boolean, message: string } {
+    const cfg = mbSettings(session);
+    const key = boxKey(login);
+    const who = str(displayName, MAX_NAME) || key;
+    if (!cfg.enabled)
+        return { ok: false, message: "" };
+    if (!key)
+        return { ok: false, message: "" };
+    // the lock. checked BEFORE the box is spent, so someone who typed during a spin still has theirs.
+    if (isOpening(session))
+        return { ok: false, message: "" };
+    if (boxCount(session, key) < 1)
+        return { ok: false, message: `${who} has no mystery boxes to open.` };
+    const prize = drawPrize(session);
+    if (!prize){
+        emitTerminal(session.userId, `MYSTERYBOX — ${who} tried to open a box, but no prize is set up to be won. Their box was not spent.`);
+        return { ok: false, message: "" };
+    }
+
+    grantMysteryBox(session, key, who, -1);
+    const mb = getMysteryBox(session);
+    mb.nonce = (mb.nonce || 0) + 1;
+    mb.phase = "spinning";
+    mb.opener = key;
+    mb.openerName = who;
+    mb.prizeId = prize.id;
+    mb.reel = buildReel(session, prize.id);
+    mb.startedAt = Date.now();
+    mb.endsAt = Date.now() + cfg.spinSec * 1000;
+    mb.wonAt = 0;
+    emitTerminal(session.userId, `MYSTERYBOX — ${who} is opening a box (${boxCount(session, key)} left)…`, true);
+    pushMysteryBox(session);
+
+    const t = slots(session.userId);
+    clearTimeout(t.land);
+    clearTimeout(t.done);
+    t.land = setTimeout(() => {
+        try {
+            landMysteryBox(session);
+        } catch (err) {
+            reportError(session.userId, "landing a mystery box", err);
+            endMysteryBox(session); // never leave the lock held by a failed open
+        }
+    }, cfg.spinSec * 1000);
+    return { ok: true, message: `${who} is opening a mystery box…` };
+}
+
+// the reel stops. the prize goes up and its effect fires for real.
+function landMysteryBox(session: TimerUserSession){
+    const cfg = mbSettings(session);
+    const mb = getMysteryBox(session);
+    if (mb.phase !== "spinning")
+        return;
+    mb.phase = "reveal";
+    mb.wonAt = Date.now();
+    const prize = findPrize(session, mb.prizeId);
+    emitTerminal(session.userId, `MYSTERYBOX — ${mb.openerName || mb.opener} won ${prize ? (prize.name || prize.id) : "nothing"}!`, true);
+    pushMysteryBox(session);
+    // the effect comes after the push, so the overlay is already showing the prize when the timer jumps
+    if (prize){
+        try {
+            applyEffect(session, prize);
+        } catch (err) {
+            reportError(session.userId, `applying the "${prize.name || prize.id}" mystery box prize`, err);
+        }
+    }
+    const t = slots(session.userId);
+    clearTimeout(t.done);
+    t.done = setTimeout(() => {
+        try {
+            endMysteryBox(session);
+        } catch (err) {
+            reportError(session.userId, "clearing a finished mystery box", err);
+        }
+    }, cfg.revealHoldSec * 1000);
+}
+
+// back to idle: the source draws nothing and the next "!mb open" is accepted. a lingering effect (a pause,
+// a text box holding its words) carries on past this — those are not part of the lock.
+export function endMysteryBox(session: TimerUserSession){
+    const mb = getMysteryBox(session);
+    const t = slots(session.userId);
+    clearTimeout(t.land);
+    clearTimeout(t.done);
+    t.land = t.done = undefined;
+    mb.phase = "idle";
+    mb.opener = "";
+    mb.openerName = "";
+    mb.prizeId = "";
+    mb.reel = [];
+    mb.startedAt = 0;
+    mb.endsAt = 0;
+    mb.wonAt = 0;
+    pushMysteryBox(session);
+}
+
+// tear down on logout so a phase timer can't fire against a detached session
+export function endMysteryBoxTimers(userId: number){
+    const t = slots(userId);
+    clearTimeout(t.land);
+    clearTimeout(t.done);
+    clearTimeout(t.restore);
+    delete timers[userId];
+}
+
+// ---------------------------------------------------------------------------
+// what a prize actually does
+// ---------------------------------------------------------------------------
+
+// the one place a prize is allowed to reach into the rest of the app. every branch is reversible or bounded:
+// nothing here can add time without it going through the timer's own cap, and nothing can hold the overlay.
+export function applyEffect(session: TimerUserSession, prize: any){
+    const e = prize.effect || {};
+    const label = `mystery box: ${prize.name || prize.id}`;
+    if (e.kind === "addTime" && e.seconds > 0){
+        addToEndTime(session, e.seconds, label);
+        return;
+    }
+    if (e.kind === "removeTime" && e.seconds > 0){
+        addToEndTime(session, -e.seconds, label);
+        return;
+    }
+    if (e.kind === "pauseTimer" && e.seconds > 0){
+        pauseTimerFor(session, e.seconds * 1000, label);
+        return;
+    }
+    if (e.kind === "playEvent" && e.eventId){
+        // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
+        // and the event's delayed command (if it has one) runs too
+        testTimerEvent(session, e.eventId);
+        return;
+    }
+    if (e.kind === "textBox" && e.box){
+        const prev = restorableText(session, e.box);
+        const res = setTextBoxText(session, e.box, e.text);
+        if (!res.ok){
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+            return;
+        }
+        emitSync(session.userId); // pushes the words to that box's browser source(s)
+        // seconds = 0 means the words stay until someone changes them. otherwise put back whatever was there
+        // before — including nothing, which is the usual case.
+        if (e.seconds > 0){
+            const t = slots(session.userId);
+            clearTimeout(t.restore);
+            t.restore = setTimeout(() => {
+                try {
+                    setTextBoxText(session, e.box, prev);
+                    emitSync(session.userId);
+                } catch (err) {
+                    reportError(session.userId, "restoring a text box after a mystery box prize", err);
+                }
+            }, e.seconds * 1000);
+        }
+    }
+}
+
+function restorableText(session: TimerUserSession, box: any): string {
+    const boxes = Array.isArray(session.textBoxes) ? session.textBoxes : [];
+    const want = String(box || "").trim().toLowerCase();
+    const found = boxes.find((b: any) => String(b.name || "").trim().toLowerCase() === want)
+        || boxes.find((b: any) => String(b.id) === String(box || "").trim());
+    return found && typeof found.text === "string" ? found.text : "";
+}
+
+// a one-line description of a prize's effect, for the dashboard list and the terminal. kept here so the ui
+// can't describe an effect the server doesn't implement.
+export function describeEffect(effect: any): string {
+    const e = effect || {};
+    const mins = (s: number) => s >= 60 && s % 60 === 0 ? `${s / 60}m` : `${s}s`;
+    if (e.kind === "addTime")
+        return e.seconds > 0 ? `adds ${mins(e.seconds)}` : "adds nothing (set the seconds)";
+    if (e.kind === "removeTime")
+        return e.seconds > 0 ? `takes ${mins(e.seconds)}` : "takes nothing (set the seconds)";
+    if (e.kind === "pauseTimer")
+        return e.seconds > 0 ? `pauses the timer ${mins(e.seconds)}` : "pauses nothing (set the seconds)";
+    if (e.kind === "playEvent")
+        return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
+    if (e.kind === "textBox")
+        return e.box ? `sets the "${e.box}" text box${e.seconds > 0 ? ` for ${mins(e.seconds)}` : ""}` : "sets nothing (pick a text box)";
+    return "does nothing";
+}
+
+// ---------------------------------------------------------------------------
+// the "mb <action>" command, from the dashboard terminal or from chat
+// ---------------------------------------------------------------------------
+
+// one implementation so the two can't drift, same contract as runFiresaleCommand. `self` is who typed it in
+// chat (blank from the terminal); the actions that name somebody else are gated on `isMod` by the caller.
+export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: string, name: string, count: number },
+    self?: { login: string, displayName: string }): { ok: boolean, message: string } {
+    const cfg = mbSettings(session);
+    const target = cmd.name || (self ? self.login : "");
+    const targetName = cmd.name || (self ? self.displayName : "");
+
+    if (cmd.action === "open"){
+        if (!target)
+            return { ok: false, message: "Usage: mb open <name> — or type !mb open in chat." };
+        return openMysteryBox(session, target, targetName);
+    }
+    if (cmd.action === "count"){
+        if (!target)
+            return { ok: false, message: "Usage: mb count <name>" };
+        const n = boxCount(session, target);
+        return { ok: true, message: `${targetName || target} has ${n} mystery box${n === 1 ? "" : "es"}.` };
+    }
+    if (cmd.action === "give"){
+        if (!cmd.name)
+            return { ok: false, message: "Usage: mb give <name> [count]" };
+        const n = Math.max(1, Math.min(MAX_HELD, Math.trunc(cmd.count) || 1));
+        const held = grantMysteryBox(session, cmd.name, cmd.name, n);
+        return { ok: true, message: `Gave ${cmd.name} ${n} mystery box${n === 1 ? "" : "es"} — they hold ${held}.` };
+    }
+    if (cmd.action === "take"){
+        if (!cmd.name)
+            return { ok: false, message: "Usage: mb take <name> [count]" };
+        const have = boxCount(session, cmd.name);
+        if (!have)
+            return { ok: false, message: `${cmd.name} isn't holding any boxes.` };
+        const n = Math.max(1, Math.min(have, Math.trunc(cmd.count) || 1));
+        const held = grantMysteryBox(session, cmd.name, cmd.name, -n);
+        return { ok: true, message: `Took ${n} box${n === 1 ? "" : "es"} from ${cmd.name} — they hold ${held}.` };
+    }
+    if (cmd.action === "stop"){
+        if (!isOpening(session))
+            return { ok: false, message: "No mystery box is being opened." };
+        endMysteryBox(session);
+        return { ok: true, message: "Mystery box cleared off the overlay." };
+    }
+    // test: run the whole sequence on a named prize without spending anybody's box, so the operator can see
+    // what a prize looks and sounds like — the effect fires for real, exactly as it would in front of chat
+    const prize = cmd.name ? findPrize(session, cmd.name) : null;
+    if (cmd.name && !prize)
+        return { ok: false, message: `No prize called "${cmd.name}". Try: ${cfg.prizes.map((p: any) => p.name || p.id).join(", ") || "(none set up)"}.` };
+    return testMysteryBox(session, prize ? prize.id : "");
+}
+
+// the dashboard's Test: spin the reel for real, landing on a named prize (or a fair draw when none is named),
+// without taking a box off anybody.
+export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok: boolean, message: string } {
+    if (isOpening(session))
+        return { ok: false, message: "A box is already being opened." };
+    const prize = prizeId ? findPrize(session, prizeId) : drawPrize(session);
+    if (!prize)
+        return { ok: false, message: "No prize is set up to be won yet." };
+    const cfg = mbSettings(session);
+    const mb = getMysteryBox(session);
+    mb.nonce = (mb.nonce || 0) + 1;
+    mb.phase = "spinning";
+    mb.opener = "test";
+    mb.openerName = "TEST";
+    mb.prizeId = prize.id;
+    mb.reel = buildReel(session, prize.id);
+    mb.startedAt = Date.now();
+    mb.endsAt = Date.now() + cfg.spinSec * 1000;
+    mb.wonAt = 0;
+    pushMysteryBox(session);
+    const t = slots(session.userId);
+    clearTimeout(t.land);
+    clearTimeout(t.done);
+    t.land = setTimeout(() => {
+        try {
+            landMysteryBox(session);
+        } catch (err) {
+            reportError(session.userId, "landing a test mystery box", err);
+            endMysteryBox(session);
+        }
+    }, cfg.spinSec * 1000);
+    return { ok: true, message: `Testing "${prize.name || prize.id}" — ${describeEffect(prize.effect)}.` };
+}
+
+// ---------------------------------------------------------------------------
+// chat
+// ---------------------------------------------------------------------------
+
+// every twitch chat line gets offered here, the same way firesale does it. returns true if the line was
+// consumed as mysterybox traffic and the caller should stop processing it.
+// "!mb open" and "!mb count" are open to EVERY chatter — they're spending their own box and asking about
+// their own wallet. the actions that name somebody else (give / take / stop / test) are mod-only.
+export function handleMysteryBoxChat(session: TimerUserSession, login: string, displayName: string, text: string, isMod: boolean): boolean {
+    const cfg = mbSettings(session);
+    const body = String(text || "").trim();
+    if (!body.startsWith("!"))
+        return false;
+    const parts = body.slice(1).split(/\s+/);
+    if (parts[0].toLowerCase() !== cfg.command)
+        return false;
+
+    const action = (parts[1] || "").toLowerCase();
+    const self = { login: String(login || ""), displayName: String(displayName || login || "") };
+
+    if (action === "open" || action === ""){
+        const res = openMysteryBox(session, self.login, self.displayName);
+        // a blank message is the deliberate silence: a spin already running, or the feature turned off
+        if (res.message)
+            emitTerminal(session.userId, `Chat (${self.login}): ${res.message}`, res.ok);
+        return true;
+    }
+    if (action === "count"){
+        const n = boxCount(session, self.login);
+        // nothing to reply WITH yet — the bot account that would say this in chat isn't wired up, so for now
+        // it goes to the dashboard terminal and the operator can read it out. see chat.ts.
+        emitTerminal(session.userId, `Chat (${self.login}): ${self.displayName} has ${n} mystery box${n === 1 ? "" : "es"}.`, true);
+        return true;
+    }
+    if (!isMod)
+        return true; // consumed: a non-mod typing "!mb give" gets silence, not a passthrough to the parser
+    const res = runMysteryBoxCommand(session, {
+        action: ["give", "take", "stop", "test"].includes(action) ? action : "count",
+        name: (parts[2] || "").replace(/^@/, ""),
+        count: Number(parts[3]) || 1,
+    }, self);
+    if (res.message)
+        emitTerminal(session.userId, `Chat (${self.login}): ${res.message}`, res.ok);
+    return true;
+}

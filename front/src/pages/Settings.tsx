@@ -12,6 +12,7 @@ import FourthwallProducts from "./Settings/FourthwallProducts";
 import SubCounts from "./Settings/SubCounts";
 import TextBoxes from "./Settings/TextBoxes";
 import Firesale from "./Settings/Firesale";
+import MysteryBox from "./Settings/MysteryBox";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -38,6 +39,7 @@ const Settings: React.FC = () => {
 	const [logHasMore, setLogHasMore] = useState(false);
 	const [tabIndex, setTabIndex] = useState(0);
 	const [firesale, setFiresale] = useState<any>(null);
+	const [mysterybox, setMysterybox] = useState<any>(null);
 	const [fwProducts, setFwProducts] = useState<any[] | null>(null);
 	const [fwProductsError, setFwProductsError] = useState("");
 	const logLoadingRef = useRef(false);
@@ -89,6 +91,14 @@ const Settings: React.FC = () => {
 			// before setSettings below would replace the whole settings object with it.
 			if ("firesale" in response) {
 				setFiresale(response.firesale);
+				if (!("endTime" in response))
+					return;
+			}
+
+			// the box being opened right now, same two arrival routes as the firesale above — and taken out
+			// here for the same reason, so a targeted push can't replace the whole settings object with it
+			if ("mysterybox" in response) {
+				setMysterybox(response.mysterybox);
 				if (!("endTime" in response))
 					return;
 			}
@@ -175,7 +185,7 @@ const Settings: React.FC = () => {
 					overflow: "hidden",
 				}}
 			>
-				<Timer endTime={endTime} textAlign='center' />
+				<Timer endTime={endTime} pausedMs={(settings as any).timerPause ? (settings as any).timerPause.remainingMs : null} textAlign='center' />
 				<br />
 				<Tabs
 					index={tabIndex}
@@ -199,6 +209,7 @@ const Settings: React.FC = () => {
 						<Tab>Subcounts</Tab>
 						<Tab>Text Boxes</Tab>
 						<Tab>Firesale</Tab>
+						<Tab>Mystery Box</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
@@ -237,6 +248,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<Firesale ws={ws} token={token} settings={settings} run={firesale} />
+						</TabPanel>
+						<TabPanel>
+							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />
