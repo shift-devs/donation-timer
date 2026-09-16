@@ -143,6 +143,11 @@ const MysteryBox: React.FC = () => {
 	for (const p of prizes)
 		byId[p.id] = p;
 	const nonce = String((state && state.nonce) || "");
+	// where the spin starts and where it stops. the tiles outside that span are padding, held either side so
+	// there is always art beyond the frame in both directions — a strip that began and ended on the two tiles
+	// chat is watching hardest would give the whole thing away as a short filmstrip.
+	const startIndex = Number((state && state.startIndex) || 0);
+	const landIndex = Number(state && Number.isFinite(state.landIndex) ? state.landIndex : Math.max(0, reel.length - 1));
 	const startedAt = Number((state && state.startedAt) || 0);
 	const endsAt = Number((state && state.endsAt) || 0);
 
@@ -160,19 +165,19 @@ const MysteryBox: React.FC = () => {
 			el.style.transform = `translateX(${-pos * STEP}px)`;
 		};
 		if (phase !== "spinning" || !endsAt || endsAt <= startedAt){
-			place(Math.max(0, reel.length - 1)); // landed (or nothing to animate): the winner is centre
+			place(landIndex); // landed (or nothing to animate): the winner is centre, padding either side
 			return;
 		}
 		const run = () => {
 			const t = (Date.now() - startedAt) / (endsAt - startedAt);
-			place(easeOut(t) * (reel.length - 1));
+			place(startIndex + easeOut(t) * (landIndex - startIndex));
 			if (t < 1)
 				rafRef.current = requestAnimationFrame(run);
 		};
 		run();
 		return () => cancelAnimationFrame(rafRef.current);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [phase, nonce, reel.length, startedAt, endsAt]);
+	}, [phase, nonce, reel.length, startIndex, landIndex, startedAt, endsAt]);
 
 	// the prize sound, once per open. same two guards the firesale source uses on its win sound: keyed on the
 	// open so a later push can't replay it, and gated on wonAt being recent so a source that loads while a
@@ -313,8 +318,9 @@ const MysteryBox: React.FC = () => {
 					{state.opener}
 				</div>
 
-				{/* the reel. a fixed window with the strip sliding under it — the marker below sits over
-				    whichever tile is centred, which by the last frame is always the winner. */}
+				{/* the reel. a fixed window with the strip sliding under it, and a marker over the middle:
+				    with padding either side the strip no longer ends on the winner, so the centre is where
+				    the result is and nothing else says so. */}
 				<div
 					style={{
 						position: "relative",
@@ -325,6 +331,28 @@ const MysteryBox: React.FC = () => {
 						WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%)",
 					}}
 				>
+					{/* the stop line. drawn under the tiles (the winning one lifts and glows over it at the
+					    reveal) and only as two ticks top and bottom, so it marks the middle without ever
+					    covering the art. */}
+					{[0, 1].map((edge) => (
+						<div
+							key={edge}
+							style={{
+								position: "absolute",
+								left: "50%",
+								[edge ? "bottom" : "top"]: 0,
+								width: 0,
+								height: 0,
+								marginLeft: -14,
+								borderLeft: "14px solid transparent",
+								borderRight: "14px solid transparent",
+								[edge ? "borderBottom" : "borderTop"]: `18px solid ${cfg.titleColor}`,
+								filter: "drop-shadow(0 0 4px rgba(0,0,0,0.9))",
+								zIndex: 1,
+							}}
+						/>
+					))}
+
 					<div
 						ref={stripRef}
 						style={{
@@ -335,9 +363,10 @@ const MysteryBox: React.FC = () => {
 							left: (STAGE_W - 60) / 2 - CARD / 2,
 							display: "flex",
 							willChange: "transform",
+							zIndex: 2,
 						}}
 					>
-						{reel.map((id, i) => card(id, `${id}-${i}`, revealed && i === reel.length - 1))}
+						{reel.map((id, i) => card(id, `${id}-${i}`, revealed && i === landIndex))}
 					</div>
 				</div>
 

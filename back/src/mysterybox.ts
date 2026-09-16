@@ -33,6 +33,10 @@ const MAX_OWNERS = 5000;      // ledger rows; past this the smallest holdings ar
 const MAX_HELD = 9999;        // boxes one person can be holding
 const REEL_MIN = 14;          // images the reel steps through before it lands, however few prizes exist
 const REEL_MAX = 60;
+// tiles held either side of the run so the strip never shows its own ends. the source has room for ~3.5 at a
+// time, so three each side means there is always art to the left of where the spin starts and to the right of
+// where it lands — which is the whole illusion: a reel that could have carried on turning either way.
+const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
@@ -289,7 +293,7 @@ function slots(userId: number){
 
 export function getMysteryBox(session: TimerUserSession): any {
     if (!session.mysterybox || typeof session.mysterybox !== "object")
-        session.mysterybox = { nonce: 0, phase: "idle", opener: "", openerName: "", prizeId: "", reel: [], startedAt: 0, endsAt: 0, wonAt: 0 };
+        session.mysterybox = { nonce: 0, phase: "idle", opener: "", openerName: "", prizeId: "", reel: [], startIndex: 0, landIndex: 0, startedAt: 0, endsAt: 0, wonAt: 0 };
     return session.mysterybox;
 }
 
@@ -317,6 +321,10 @@ export function mysteryBoxView(session: TimerUserSession): any {
         // prize was already on screen", so a reload mid-open doesn't replay the prize sound.
         wonAt: mb.wonAt,
         reel: mb.reel,
+        // which tile of the reel the spin starts centred on, and which one it stops on. the tiles outside
+        // that span are the padding that keeps art on both sides of the frame.
+        startIndex: mb.startIndex,
+        landIndex: mb.landIndex,
         prize: prize ? {
             id: prize.id, name: prize.name, image: prize.image, blurb: prize.blurb,
             sound: prize.sound, volume: prize.volume,
@@ -354,37 +362,60 @@ function drawPrize(session: TimerUserSession): any | null {
     return pool[pool.length - 1]; // float drift only; the loop above all but always returns
 }
 
-// the sequence of prizes that cycles past, ending on the winner. built here rather than in the source so
-// that what OBS draws and what the server decided can never be two different things.
-function buildReel(session: TimerUserSession, winnerId: string): string[] {
-    const cfg = mbSettings(session);
-    // anything with art cycles past, winnable or not — a disabled prize is still part of the set chat has
-    // seen, and leaving it out would quietly tell them which prizes are live
-    const pool = cfg.prizes.filter((p: any) => p.image || p.name).map((p: any) => p.id);
-    if (!pool.length)
-        return [winnerId];
-    const want = Math.max(REEL_MIN, Math.min(REEL_MAX, pool.length * 4));
-    const reel: string[] = [];
-    while (reel.length < want - 1){
-        // shuffle each pass so the order isn't obviously a loop, then trim to what's left to fill
+// append n more tiles, taken from repeated shuffled passes of the pool so the order never reads as an
+// obvious loop. the same prize is never placed twice in a row — that looks like the reel sticking rather
+// than turning — EXCEPT when there is only one prize to draw from, where insisting on it would mean never
+// being able to place anything at all.
+function appendTiles(pool: string[], out: string[], n: number){
+    const noRepeat = pool.length > 1;
+    let left = n;
+    while (left > 0){
         const pass = pool.slice();
         for (let i = pass.length - 1; i > 0; i--){
             const j = Math.floor(Math.random() * (i + 1));
             [pass[i], pass[j]] = [pass[j], pass[i]];
         }
+        let placed = 0;
         for (const id of pass){
-            if (reel.length >= want - 1)
+            if (left <= 0)
                 break;
-            // never the same image twice in a row: that reads as the reel sticking rather than spinning
-            if (reel.length && reel[reel.length - 1] === id)
+            if (noRepeat && out.length && out[out.length - 1] === id)
                 continue;
-            reel.push(id);
+            out.push(id);
+            placed++;
+            left--;
         }
+        if (!placed) // can't happen with the guard above, but never spin here forever if it ever could
+            break;
     }
-    if (reel.length && reel[reel.length - 1] === winnerId)
+}
+
+// the strip of prizes the source draws, and the two indexes that say what to do with it: where the spin
+// starts and where it stops. built here rather than in the source so that what OBS draws and what the server
+// decided can never be two different things.
+//
+// the run is PADDED at both ends. without that the strip would begin with empty space to the left of the
+// first tile and end with empty space to the right of the winner — the two moments chat is looking hardest —
+// and the reel would read as a short filmstrip rather than something that could have kept turning.
+function buildReel(session: TimerUserSession, winnerId: string): { reel: string[], startIndex: number, landIndex: number } {
+    const cfg = mbSettings(session);
+    // anything with art cycles past, winnable or not — a disabled prize is still part of the set chat has
+    // seen, and leaving it out would quietly tell them which prizes are live
+    const pool = cfg.prizes.filter((p: any) => p.image || p.name).map((p: any) => p.id);
+    if (!pool.length)
+        return { reel: [winnerId], startIndex: 0, landIndex: 0 };
+    const run = Math.max(REEL_MIN, Math.min(REEL_MAX, pool.length * 4));
+    const reel: string[] = [];
+    appendTiles(pool, reel, REEL_PAD);   // already left of frame when the spin starts
+    const startIndex = reel.length;
+    appendTiles(pool, reel, Math.max(1, run - 1));
+    // the winner takes the last place in the run rather than extending past it
+    if (pool.length > 1 && reel[reel.length - 1] === winnerId)
         reel.pop();
     reel.push(winnerId);
-    return reel;
+    const landIndex = reel.length - 1;
+    appendTiles(pool, reel, REEL_PAD);   // carries on past the winner, so the reel never runs out under it
+    return { reel, startIndex, landIndex };
 }
 
 // open one box for someone. this is the only place a box is spent.
@@ -416,7 +447,10 @@ export function openMysteryBox(session: TimerUserSession, login: any, displayNam
     mb.opener = key;
     mb.openerName = who;
     mb.prizeId = prize.id;
-    mb.reel = buildReel(session, prize.id);
+    const strip = buildReel(session, prize.id);
+    mb.reel = strip.reel;
+    mb.startIndex = strip.startIndex;
+    mb.landIndex = strip.landIndex;
     mb.startedAt = Date.now();
     mb.endsAt = Date.now() + cfg.spinSec * 1000;
     mb.wonAt = 0;
@@ -480,6 +514,8 @@ export function endMysteryBox(session: TimerUserSession){
     mb.openerName = "";
     mb.prizeId = "";
     mb.reel = [];
+    mb.startIndex = 0;
+    mb.landIndex = 0;
     mb.startedAt = 0;
     mb.endsAt = 0;
     mb.wonAt = 0;
@@ -642,7 +678,10 @@ export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok
     mb.opener = "test";
     mb.openerName = "TEST";
     mb.prizeId = prize.id;
-    mb.reel = buildReel(session, prize.id);
+    const strip = buildReel(session, prize.id);
+    mb.reel = strip.reel;
+    mb.startIndex = strip.startIndex;
+    mb.landIndex = strip.landIndex;
     mb.startedAt = Date.now();
     mb.endsAt = Date.now() + cfg.spinSec * 1000;
     mb.wonAt = 0;
