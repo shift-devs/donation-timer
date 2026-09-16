@@ -331,9 +331,11 @@ const MysteryBox: React.FC = () => {
 						WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%)",
 					}}
 				>
-					{/* the stop line. drawn under the tiles (the winning one lifts and glows over it at the
-					    reveal) and only as two ticks top and bottom, so it marks the middle without ever
-					    covering the art. */}
+					{/* the stop line: two ticks, top and bottom, drawn OVER the tiles. they're taller than the
+					    gap the strip leaves, so behind them the last third of each arrow was clipped by the
+					    card it was pointing at — and clipped hardest at the reveal, when the winning tile
+					    grows. in front they point AT the prize and stay whole, which is the job. the drop
+					    shadow is what keeps them legible over the art they now overlap. */}
 					{[0, 1].map((edge) => (
 						<div
 							key={edge}
@@ -348,7 +350,7 @@ const MysteryBox: React.FC = () => {
 								borderRight: "14px solid transparent",
 								[edge ? "borderBottom" : "borderTop"]: `18px solid ${cfg.titleColor}`,
 								filter: "drop-shadow(0 0 4px rgba(0,0,0,0.9))",
-								zIndex: 1,
+								zIndex: 3,
 							}}
 						/>
 					))}
@@ -363,7 +365,7 @@ const MysteryBox: React.FC = () => {
 							left: (STAGE_W - 60) / 2 - CARD / 2,
 							display: "flex",
 							willChange: "transform",
-							zIndex: 2,
+							zIndex: 1,
 						}}
 					>
 						{reel.map((id, i) => card(id, `${id}-${i}`, revealed && i === landIndex))}
