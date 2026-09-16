@@ -362,32 +362,69 @@ function drawPrize(session: TimerUserSession): any | null {
     return pool[pool.length - 1]; // float drift only; the loop above all but always returns
 }
 
-// append n more tiles, taken from repeated shuffled passes of the pool so the order never reads as an
-// obvious loop. the same prize is never placed twice in a row — that looks like the reel sticking rather
-// than turning — EXCEPT when there is only one prize to draw from, where insisting on it would mean never
-// being able to place anything at all.
-function appendTiles(pool: string[], out: string[], n: number){
-    const noRepeat = pool.length > 1;
-    let left = n;
-    while (left > 0){
-        const pass = pool.slice();
-        for (let i = pass.length - 1; i > 0; i--){
-            const j = Math.floor(Math.random() * (i + 1));
-            [pass[i], pass[j]] = [pass[j], pass[i]];
-        }
-        let placed = 0;
-        for (const id of pass){
-            if (left <= 0)
-                break;
-            if (noRepeat && out.length && out[out.length - 1] === id)
-                continue;
-            out.push(id);
-            placed++;
-            left--;
-        }
-        if (!placed) // can't happen with the guard above, but never spin here forever if it ever could
-            break;
+// how many tiles of the strip each prize gets: its share of the total, in proportion to its odds, so how
+// often a prize scrolls past is how likely it is. a 5% prize turning up as often as a 60% one would say the
+// opposite of what the rarity is set to, and the reel is the only place chat can read the odds at all.
+//
+// largest-remainder, so the counts add up to exactly `total` instead of drifting with the rounding.
+//
+// FLOOR: every prize gets at least two tiles while there's room for it. art that appeared only once would be
+// unique, and unique art can be read off the strip before the reel reaches it — the whole result, a second
+// early. the cost is that this is the one place the proportions are deliberately wrong: a very rare prize is
+// over-represented, because the alternative is either giving the ending away or never showing it at all.
+function tileCounts(pool: { id: string, weight: number }[], total: number): { [id: string]: number } {
+    const floorEach = pool.length * 2 <= total ? 2 : 1;
+    const counts: { [id: string]: number } = {};
+    for (const p of pool)
+        counts[p.id] = floorEach;
+    // what's left after the floor is handed out by weight
+    const budget = Math.max(0, total - pool.length * floorEach);
+    const totalWeight = pool.reduce((sum, p) => sum + p.weight, 0);
+    if (!budget || !totalWeight)
+        return counts;
+    const shares = pool.map((p) => {
+        const exact = (budget * p.weight) / totalWeight;
+        return { id: p.id, whole: Math.floor(exact), fraction: exact - Math.floor(exact) };
+    });
+    for (const sh of shares)
+        counts[sh.id] += sh.whole;
+    // the tiles rounding left over go to whoever was cut hardest by it
+    let spare = budget - shares.reduce((sum, sh) => sum + sh.whole, 0);
+    shares.sort((a, b) => b.fraction - a.fraction);
+    for (let i = 0; spare > 0; i = (i + 1) % shares.length, spare--)
+        counts[shares[i].id]++;
+    return counts;
+}
+
+// lay those counts out along the strip, each prize's tiles spread EVENLY over the whole of it rather than
+// dealt out as the strip is filled. the rate has to hold locally as well as globally: a prize that is 60% of
+// the tiles should be roughly 60% of any stretch chat can see at once, not 30% at one end and a solid block
+// of it at the other.
+//
+// so each tile is given the position it would ideally sit at — its k-th of c tiles belongs c-ways along —
+// and the strip is read off in that order. the phase is rotated at random per prize and wrapped, so the
+// spacing survives but the prizes line up differently against each other on every spin: no two reels look
+// alike, and none of them has a visible A-B-A-C pattern.
+//
+// adjacency falls out of the arithmetic rather than being forbidden. a prize holding more than half the
+// tiles CANNOT avoid touching itself somewhere — and shouldn't: a common prize coming round twice in a row
+// is what common looks like. spreading it this way keeps those to the odd pair instead of a block.
+function arrangeTiles(counts: { [id: string]: number }): string[] {
+    const total = Object.keys(counts).reduce((sum, id) => sum + counts[id], 0);
+    if (!total)
+        return [];
+    const slots: { at: number, id: string }[] = [];
+    for (const id of Object.keys(counts)){
+        const c = counts[id];
+        if (c <= 0)
+            continue;
+        const gap = total / c;
+        const phase = Math.random();
+        for (let k = 0; k < c; k++)
+            slots.push({ at: ((k + phase) * gap) % total, id });
     }
+    slots.sort((a, b) => a.at - b.at);
+    return slots.map((s) => s.id);
 }
 
 // the strip of prizes the source draws, and the two indexes that say what to do with it: where the spin
@@ -398,23 +435,34 @@ function appendTiles(pool: string[], out: string[], n: number){
 // first tile and end with empty space to the right of the winner — the two moments chat is looking hardest —
 // and the reel would read as a short filmstrip rather than something that could have kept turning.
 function buildReel(session: TimerUserSession, winnerId: string): { reel: string[], startIndex: number, landIndex: number } {
-    const cfg = mbSettings(session);
-    // anything with art cycles past, winnable or not — a disabled prize is still part of the set chat has
-    // seen, and leaving it out would quietly tell them which prizes are live
-    const pool = cfg.prizes.filter((p: any) => p.image || p.name).map((p: any) => p.id);
+    // only what can actually be won. a disabled or zero-weight prize has no odds to represent, so it has no
+    // business scrolling past — its rate IS zero.
+    const pool = winnablePrizes(session).map((p: any) => ({ id: p.id, weight: p.weight }));
     if (!pool.length)
         return { reel: [winnerId], startIndex: 0, landIndex: 0 };
     const run = Math.max(REEL_MIN, Math.min(REEL_MAX, pool.length * 4));
-    const reel: string[] = [];
-    appendTiles(pool, reel, REEL_PAD);   // already left of frame when the spin starts
-    const startIndex = reel.length;
-    appendTiles(pool, reel, Math.max(1, run - 1));
-    // the winner takes the last place in the run rather than extending past it
-    if (pool.length > 1 && reel[reel.length - 1] === winnerId)
-        reel.pop();
-    reel.push(winnerId);
-    const landIndex = reel.length - 1;
-    appendTiles(pool, reel, REEL_PAD);   // carries on past the winner, so the reel never runs out under it
+    const total = run + REEL_PAD * 2;
+    const reel = arrangeTiles(tileCounts(pool, total));
+    const startIndex = REEL_PAD;
+    const landIndex = total - 1 - REEL_PAD;
+
+    // the tile under the marker has to be the prize that was drawn, and the strip is TURNED to bring one of
+    // that prize's own tiles there rather than having one written into place. the layout above is circular —
+    // every tile's position was taken modulo the length — so turning it is free: every count is untouched and
+    // no two tiles become neighbours that weren't already. writing the winner in would have cost both, by
+    // adding a tile of one prize and dropping a tile of another right where chat is looking.
+    // which of its tiles comes round is picked at random, so the same prize doesn't land the same way twice.
+    const copies: number[] = [];
+    for (let i = 0; i < reel.length; i++)
+        if (reel[i] === winnerId)
+            copies.push(i);
+    if (copies.length){
+        const from = copies[Math.floor(Math.random() * copies.length)];
+        const shift = (((landIndex - from) % total) + total) % total;
+        const turned = reel.slice(total - shift).concat(reel.slice(0, total - shift));
+        return { reel: turned, startIndex, landIndex };
+    }
+    reel[landIndex] = winnerId; // no tile of its own to turn to; can't happen while every prize gets two
     return { reel, startIndex, landIndex };
 }
 
