@@ -8,8 +8,6 @@ import {
 	Flex,
 	HStack,
 	Input,
-	NumberInput,
-	NumberInputField,
 	Select,
 	Switch,
 	Text,
@@ -27,6 +25,7 @@ import {
 } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
+import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
 import { canonMysteryBox, prizeImageSrc, prizeOdds, countdown, EFFECT_KINDS, MAX_PRIZES, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
 
@@ -164,16 +163,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							<Text fontSize="sm" color="gray.600">
 								{prize.effect.kind === "pauseTimer" ? "Pause for" : prize.effect.kind === "textBox" ? "Hold for" : "Seconds"}
 							</Text>
-							<NumberInput
-								size="sm"
-								maxW="110px"
+							<NumberField
+								width="110px"
 								min={0}
 								max={86400}
 								value={prize.effect.seconds}
-								onChange={(_, n) => patchEffect(prize.id, { seconds: Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0 }, `sec${prize.id}`)}
-							>
-								<NumberInputField />
-							</NumberInput>
+								onCommit={(n) => patchEffect(prize.id, { seconds: n }, `sec${prize.id}`)}
+							/>
 							<Text fontSize="sm" color="gray.500">
 								{prize.effect.seconds >= 60 ? `= ${countdown(prize.effect.seconds * 1000)}` : "sec"}
 							</Text>
@@ -318,16 +314,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						value={giveName}
 						onChange={(e) => setGiveName(e.target.value)}
 					/>
-					<NumberInput
-						size="sm"
-						maxW="90px"
-						min={1}
-						max={99}
-						value={giveCount}
-						onChange={(_, n) => setGiveCount(Number.isFinite(n) ? Math.min(99, Math.max(1, Math.trunc(n))) : 1)}
-					>
-						<NumberInputField />
-					</NumberInput>
+					<NumberField width="90px" min={1} max={99} value={giveCount} onCommit={setGiveCount} />
 					<Button
 						size="sm"
 						isDisabled={!giveName.trim()}
@@ -410,16 +397,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 										/>
 										<HStack spacing={1}>
 											<Text fontSize="sm" color="gray.600">Rarity</Text>
-											<NumberInput
-												size="sm"
-												maxW="90px"
+											<NumberField
+												width="90px"
 												min={0}
 												max={1000}
 												value={p.weight}
-												onChange={(_, n) => patchPrize(p.id, { weight: Number.isFinite(n) ? Math.min(1000, Math.max(0, Math.trunc(n))) : 0 }, `w${p.id}`)}
-											>
-												<NumberInputField />
-											</NumberInput>
+												onCommit={(n) => patchPrize(p.id, { weight: n }, `w${p.id}`)}
+											/>
 											<Badge colorScheme={odds > 0 ? "blue" : "gray"}>
 												{odds > 0 ? `${odds < 1 ? odds.toFixed(1) : Math.round(odds)}%` : "never"}
 											</Badge>
@@ -543,44 +527,23 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				<HStack spacing={3} wrap="wrap">
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">Spin for</Text>
-						<NumberInput
-							size="sm"
-							maxW="90px"
-							min={1}
-							max={30}
-							value={draft.spinSec}
-							onChange={(_, n) => patch({ spinSec: Number.isFinite(n) ? Math.min(30, Math.max(1, Math.trunc(n))) : 6 }, "spin")}
-						>
-							<NumberInputField />
-						</NumberInput>
+						<NumberField width="90px" min={1} max={30} value={draft.spinSec} onCommit={(n) => patch({ spinSec: n }, "spin")} />
 						<Text fontSize="sm" color="gray.500">sec</Text>
 					</HStack>
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">flying past</Text>
-						<NumberInput
-							size="sm"
-							maxW="100px"
+						<NumberField
+							width="100px"
 							min={MIN_SPIN_TILES}
 							max={MAX_SPIN_TILES}
 							value={draft.spinTiles}
-							onChange={(_, n) => patch({ spinTiles: Number.isFinite(n) ? Math.min(MAX_SPIN_TILES, Math.max(MIN_SPIN_TILES, Math.trunc(n))) : 20 }, "tiles")}
-						>
-							<NumberInputField />
-						</NumberInput>
+							onCommit={(n) => patch({ spinTiles: n }, "tiles")}
+						/>
 						<Text fontSize="sm" color="gray.500">prizes</Text>
 					</HStack>
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">Hold the prize</Text>
-						<NumberInput
-							size="sm"
-							maxW="90px"
-							min={1}
-							max={60}
-							value={draft.revealHoldSec}
-							onChange={(_, n) => patch({ revealHoldSec: Number.isFinite(n) ? Math.min(60, Math.max(1, Math.trunc(n))) : 8 }, "hold")}
-						>
-							<NumberInputField />
-						</NumberInput>
+						<NumberField width="90px" min={1} max={60} value={draft.revealHoldSec} onCommit={(n) => patch({ revealHoldSec: n }, "hold")} />
 						<Text fontSize="sm" color="gray.500">sec</Text>
 					</HStack>
 				</HStack>
