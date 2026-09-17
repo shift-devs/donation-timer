@@ -152,7 +152,14 @@ export function decodeEntities(text: string): string {
 
 // "NEW GIVEAWAY - !ENTER TO WIN. LaCroixFans gifted a 3 Foil Packs — 10 Years Running to the chat.
 //  Type !ENTER in the next 180 seconds for a chance to win. quickster.gg/products/foils"
-export function parseGiveawayStart(text: string): { seconds: number, prize: string, gifter: string, url: string } | null {
+//
+// several of the same item at once read "gifted 6 Collector's Editions to the chat" — no article, a count in
+// its place. TELLING THE TWO APART IS THE WHOLE PROBLEM HERE, because the product above is itself NAMED
+// "3 Foil Packs — 10 Years Running": a leading number is not a quantity on its own.
+// the ARTICLE is what settles it. fourthwall writes "a" when it means one, so a number standing where that
+// "a" would have been is a count, and a number after it belongs to the name. that also handles the nasty
+// case cleanly — "gifted 6 3 Foil Packs — 10 Years Running" is six of the three-pack.
+export function parseGiveawayStart(text: string): { seconds: number, prize: string, gifter: string, qty: number, url: string } | null {
     const s = decodeEntities(text);
     // both halves are required: "new giveaway" alone would also match a streamer talking about one
     if (!/new\s+giveaway/i.test(s) || !/!\s*enter/i.test(s))
@@ -161,11 +168,15 @@ export function parseGiveawayStart(text: string): { seconds: number, prize: stri
     const dur = s.match(/in\s+the\s+next\s+(\d+)\s*second/i);
     // the gifter/prize sentence. [^.!] can't cross the sentence boundary before it, so the gifter is just the
     // name and not everything back to "NEW GIVEAWAY"
-    const gift = s.match(/([^.!]+?)\s+gifted\s+(?:an?\s+)?(.+?)\s+to\s+the\s+chat/i);
+    const gift = s.match(/([^.!]+?)\s+gifted\s+(?:an?\s+|(\d{1,3})\s+)?(.+?)\s+to\s+the\s+chat/i);
+    const counted = gift && gift[2] ? parseInt(gift[2], 10) : 1;
     return {
         seconds: dur ? Math.min(3600, Math.max(5, parseInt(dur[1], 10))) : 0, // 0 = caller's fallback
         gifter: gift ? gift[1].trim().slice(0, MAX_NAME) : "",
-        prize: gift ? gift[2].trim().slice(0, MAX_PRIZE) : "",
+        prize: gift ? gift[3].trim().slice(0, MAX_PRIZE) : "",
+        // bounded the same way the winner list is: a malformed announcement shouldn't be able to mint
+        // currency without limit
+        qty: Number.isFinite(counted) ? Math.min(MAX_WINNERS, Math.max(1, counted)) : 1,
         url: lastUrl(s),
     };
 }
@@ -334,7 +345,7 @@ function sameGiveaway(r: any, gifter: string, prize: string): boolean {
     return r.prize === prize && r.gifter === gifter;
 }
 
-export function startFiresale(session: TimerUserSession, opts: { seconds?: number, prize?: string, gifter?: string, url?: string } = {}): any {
+export function startFiresale(session: TimerUserSession, opts: { seconds?: number, prize?: string, gifter?: string, url?: string, qty?: number } = {}): any {
     const cfg = firesaleSettings(session);
     const f = getFiresale(session);
     const seconds = numIn(opts.seconds, 5, 3600, cfg.fallbackSec);
@@ -391,9 +402,12 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
     // ...and only for the items the operator says are worth one. a giveaway of something cheap shouldn't
     // buy the same spin as a collector's edition.
     const mb = mbSettings(session);
+    // ONE BOX PER ITEM, not per giveaway: six of something announced at once is six items put up, and the
+    // box is payment for putting them up.
+    const boxes = Math.max(1, Math.trunc(Number(opts.qty) || 1));
     if (gifter && mb.enabled && mb.grantOnFiresale && earnsBoxFor(session, prize)
         && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
-        grantMysteryBox(session, gifter, gifter, 1, `put "${prize || "an item"}" up for firesale`);
+        grantMysteryBox(session, gifter, gifter, boxes, `put ${boxes > 1 ? `${boxes}x ` : ""}"${prize || "an item"}" up for firesale`);
 
     emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);
     pushFiresale(session);
@@ -633,7 +647,7 @@ export function handleFiresaleChat(session: TimerUserSession, login: string, dis
         // for the same giveaway
         if (start.prize && firesaleRuns(session).some((r) => r.phase === "running" && sameGiveaway(r, start.gifter, start.prize)))
             return true;
-        startFiresale(session, { seconds: start.seconds || cfg.fallbackSec, prize: start.prize, gifter: start.gifter, url: start.url });
+        startFiresale(session, { seconds: start.seconds || cfg.fallbackSec, prize: start.prize, gifter: start.gifter, url: start.url, qty: start.qty });
         return true;
     }
 
