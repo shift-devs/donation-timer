@@ -364,6 +364,18 @@ const MysteryBox: React.FC = () => {
 				/>
 			)}
 
+			{/* the same for a timebomb: looped for as long as the freeze holds, keyed on when the freeze began
+			    so every contribution that pushes the deadline out extends the music rather than restarting it */}
+			{showBomb && bomb.sound && (
+				<audio
+					key={`tb${bomb.startedAt}`}
+					src={`/media/${encodeURIComponent(bomb.sound)}`}
+					autoPlay
+					loop
+					ref={(el) => { if (el) el.volume = bomb.volume; }}
+				/>
+			)}
+
 			{/* the prize's own sound, once, as the reel stops on it */}
 			{prize && prize.sound && landCue && active && (
 				<audio

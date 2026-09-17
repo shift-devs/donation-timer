@@ -77,7 +77,7 @@ const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, 
 // can keep it alive by chaining subs and donations and it only lapses once they stop for that long. it's the
 // same freeze underneath — the only difference is that something else moves the deadline (see
 // refreshTimebomb, called from events.ts).
-export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string, rollMs = 0){
+export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string, rollMs = 0, sound = "", volume = 0.6){
     const now = Date.now();
     const duration = Math.max(0, Math.trunc(ms));
     if (!duration)
@@ -99,6 +99,13 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
         // a bomb landing on a plain pause makes the whole thing rolling, and a plain pause landing on a bomb
         // leaves it rolling — either way the more generous behaviour wins, as with the end time above
         rollMs: Math.max(Math.max(0, Math.trunc(rollMs)), cur ? cur.rollMs : 0),
+        // when the CURRENT freeze began, and the track under it. both survive a second prize landing on top
+        // and every contribution that pushes the deadline out — the music plays through the whole thing
+        // rather than snapping back to the top of the track each time chat feeds it, which is the one sound
+        // a viewer would notice immediately.
+        startedAt: cur ? cur.startedAt : now,
+        sound: cur && cur.sound ? cur.sound : sound,
+        volume: cur && cur.sound ? cur.volume : Math.min(1, Math.max(0, volume)),
     };
     const slot = pauseTicks[session.userId];
     if (slot){
@@ -190,6 +197,10 @@ export function timerPauseView(session: TimerUserSession): any {
         remainingMs: Math.max(0, p.remainingMs + pendingDrift(session)),
         // non-zero means the clients should draw this as a countdown chat can reset, not a fixed wait
         rollMs: p.rollMs || 0,
+        startedAt: p.startedAt,
+        // a track the /mysterybox source loops for as long as the freeze lasts
+        sound: p.sound || "",
+        volume: p.volume,
     };
 }
 

@@ -705,7 +705,7 @@ export function applyEffect(session: TimerUserSession, prize: any){
     if (e.kind === "timebomb" && e.seconds > 0){
         // the same freeze as pauseTimer, but rolling: every contribution buys chat another e.seconds of it,
         // and it only lets go once they've gone that long without one
-        pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", e.seconds * 1000);
+        pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", e.seconds * 1000, e.loopSound, e.loopVolume);
         return;
     }
     if (e.kind === "timeBoost" && e.seconds > 0 && e.factor > 1){
