@@ -302,14 +302,28 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							onChange={(e) => patchEffect(prize.id, { freezeColor: e.target.value }, `fc${prize.id}`)}
 						/>
 						{prize.effect.freezeColor ? (
-							<Button size="xs" variant="ghost" onClick={() => patchEffect(prize.id, { freezeColor: "" })}>
-								leave it alone
-							</Button>
+							<>
+								<HStack spacing={1}>
+									<Switch
+										size="sm"
+										isChecked={prize.effect.freezePulse}
+										onChange={(e) => patchEffect(prize.id, { freezePulse: e.target.checked })}
+									/>
+									<Text fontSize="sm" color="gray.600">pulse</Text>
+								</HStack>
+								<Button size="xs" variant="ghost" onClick={() => patchEffect(prize.id, { freezeColor: "" })}>
+									leave it alone
+								</Button>
+							</>
 						) : (
 							<Text fontSize="xs" color="gray.500">not tinted — pick a colour to turn the digits while it holds</Text>
 						)}
 						<Text fontSize="xs" color="gray.500">
-							the countdown itself, on every timer source, for as long as the freeze lasts
+							{prize.effect.freezeColor
+								? prize.effect.freezePulse
+									? "the countdown beats between its normal colour and this one for as long as the freeze lasts"
+									: "the countdown holds this colour for as long as the freeze lasts"
+								: ""}
 						</Text>
 					</HStack>
 				)}

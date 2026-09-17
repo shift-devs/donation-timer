@@ -189,6 +189,7 @@ const Settings: React.FC = () => {
 					endTime={endTime}
 					pausedMs={(settings as any).timerPause ? (settings as any).timerPause.remainingMs : null}
 					pausedColor={((settings as any).timerPause && (settings as any).timerPause.color) || ""}
+					pausedPulse={!!((settings as any).timerPause && (settings as any).timerPause.pulse)}
 					textAlign='center'
 				/>
 				<br />

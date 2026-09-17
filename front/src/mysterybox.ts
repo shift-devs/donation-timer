@@ -27,7 +27,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -93,6 +93,7 @@ export function canonPrize(raw: any, i: number) {
 			loopSound: typeof e.loopSound === "string" ? e.loopSound.slice(0, 300) : "",
 			loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.loopVolume)) ? Number(e.loopVolume) : 0.6)),
 			freezeColor: HEX.test(String(e.freezeColor || "").trim()) ? String(e.freezeColor).trim() : "",
+			freezePulse: !!e.freezePulse,
 			eventId: typeof e.eventId === "string" ? e.eventId.slice(0, 100) : "",
 			box: typeof e.box === "string" ? e.box.slice(0, 100) : "",
 			text: typeof e.text === "string" ? e.text.slice(0, 500) : "",

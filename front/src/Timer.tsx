@@ -72,6 +72,10 @@ export const TIMER_FONTS: { [key: string]: { label: string; stack: string; weigh
 	mono: { label: "Azeret Mono (monospaced)", stack: "'Azeret Mono', monospace", weight: 700, tightenColons: true },
 };
 
+// what the digits are when nothing is colouring them, and the far end of a freeze pulse
+export const BASE_TIMER_COLOR = "white";
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
 // how far each colon is pulled toward its neighbours, per side. em-based so it tracks the font size.
 const COLON_TIGHTEN = "0.15em";
 
@@ -111,7 +115,7 @@ export function timerTextStyle(o: {
 	return {
 		// white text; black background by default (the /widget page overrides to chroma green)
 		background: o.background,
-		color: o.color || "white",
+		color: o.color || BASE_TIMER_COLOR,
 		// so a freeze tinting the digits fades in rather than snapping, and fades back when it lets go
 		transition: "color 400ms linear",
 		fontFamily: face.stack,
@@ -132,6 +136,8 @@ const Timer: React.FC<{
 	pausedMs?: number | null;
 	// and what to tint the digits while that lasts, if the prize that froze it named a colour
 	pausedColor?: string;
+	// beat between the normal colour and that one, rather than simply holding it
+	pausedPulse?: boolean;
 	textAlign?: any;
 	color?: any;
 	background?: string;
@@ -139,7 +145,7 @@ const Timer: React.FC<{
 	effect?: string;
 	effectColor?: string;
 	effectWidth?: number;
-}> = ({ endTime, pausedMs = null, pausedColor = "", textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
+}> = ({ endTime, pausedMs = null, pausedColor = "", pausedPulse = false, textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
 	// the countdown state lives here (the only thing that changes every second) so the pages that mount
 	// the timer don't re-render — and drag their whole tree along — on every tick.
 	const input_seconds = useCountdownSeconds(endTime, pausedMs);
@@ -207,10 +213,31 @@ const Timer: React.FC<{
 	},[input_seconds])
 
 
+	// the tint only applies while something is actually holding the clock. re-checked as a hex here and not
+	// just trusted from the server: a pulse puts this value inside a <style> element, and a string that
+	// reaches a stylesheet is worth validating at the point it gets written, not only where it came from.
+	const frozenColor = pausedMs !== null && HEX_COLOR.test(pausedColor) ? pausedColor : "";
+	// a keyframe per colour rather than one shared rule driven by a css variable: var() inside keyframes is
+	// well supported now but this costs nothing and can't be caught out by whatever chromium OBS ships.
+	const pulseName = frozenColor && pausedPulse ? `tmr-pulse-${frozenColor.slice(1).toLowerCase()}` : "";
+
 	return (
-		<div className='Timer' style={timerTextStyle({ background, textAlign, font, effect, effectColor, effectWidth, color: pausedMs !== null ? pausedColor : "" })}>
-			{renderTimerText(timer_text, font)}
-		</div>
+		<>
+			{pulseName && (
+				<style>{`@keyframes ${pulseName} { 0%, 100% { color: ${BASE_TIMER_COLOR}; } 50% { color: ${frozenColor}; } }`}</style>
+			)}
+			<div
+				className='Timer'
+				style={{
+					// while pulsing, the resting colour is the normal one and the keyframes do the rest —
+					// otherwise the animation would beat between the tint and itself
+					...timerTextStyle({ background, textAlign, font, effect, effectColor, effectWidth, color: pulseName ? "" : frozenColor }),
+					animation: pulseName ? `${pulseName} 1000ms ease-in-out infinite` : undefined,
+				}}
+			>
+				{renderTimerText(timer_text, font)}
+			</div>
+		</>
 	);
 };
 

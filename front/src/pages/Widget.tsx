@@ -30,6 +30,7 @@ const Widget: React.FC = () => {
 	// how much time to hold on screen while a mystery box prize has the timer paused; null = running
 	const [pausedMs, setPausedMs] = useState<number | null>(null);
 	const [pausedColor, setPausedColor] = useState("");
+	const [pausedPulse, setPausedPulse] = useState(false);
 	const [fetched, setFetched] = useState(false);
 	const [syncBg, setSyncBg] = useState("#00FF00"); // chroma green until the sync says otherwise
 	const [syncAlign, setSyncAlign] = useState("left"); // timer justification, same default as the backend
@@ -58,6 +59,7 @@ const Widget: React.FC = () => {
 				setEndTime(response.endTime);
 				setPausedMs(response.timerPause ? response.timerPause.remainingMs : null);
 				setPausedColor((response.timerPause && response.timerPause.color) || "");
+				setPausedPulse(!!(response.timerPause && response.timerPause.pulse));
 				if (response.widgetSettings && typeof response.widgetSettings.bgColor === "string")
 					setSyncBg(response.widgetSettings.bgColor);
 				if (response.widgetSettings && typeof response.widgetSettings.align === "string")
@@ -124,6 +126,7 @@ const Widget: React.FC = () => {
 					endTime={endTime}
 					pausedMs={pausedMs}
 					pausedColor={pausedColor}
+					pausedPulse={pausedPulse}
 					textAlign={align}
 					color={timer_color}
 					background={bgColor}

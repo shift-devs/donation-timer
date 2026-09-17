@@ -83,7 +83,7 @@ const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, 
 // same freeze underneath — the only difference is that something else moves the deadline (see
 // refreshTimebomb, called from events.ts).
 export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string,
-    opts: { rollMs?: number, sound?: string, volume?: number, color?: string } = {}){
+    opts: { rollMs?: number, sound?: string, volume?: number, color?: string, pulse?: boolean } = {}){
     const rollMs = opts.rollMs || 0;
     const now = Date.now();
     const duration = Math.max(0, Math.trunc(ms));
@@ -116,6 +116,8 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
         // what the countdown turns while it's held. same rule as the track: the freeze already on screen
         // keeps its look rather than changing colour under a viewer mid-freeze.
         color: cur && cur.color ? cur.color : (HEX_COLOR.test(String(opts.color || "").trim()) ? String(opts.color).trim() : ""),
+        // whether the digits beat between their normal colour and that one, rather than just turning it
+        pulse: cur && cur.color ? cur.pulse : !!opts.pulse,
     };
     const slot = pauseTicks[session.userId];
     if (slot){
@@ -213,6 +215,7 @@ export function timerPauseView(session: TimerUserSession): any {
         volume: p.volume,
         // what the timer's digits turn while it's held; blank leaves them as they were
         color: p.color || "",
+        pulse: !!p.pulse,
     };
 }
 

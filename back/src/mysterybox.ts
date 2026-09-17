@@ -117,7 +117,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -163,6 +163,8 @@ function normalizeEffect(raw: any): any {
         loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.loopVolume)) ? Number(r.loopVolume) : 0.6)),
         // timebomb: what the countdown's digits turn while it's frozen. blank = leave them alone.
         freezeColor: hexOr(r.freezeColor, ""),
+        // …and whether they BEAT between their normal colour and that one instead of simply turning it
+        freezePulse: !!r.freezePulse,
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
@@ -752,6 +754,7 @@ export function applyEffect(session: TimerUserSession, prize: any){
             sound: e.loopSound,
             volume: e.loopVolume,
             color: e.freezeColor,
+            pulse: e.freezePulse,
         });
         return;
     }
