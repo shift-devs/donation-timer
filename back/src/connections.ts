@@ -1,4 +1,5 @@
 import { normalizeTwitchSubs } from "./platforms/twitchSubs";
+import { normalizeTwitchBot } from "./platforms/twitchBot";
 
 // per-platform connection config (what to watch). twitch channel defaults to the login name.
 export function normalizeConnections(raw: any, name: string, slToken: string){
@@ -17,5 +18,8 @@ export function normalizeConnections(raw: any, name: string, slToken: string){
         // the broadcaster's own twitch app + the refresh token from their one-time authorize, used to poll
         // their live active-sub count and sub points (see platforms/twitchSubs.ts)
         twitchSubs: normalizeTwitchSubs(c.twitchSubs),
+        // the account this app speaks and moderates as (see platforms/twitchBot.ts). its twitch app may be
+        // left blank, in which case the sub-count connection's is used.
+        twitchBot: normalizeTwitchBot(c.twitchBot),
     };
 }

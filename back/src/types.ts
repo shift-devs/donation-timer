@@ -40,6 +40,10 @@ export interface TimerUserSession {
     // server; the ui only needs the short user code and the url.
     twitchSubsPending?: { deviceCode: string, userCode: string, verificationUri: string, expiresAt: number, interval: number }
     twitchSubsLogin?: string
+    // the bot account's live state. the credentials themselves live on connections.twitchBot; these are the
+    // transient halves — whether it last worked, and an authorization the operator is mid-way through.
+    twitchBotError?: string
+    twitchBotPending?: { deviceCode: string, userCode: string, verificationUri: string, expiresAt: number, interval: number }
     // ms timestamp of the last genuine (non-command) event we received per platform — proof data is actually flowing
     lastEventAt?: { [platform: string]: number }
     rates: any
@@ -54,6 +58,33 @@ export interface TimerUserSession {
     // the giveaway currently on screen: phase, entrants, winner. transient — never persisted, because a
     // giveaway that finished while the process was down must not come back up with it.
     firesale?: any
+    // how the /mysterybox browser source looks, and the prize list with each prize's rarity and effect
+    // (persisted config — see mysterybox.ts)
+    mysteryBoxSettings: any
+    // the ledger: { [twitch login]: { name, count } } — who is holding how many unopened boxes. earned by
+    // putting an item up for firesale, spent with "!mb open". persisted: a box is a debt owed to a viewer.
+    mysteryBoxes: any
+    // the same again for unfired ray gun charges, won from a box and spent with "!raygun <name>"
+    rayguns: any
+    // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
+    // the firesale run above — a spin that was interrupted by a restart must not come back with it.
+    mysterybox?: any
+    // a prize's after-effect that is still running but keeps no state of its own (a nuke's timeouts, a text
+    // box holding its words). the freezes and the bonfire sale are visible in timerPause/timeBoost instead.
+    // what it's for: knowing whether the last box is still playing out, so the next one can't start on top.
+    mbEffect?: { until: number, what: string }
+    // who has spoken in twitch chat lately, for the prizes that act on chat (see chat.ts). transient:
+    // a restart empties it and the next few minutes of chat fill it back in.
+    chatters?: { [login: string]: { name: string, t: number, mod: boolean } }
+    // set while a prize has every contribution granting more time than its rate says (the "bonfire sale").
+    // `factor` is what a contribution's seconds are multiplied by, `until` is when it lapses. the rates
+    // themselves are never touched — see timer.ts.
+    timeBoost?: { until: number, factor: number, reason: string }
+    // set while a prize is holding the countdown still. `until` is when it resumes and `remainingMs` is the
+    // time being held — that one is authoritative, and endTime is re-derived from it by the tick in timer.ts.
+    // `rollMs` marks a ROLLING pause (the timebomb): every contribution pushes `until` back out to this far
+    // ahead, so the freeze lasts as long as chat keeps feeding it. 0/absent = a plain pause that just expires.
+    timerPause?: { until: number, reason: string, remainingMs: number, rollMs: number }
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any

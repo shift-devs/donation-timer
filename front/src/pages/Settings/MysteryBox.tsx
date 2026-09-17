@@ -1,0 +1,717 @@
+import React, { useEffect, useRef, useState } from "react";
+import {
+	Badge,
+	Box,
+	Button,
+	Code,
+	Divider,
+	Flex,
+	HStack,
+	Input,
+	Select,
+	Switch,
+	Text,
+	Textarea,
+	VStack,
+	useToast,
+} from "@chakra-ui/react";
+import {
+	setMysteryBoxSettings,
+	giveMysteryBox,
+	giveRaygun,
+	renameMysteryBoxOwner,
+	testMysteryBox,
+	stopMysteryBox,
+	resumeTimer,
+	endTimeBoost,
+} from "../../Api";
+import { copyText } from "../../copy";
+import MaskedUrl from "../../MaskedUrl";
+import NumberField from "../../NumberField";
+import { BASE_URL } from "../../Consts";
+import { canonMysteryBox, prizeImageSrc, prizeOdds, countdown, EFFECT_KINDS, MAX_PRIZES, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
+
+// prize art in public/prizes, audio in public/media (vite.config.ts bakes both lists in at build time)
+const PRIZE_IMAGES: string[] = typeof __PRIZES__ !== "undefined" ? __PRIZES__ : [];
+const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
+const AUDIO_RE = /\.(mp3|wav|ogg|oga|m4a|aac|flac)$/i;
+const SOUNDS = MEDIA_FILES.filter((f) => AUDIO_RE.test(f));
+
+const SEND_DEBOUNCE = 300; // colour pickers and typing fire continuously; the socket rate-limits per connection
+
+// The mystery box is what putting an item up for firesale earns you. Fourthwall announces a giveaway, the
+// gifter is credited one box, and they spend it with "!mb open" in chat — which takes over the /mysterybox
+// browser source and lands on a prize whose effect then fires for real. Everything here applies immediately —
+// no Save.
+const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any }> = ({ ws, token, settings, run }) => {
+	const toast = useToast();
+
+	const server = canonMysteryBox(settings.mysteryBoxSettings || {});
+	const serverStr = JSON.stringify(server);
+	const [draft, setDraft] = useState<any>(server);
+	// between an edit and its sync the server's copy is OLDER than the screen, so following it would undo
+	// keystrokes; once it agrees again we go back to following it. mirrors the Firesale tab.
+	const sentRef = useRef(serverStr);
+	const pendingRef = useRef(0);
+	const timers = useRef<{ [key: string]: any }>({});
+	const [giveName, setGiveName] = useState("");
+	const [giveCount, setGiveCount] = useState(1);
+	const [mergeFrom, setMergeFrom] = useState("");
+	const [mergeTo, setMergeTo] = useState("");
+	const [openPrize, setOpenPrize] = useState<string>("");
+	// the live open and the pause both carry deadlines, so the countdowns here tick on their own
+	const [, setTick] = useState(0);
+
+	useEffect(() => {
+		if (serverStr === sentRef.current) {
+			pendingRef.current = 0;
+			return;
+		}
+		if (pendingRef.current && Date.now() - pendingRef.current < 10000)
+			return;
+		setDraft(server);
+		sentRef.current = serverStr;
+		pendingRef.current = 0;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [serverStr]);
+
+	useEffect(() => () => {
+		for (const key of Object.keys(timers.current))
+			clearTimeout(timers.current[key]);
+	}, []);
+
+	const phase: string = (run && run.phase) || "idle";
+	const pause = settings.timerPause || null;
+	const boost = settings.timeBoost || null;
+	const ticking = phase !== "idle" || !!pause || !!boost;
+
+	useEffect(() => {
+		if (!ticking)
+			return;
+		const id = setInterval(() => setTick((n) => n + 1), 500);
+		return () => clearInterval(id);
+	}, [ticking]);
+
+	const later = (key: string, fn: () => void, delay: number) => {
+		clearTimeout(timers.current[key]);
+		timers.current[key] = setTimeout(fn, delay);
+	};
+
+	// mark the screen as ahead of the server, then push (now, or coalesced for the controls that fire per pixel)
+	const patch = (p: any, key?: string) => {
+		const next = { ...draft, ...p };
+		setDraft(next);
+		sentRef.current = JSON.stringify(canonMysteryBox(next));
+		pendingRef.current = Date.now();
+		if (key)
+			later(key, () => setMysteryBoxSettings(ws, next), SEND_DEBOUNCE);
+		else
+			setMysteryBoxSettings(ws, next);
+	};
+
+	// one prize changed. the whole list goes back every time, which is what keeps the server's copy and this
+	// one the same shape — the normalizer there rebuilds it from scratch either way.
+	const patchPrize = (id: string, p: any, key?: string) =>
+		patch({ prizes: draft.prizes.map((z: any) => (z.id === id ? { ...z, ...p } : z)) }, key);
+
+	const patchEffect = (id: string, p: any, key?: string) =>
+		patch({ prizes: draft.prizes.map((z: any) => (z.id === id ? { ...z, effect: { ...z.effect, ...p } } : z)) }, key);
+
+	const addPrize = () => {
+		if (draft.prizes.length >= MAX_PRIZES)
+			return;
+		// ids only have to be unique within the list, and a timestamp is the cheapest way to be sure of that
+		const id = `p${Date.now().toString(36)}`;
+		patch({ prizes: [...draft.prizes, { ...DEFAULT_PRIZE, id, name: `Prize ${draft.prizes.length + 1}`, effect: { ...DEFAULT_PRIZE.effect } }] });
+	};
+
+	const removePrize = (id: string) => patch({ prizes: draft.prizes.filter((z: any) => z.id !== id) });
+
+	const url = `${BASE_URL}/mysterybox?token=${encodeURIComponent(token || "")}`;
+
+	const copyUrl = () => {
+		copyText(url).then((ok) =>
+			toast(ok
+				? { title: "Source URL copied", status: "success", duration: 1500 }
+				: { title: "Couldn't copy — reveal the URL and copy it manually", status: "error", duration: 3000 }));
+	};
+
+	// the ledger, biggest holdings first — that's who is about to spend one
+	const boxes: { [key: string]: any } = settings.mysteryBoxes || {};
+	const owners = Object.keys(boxes)
+		.map((k) => ({ key: k, name: boxes[k].name || k, count: boxes[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	const outstanding = owners.reduce((sum, o) => sum + o.count, 0);
+	// unfired ray gun shots — the same kind of wallet, won from a prize instead of a firesale
+	const guns: { [key: string]: any } = settings.rayguns || {};
+	const gunners = Object.keys(guns)
+		.map((k) => ({ key: k, name: guns[k].name || k, count: guns[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+	// what the /events and /text effects can point at
+	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
+	const textBoxes: any[] = Array.isArray(settings.textBoxes) ? settings.textBoxes : [];
+
+	const badge = phase === "spinning"
+		? <Badge colorScheme="purple">SPINNING</Badge>
+		: phase === "reveal"
+			? <Badge colorScheme="green">PRIZE UP</Badge>
+			: <Badge>IDLE</Badge>;
+
+	// the inputs one effect kind needs, rendered from its `needs` list so the editor can't offer a field the
+	// server would ignore
+	const effectFields = (prize: any) => {
+		const spec = EFFECT_KINDS.find((k) => k.key === prize.effect.kind) || EFFECT_KINDS[0];
+		return (
+			<VStack align="stretch" spacing={2} mt={2}>
+				<Text fontSize="xs" color="gray.500">{spec.hint}</Text>
+				<HStack spacing={2} wrap="wrap">
+					{spec.needs.includes("seconds") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">
+								{prize.effect.kind === "pauseTimer" ? "Pause for"
+									: prize.effect.kind === "timebomb" ? "Each contribution buys"
+									: prize.effect.kind === "textBox" ? "Hold for"
+									: prize.effect.kind === "timeBoost" ? "for"
+									: prize.effect.kind === "nuke" ? ""
+									: prize.effect.kind === "raygun" ? ""
+									: "Seconds"}
+							</Text>
+							<NumberField
+								width="110px"
+								min={0}
+								max={86400}
+								value={prize.effect.seconds}
+								onCommit={(n) => patchEffect(prize.id, { seconds: n }, `sec${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">
+								{prize.effect.seconds >= 60 ? `= ${countdown(prize.effect.seconds * 1000)}` : "sec"}
+							</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("factor") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Everything is worth</Text>
+							<Text fontSize="sm" color="gray.500">x</Text>
+							<NumberField
+								width="80px"
+								min={2}
+								max={10}
+								value={prize.effect.factor}
+								onCommit={(n) => patchEffect(prize.id, { factor: n }, `f${prize.id}`)}
+							/>
+						</HStack>
+					)}
+					{spec.needs.includes("charges") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Gives</Text>
+							<NumberField
+								width="80px"
+								min={1}
+								max={99}
+								value={prize.effect.charges}
+								onCommit={(n) => patchEffect(prize.id, { charges: n }, `ch${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">shots, each</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("percent") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Hits</Text>
+							<NumberField
+								width="80px"
+								min={1}
+								max={100}
+								value={prize.effect.percent}
+								onCommit={(n) => patchEffect(prize.id, { percent: n }, `pc${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">% of chat, for</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("eventId") && (
+						<Select
+							size="sm"
+							maxW="260px"
+							value={prize.effect.eventId}
+							onChange={(e) => patchEffect(prize.id, { eventId: e.target.value })}
+						>
+							<option value="">(pick an event)</option>
+							{events.map((ev) => (
+								<option key={ev.id} value={ev.id}>{ev.name || ev.id}</option>
+							))}
+						</Select>
+					)}
+					{spec.needs.includes("box") && (
+						<Select
+							size="sm"
+							maxW="200px"
+							value={prize.effect.box}
+							onChange={(e) => patchEffect(prize.id, { box: e.target.value })}
+						>
+							<option value="">(pick a text box)</option>
+							{textBoxes.map((b) => (
+								<option key={b.id} value={b.name || b.id}>{b.name || b.id}</option>
+							))}
+						</Select>
+					)}
+				</HStack>
+				{spec.needs.includes("text") && (
+					<Textarea
+						size="sm"
+						rows={2}
+						placeholder="What the text box should say"
+						value={prize.effect.text}
+						onChange={(e) => patchEffect(prize.id, { text: e.target.value }, `txt${prize.id}`)}
+					/>
+				)}
+			</VStack>
+		);
+	};
+
+	return (
+		<Box maxW="960px" mx="auto" textAlign="left">
+			<Text fontSize="sm" color="gray.600" mb={2}>
+				One OBS <b>Browser</b> source for mystery boxes. Putting an item up for firesale earns the gifter
+				one box; they spend it by typing <Code fontSize="xs">!{draft.command} open</Code> in chat, and the
+				source spins through the prize art and stops on what they won. The prize's effect then fires for
+				real — time, a pause, a clip, whatever it's set to.
+			</Text>
+			<Text fontSize="sm" color="gray.600" mb={3}>
+				Size the source <b>4:3</b> (800×600 or 1024×768), same as the Firesale source. It draws nothing
+				between opens, so it can stay in the scene permanently. <b>Only one box opens at a time</b> — anyone
+				else who types while a box is open is ignored and keeps theirs. Everything here applies immediately —
+				no Save.
+			</Text>
+
+			<Flex align="center" gap={2} mb={4} wrap="wrap">
+				<MaskedUrl url={url} p={2} fontSize="xs" flex="1" minW="140px" overflowX="auto" whiteSpace="nowrap" />
+				<Button size="sm" onClick={copyUrl}>Copy</Button>
+			</Flex>
+
+			{/* ---- what's happening right now ---- */}
+			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+				<Flex align="center" gap={3} mb={2} wrap="wrap">
+					<Text fontWeight="bold">Live</Text>
+					{badge}
+					{phase !== "idle" && (
+						<Text fontSize="sm" color="gray.600">
+							<b>{run.opener}</b>
+							{phase === "spinning" && run.endsAt ? ` — landing in ${Math.max(0, Math.ceil((run.endsAt - Date.now()) / 1000))}s` : ""}
+							{phase === "reveal" && run.prize ? ` won ${run.prize.name || run.prize.id}` : ""}
+						</Text>
+					)}
+					{phase !== "idle" && <Button size="xs" variant="ghost" onClick={() => stopMysteryBox(ws)}>Clear</Button>}
+				</Flex>
+
+				{/* one thing at a time: while anything is playing out, "!mb open" is answered with a reason
+				    rather than queued, so it's worth showing the operator what chat is being told */}
+				{run && run.blocked && (
+					<Text fontSize="sm" color="orange.300" mb={2}>
+						Chat can&apos;t open a box right now — {run.blocked}.
+					</Text>
+				)}
+
+				{/* a prize that pauses the timer outlives the reveal by minutes, so it gets its own line — and its
+				    own way out, for when it has to end early */}
+				{pause && (
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Badge colorScheme="orange">{pause.rollMs ? "TIMEBOMB" : "TIMER PAUSED"}</Badge>
+						<Text fontSize="sm" color="gray.600">
+							{countdown(pause.until - Date.now())} left — {pause.reason}
+							{pause.rollMs ? ` (each contribution resets it to ${Math.round(pause.rollMs / 1000)}s)` : ""}
+						</Text>
+						<Button size="xs" onClick={() => resumeTimer(ws)}>Resume now</Button>
+					</Flex>
+				)}
+
+				{boost && (
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Badge colorScheme="red">x{boost.factor} ON EVERYTHING</Badge>
+						<Text fontSize="sm" color="gray.600">
+							{countdown(boost.until - Date.now())} left — {boost.reason}
+						</Text>
+						<Button size="xs" onClick={() => endTimeBoost(ws)}>End now</Button>
+					</Flex>
+				)}
+
+				<HStack spacing={2} wrap="wrap">
+					<Text fontSize="sm" color="gray.500">Test spin</Text>
+					<Select size="sm" maxW="220px" value={openPrize} onChange={(e) => setOpenPrize(e.target.value)}>
+						<option value="">(a fair draw)</option>
+						{draft.prizes.map((p: any) => (
+							<option key={p.id} value={p.id}>{p.name || p.id}</option>
+						))}
+					</Select>
+					<Button size="sm" onClick={() => testMysteryBox(ws, openPrize)} isDisabled={!draft.prizes.length}>
+						Spin
+					</Button>
+					<Text fontSize="xs" color="gray.500">
+						Spends nobody's box — but the prize's effect fires for real, exactly as it would in front of chat.
+					</Text>
+				</HStack>
+			</Box>
+
+			{/* ---- who is holding boxes ---- */}
+			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+				<Flex align="center" gap={3} mb={2} wrap="wrap">
+					<Text fontWeight="bold">Boxes owed</Text>
+					<Text fontSize="sm" color="gray.600">
+						{outstanding} unopened across {owners.length} {owners.length === 1 ? "person" : "people"}
+					</Text>
+				</Flex>
+
+				{owners.length === 0 && (
+					<Text fontSize="sm" color="gray.500" mb={2}>
+						Nobody is holding a box yet. One is credited each time Fourthwall announces a giveaway, to
+						whoever it names as the gifter.
+					</Text>
+				)}
+
+				<VStack align="stretch" spacing={1} mb={3} maxH="220px" overflowY="auto">
+					{owners.map((o) => (
+						<Flex key={o.key} align="center" gap={2} fontSize="sm">
+							<Text flex="1" minW="140px">{o.name}</Text>
+							<Badge colorScheme={o.count > 0 ? "yellow" : "gray"}>{o.count}</Badge>
+							<Button size="xs" variant="ghost" onClick={() => giveMysteryBox(ws, o.key, 1)}>+1</Button>
+							<Button size="xs" variant="ghost" onClick={() => giveMysteryBox(ws, o.key, -1)}>−1</Button>
+						</Flex>
+					))}
+				</VStack>
+
+				<HStack spacing={2} mb={2} wrap="wrap">
+					<Input
+						size="sm"
+						maxW="200px"
+						placeholder="Twitch name"
+						value={giveName}
+						onChange={(e) => setGiveName(e.target.value)}
+					/>
+					<NumberField width="90px" min={1} max={99} value={giveCount} onCommit={setGiveCount} />
+					<Button
+						size="sm"
+						isDisabled={!giveName.trim()}
+						onClick={() => { giveMysteryBox(ws, giveName.trim(), giveCount); setGiveName(""); }}
+					>
+						Give
+					</Button>
+				</HStack>
+
+				<Divider my={2} />
+				<Text fontSize="xs" color="gray.500" mb={2}>
+					A firesale box is credited to the name <b>Fourthwall</b> printed, which is a display name and
+					isn't always the Twitch login that types <Code fontSize="xs">!{draft.command} open</Code>. When
+					they differ, move the boxes across:
+				</Text>
+				<HStack spacing={2} wrap="wrap">
+					<Input size="sm" maxW="180px" placeholder="From (the name above)" value={mergeFrom} onChange={(e) => setMergeFrom(e.target.value)} />
+					<Text fontSize="sm" color="gray.500">→</Text>
+					<Input size="sm" maxW="180px" placeholder="To (their Twitch login)" value={mergeTo} onChange={(e) => setMergeTo(e.target.value)} />
+					<Button
+						size="sm"
+						isDisabled={!mergeFrom.trim() || !mergeTo.trim()}
+						onClick={() => { renameMysteryBoxOwner(ws, mergeFrom.trim(), mergeTo.trim()); setMergeFrom(""); setMergeTo(""); }}
+					>
+						Move
+					</Button>
+				</HStack>
+			</Box>
+
+			{gunners.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">Ray gun shots</Text>
+						<Text fontSize="sm" color="gray.600">
+							unfired — each one times somebody out with{" "}
+							<Code fontSize="xs">!{draft.raygunCommand} &lt;name&gt;</Code>
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{gunners.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="red">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveRaygun(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveRaygun(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
+			{/* ---- the prizes ---- */}
+			<Flex align="center" gap={3} mb={2} wrap="wrap">
+				<Text fontWeight="bold">Prizes</Text>
+				<Text fontSize="sm" color="gray.600">
+					Rarity is a weight, not a percentage — the odds beside each one are what it works out to.
+				</Text>
+				<Box flex="1" />
+				<Button size="sm" onClick={addPrize} isDisabled={draft.prizes.length >= MAX_PRIZES}>Add prize</Button>
+			</Flex>
+
+			{draft.prizes.length === 0 && (
+				<Text fontSize="sm" color="gray.500" mb={3}>
+					No prizes yet. Add one, drop its art into <Code fontSize="xs">front/public/prizes</Code>, and pick
+					what it does.
+				</Text>
+			)}
+
+			<VStack align="stretch" spacing={3} mb={5}>
+				{draft.prizes.map((p: any) => {
+					const odds = prizeOdds(draft.prizes, p);
+					const img = prizeImageSrc(p.image);
+					return (
+						<Box key={p.id} borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled ? 1 : 0.55}>
+							<Flex gap={3} wrap="wrap">
+								{/* the art, at the shape the reel draws it */}
+								<Box
+									w="86px"
+									h="86px"
+									flex="0 0 auto"
+									borderWidth="1px"
+									borderRadius="md"
+									bg="gray.50"
+									display="flex"
+									alignItems="center"
+									justifyContent="center"
+									overflow="hidden"
+								>
+									{img
+										? <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+										: <Text fontSize="xs" color="gray.400">no art</Text>}
+								</Box>
+
+								<VStack align="stretch" spacing={2} flex="1" minW="280px">
+									<HStack spacing={2} wrap="wrap">
+										<Input
+											size="sm"
+											maxW="220px"
+											placeholder="Prize name"
+											value={p.name}
+											onChange={(e) => patchPrize(p.id, { name: e.target.value }, `n${p.id}`)}
+										/>
+										<HStack spacing={1}>
+											<Text fontSize="sm" color="gray.600">Rarity</Text>
+											<NumberField
+												width="90px"
+												min={0}
+												max={1000}
+												value={p.weight}
+												onCommit={(n) => patchPrize(p.id, { weight: n }, `w${p.id}`)}
+											/>
+											<Badge colorScheme={odds > 0 ? "blue" : "gray"}>
+												{odds > 0 ? `${odds < 1 ? odds.toFixed(1) : Math.round(odds)}%` : "never"}
+											</Badge>
+										</HStack>
+										<HStack spacing={1}>
+											<Text fontSize="sm" color="gray.600">On</Text>
+											<Switch
+												size="sm"
+												isChecked={p.enabled}
+												onChange={(e) => patchPrize(p.id, { enabled: e.target.checked })}
+											/>
+										</HStack>
+										<Box flex="1" />
+										<Button size="xs" onClick={() => testMysteryBox(ws, p.id)}>Test</Button>
+										<Button size="xs" variant="ghost" colorScheme="red" onClick={() => removePrize(p.id)}>Delete</Button>
+									</HStack>
+
+									<HStack spacing={2} wrap="wrap">
+										<Select
+											size="sm"
+											maxW="200px"
+											value={PRIZE_IMAGES.includes(p.image) ? p.image : ""}
+											onChange={(e) => patchPrize(p.id, { image: e.target.value })}
+										>
+											<option value="">(art: none)</option>
+											{PRIZE_IMAGES.map((f) => (
+												<option key={f} value={f}>{f}</option>
+											))}
+										</Select>
+										<Input
+											size="sm"
+											maxW="240px"
+											placeholder="…or an image URL"
+											value={PRIZE_IMAGES.includes(p.image) ? "" : p.image}
+											onChange={(e) => patchPrize(p.id, { image: e.target.value }, `i${p.id}`)}
+										/>
+									</HStack>
+
+									<HStack spacing={2} wrap="wrap">
+										<Select
+											size="sm"
+											maxW="240px"
+											value={p.sound}
+											onChange={(e) => patchPrize(p.id, { sound: e.target.value })}
+										>
+											<option value="">(sound: none)</option>
+											{SOUNDS.map((f) => (
+												<option key={f} value={f}>{f}</option>
+											))}
+										</Select>
+										<Text fontSize="sm" color="gray.600">Vol</Text>
+										<input
+											type="range"
+											min={0}
+											max={1}
+											step={0.05}
+											value={p.volume}
+											onChange={(e) => patchPrize(p.id, { volume: Number(e.target.value) }, `v${p.id}`)}
+										/>
+										<Input
+											size="sm"
+											maxW="220px"
+											placeholder="Line under the name on stream"
+											value={p.blurb}
+											onChange={(e) => patchPrize(p.id, { blurb: e.target.value }, `b${p.id}`)}
+										/>
+									</HStack>
+
+									<Divider />
+
+									<HStack spacing={2} wrap="wrap">
+										<Text fontSize="sm" color="gray.600">Does</Text>
+										<Select
+											size="sm"
+											maxW="220px"
+											value={p.effect.kind}
+											onChange={(e) => patchEffect(p.id, { kind: e.target.value })}
+										>
+											{EFFECT_KINDS.map((k) => (
+												<option key={k.key} value={k.key}>{k.label}</option>
+											))}
+										</Select>
+									</HStack>
+									{effectFields(p)}
+								</VStack>
+							</Flex>
+						</Box>
+					);
+				})}
+			</VStack>
+
+			{/* ---- how it behaves ---- */}
+			<Text fontWeight="bold" mb={2}>Behaviour</Text>
+			<VStack align="stretch" spacing={3} mb={5}>
+				<HStack spacing={3} wrap="wrap">
+					<HStack spacing={2}>
+						<Switch isChecked={draft.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
+						<Text fontSize="sm">Mystery boxes on</Text>
+					</HStack>
+					<HStack spacing={2}>
+						<Switch isChecked={draft.grantOnFiresale} onChange={(e) => patch({ grantOnFiresale: e.target.checked })} />
+						<Text fontSize="sm">A firesale earns the gifter a box</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">Command</Text>
+						<Text fontSize="sm" color="gray.500">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.command}
+							onChange={(e) => patch({ command: e.target.value.replace(/^!/, "") }, "cmd")}
+						/>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">Ray gun</Text>
+						<Text fontSize="sm" color="gray.500">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.raygunCommand}
+							onChange={(e) => patch({ raygunCommand: e.target.value.replace(/^!/, "") }, "rcmd")}
+						/>
+					</HStack>
+				</HStack>
+				<Text fontSize="xs" color="gray.500">
+					Chat types <Code fontSize="xs">!{draft.command} open</Code> to open one and{" "}
+					<Code fontSize="xs">!{draft.command} count</Code> to ask how many they have. Counts land in the
+					Terminal for now — replying in chat needs the bot account.
+				</Text>
+
+				<HStack spacing={3} wrap="wrap">
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">Spin for</Text>
+						<NumberField width="90px" min={1} max={30} value={draft.spinSec} onCommit={(n) => patch({ spinSec: n }, "spin")} />
+						<Text fontSize="sm" color="gray.500">sec</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">flying past</Text>
+						<NumberField
+							width="100px"
+							min={MIN_SPIN_TILES}
+							max={MAX_SPIN_TILES}
+							value={draft.spinTiles}
+							onCommit={(n) => patch({ spinTiles: n }, "tiles")}
+						/>
+						<Text fontSize="sm" color="gray.500">prizes</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">Hold the prize</Text>
+						<NumberField width="90px" min={1} max={60} value={draft.revealHoldSec} onCommit={(n) => patch({ revealHoldSec: n }, "hold")} />
+						<Text fontSize="sm" color="gray.500">sec</Text>
+					</HStack>
+				</HStack>
+
+				<Text fontSize="xs" color="gray.500">
+					That averages <b>{(draft.spinTiles / draft.spinSec).toFixed(1)} prizes a second</b> — nearer{" "}
+					{((draft.spinTiles / draft.spinSec) * 3).toFixed(0)} off the line, easing down to a stop on the
+					one that won. The spin always takes the seconds you set, so sending more past it makes the reel
+					faster rather than the spin longer.
+				</Text>
+
+				<HStack spacing={2} wrap="wrap">
+					<Text fontSize="sm" color="gray.600">Spin music</Text>
+					<Select size="sm" maxW="260px" value={draft.music} onChange={(e) => patch({ music: e.target.value })}>
+						<option value="">(none)</option>
+						{SOUNDS.map((f) => (
+							<option key={f} value={f}>{f}</option>
+						))}
+					</Select>
+					<Text fontSize="sm" color="gray.600">Vol</Text>
+					<input
+						type="range"
+						min={0}
+						max={1}
+						step={0.05}
+						value={draft.volume}
+						onChange={(e) => patch({ volume: Number(e.target.value) }, "vol")}
+					/>
+				</HStack>
+
+				<HStack spacing={4} wrap="wrap">
+					<HStack spacing={2}>
+						<Text fontSize="sm" color="gray.600">Fill</Text>
+						<Select
+							size="sm"
+							maxW="150px"
+							value={draft.bgColor === "transparent" ? "transparent" : "color"}
+							onChange={(e) => patch({ bgColor: e.target.value === "transparent" ? "transparent" : "#000000" })}
+						>
+							<option value="transparent">Transparent</option>
+							<option value="color">Solid colour</option>
+						</Select>
+						{draft.bgColor !== "transparent" && (
+							<input type="color" value={draft.bgColor} onChange={(e) => patch({ bgColor: e.target.value }, "bg")} />
+						)}
+					</HStack>
+					<HStack spacing={2}>
+						<Text fontSize="sm" color="gray.600">Title</Text>
+						<input type="color" value={draft.titleColor} onChange={(e) => patch({ titleColor: e.target.value }, "title")} />
+					</HStack>
+					<HStack spacing={2}>
+						<Text fontSize="sm" color="gray.600">Names</Text>
+						<input type="color" value={draft.nameColor} onChange={(e) => patch({ nameColor: e.target.value }, "name")} />
+					</HStack>
+				</HStack>
+			</VStack>
+
+			<Text fontSize="xs" color="gray.500">
+				Prize art lives in <Code fontSize="xs">front/public/prizes</Code> and sounds in{" "}
+				<Code fontSize="xs">front/public/media</Code>. Both lists are read when the site starts, so a file
+				dropped in while it's running needs a restart before it shows up here.
+			</Text>
+		</Box>
+	);
+};
+
+export default MysteryBox;

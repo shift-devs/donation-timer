@@ -132,6 +132,55 @@ export function endFiresaleRun(ws: WebSocket, runId: string) {
 	return 1;
 }
 
+// how the /mysterybox source looks and behaves, plus the prize list. merged server-side, so one field (or
+// just the prizes) can be pushed on its own.
+export function setMysteryBoxSettings(ws: WebSocket, settings: any) {
+	send(ws, { event: "setMysteryBoxSettings", settings: settings });
+	return 1;
+}
+
+// hand someone boxes by hand, or take them back with a negative count
+export function giveMysteryBox(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveMysteryBox", name: name, count: count });
+	return 1;
+}
+
+// hand out (or take back) ray gun shots by hand
+export function giveRaygun(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveRaygun", name: name, count: count });
+	return 1;
+}
+
+// move one ledger row onto another name — for when Fourthwall's gifter name isn't the Twitch login that
+// later types !mb open
+export function renameMysteryBoxOwner(ws: WebSocket, from: string, to: string) {
+	send(ws, { event: "renameMysteryBoxOwner", from: from, to: to });
+	return 1;
+}
+
+// spin the reel onto a prize for real, without spending anybody's box. the effect fires.
+export function testMysteryBox(ws: WebSocket, prizeId: string) {
+	send(ws, { event: "testMysteryBox", prizeId: prizeId });
+	return 1;
+}
+
+export function stopMysteryBox(ws: WebSocket) {
+	send(ws, { event: "stopMysteryBox" });
+	return 1;
+}
+
+// cut a prize's timer pause short
+export function resumeTimer(ws: WebSocket) {
+	send(ws, { event: "resumeTimer" });
+	return 1;
+}
+
+// call a bonfire sale off early
+export function endTimeBoost(ws: WebSocket) {
+	send(ws, { event: "endTimeBoost" });
+	return 1;
+}
+
 export function testTimerEvent(ws: WebSocket, id: string) {
 	send(ws, { event: "testTimerEvent", id: id });
 	return 1;
@@ -189,6 +238,24 @@ export function setConnection(ws: WebSocket, platform: string, config: any) {
 
 export function startTwitchSubsDeviceAuth(ws: WebSocket) {
 	send(ws, { event: "startTwitchSubsDeviceAuth" });
+	return 1;
+}
+
+// the bot account the app speaks and moderates as. its Twitch app may be left blank, in which case the
+// Sub Count connection's is shared.
+export function setTwitchBot(ws: WebSocket, config: any) {
+	send(ws, { event: "setTwitchBot", config: config });
+	return 1;
+}
+
+export function startTwitchBotDeviceAuth(ws: WebSocket) {
+	send(ws, { event: "startTwitchBotDeviceAuth" });
+	return 1;
+}
+
+// proves the authorization works and says whether the bot is actually a mod — says nothing in chat
+export function testTwitchBot(ws: WebSocket) {
+	send(ws, { event: "testTwitchBot" });
 	return 1;
 }
 

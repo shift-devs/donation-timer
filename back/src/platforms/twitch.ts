@@ -4,6 +4,8 @@ import { emitSync, emitTerminal, reportError } from "../bus";
 import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
+import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand } from "../mysterybox";
+import { recordChatter, pruneChatters } from "../chat";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -92,11 +94,23 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (!tags.username)
             return;
         const isMod = !!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase());
+        // note who is talking, for the prizes that act on chat. recorded before anything below can return,
+        // so somebody typing "!mb open" still counts as being in chat.
+        recordChatter(session, tags.username, String(tags["display-name"] || tags.username), isMod);
+        pruneChatters(session);
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)
         // and cost us the display name's capitalisation on stream.
         if (handleFiresaleChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+            return;
+        // "!mb open" is likewise open to every chatter — they're spending a box they earned — so it goes in
+        // ahead of the mod gate too, and for the same reason it gets the ORIGINAL message: the display name
+        // is what goes up on the overlay, capitals and all.
+        if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+            return;
+        // "!raygun <name>" — open to everyone too, since the shots are a thing a viewer won
+        if (handleRaygunChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || "")))
             return;
         if (!isMod)
             return;
@@ -125,6 +139,14 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (parsed.firesale){
             // "!firesale start/stop/draw/winner" — mods driving the overlay when fourthwall isn't
             const res = runFiresaleCommand(session, parsed.firesale);
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+            return;
+        }
+        if (parsed.mb){
+            // "!mb ..." in the canonical grammar. only reachable when the configured chat command is
+            // something OTHER than "mb" (handleMysteryBoxChat above consumes the configured one, whatever it
+            // is) — so this is the escape hatch that keeps the documented command working after a rename.
+            const res = runMysteryBoxCommand(session, parsed.mb, { login: tags.username, displayName: String(tags["display-name"] || tags.username) });
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }

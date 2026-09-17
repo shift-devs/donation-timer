@@ -33,6 +33,12 @@ export function emitFiresale(userId: number, payload: any) {
     bus.emit("firesale", userId, payload);
 }
 
+// mystery box state for this user's /mysterybox browser source(s). api.ts routes it to page=mysterybox
+// clients, and also to the dashboard so the Mystery Box tab can watch the reel spin.
+export function emitMysteryBox(userId: number, payload: any) {
+    bus.emit("mysterybox", userId, payload);
+}
+
 // a line for this user's dashboard terminal. api.ts routes it to page=settings clients only. ok=true prints it
 // green, for the things that go right and still deserve to be visible (a mod's chat command landing).
 export function emitTerminal(userId: number, message: string, ok = false) {

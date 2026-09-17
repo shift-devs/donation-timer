@@ -5,6 +5,9 @@ import { normalizeConnections } from "./connections";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { normalizeTextBoxes } from "./textBoxes";
 import { normalizeFiresale, endFiresaleTimers } from "./firesale";
+import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
+import { forgetTwitchBot } from "./platforms/twitchBot";
+import { endPauseTimer, endBoostTimer } from "./timer";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
@@ -72,6 +75,14 @@ export function loginUser(inObj: Object){
     lvObj.textBoxes = normalizeTextBoxes(lvObj.textBoxes); // words included: a box comes back saying what it said
     lvObj.firesaleSettings = normalizeFiresale(lvObj.firesaleSettings);
     lvObj.firesale = undefined; // a run never survives a restart — the source comes back idle
+    lvObj.mysteryBoxSettings = normalizeMysteryBox(lvObj.mysteryBoxSettings);
+    lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
+    lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
+    lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
+    lvObj.timerPause = undefined;   // nor does a pause: the deadline in the db is already the paused one
+    lvObj.timeBoost = undefined;    // nor a bonfire sale — it lapses with the process that was running it
+    lvObj.chatters = {};            // who's talking is rebuilt from chat itself within a few minutes
+    lvObj.mbEffect = undefined;     // a prize's after-effect doesn't survive the process either
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);
@@ -96,6 +107,8 @@ export function loginUser(inObj: Object){
     lvObj.fourthwallLastOkAt = 0;
     lvObj.twitchSubsStatus = false;
     lvObj.twitchSubsError = "";
+    lvObj.twitchBotError = "";
+    lvObj.twitchBotPending = undefined;
     lvObj.twitchSubsLastOkAt = 0;
     lvObj.lastEventAt = {};
     const existingSession = getUserSession(lvObj.userId);
@@ -145,6 +158,10 @@ export function logoutUser(id: number){
     // teardown is best-effort: one connector failing to close must not keep the session (or the others) alive.
     curSession.loggedOut = true;
     endFiresaleTimers(id); // a pending phase timer must not fire against a detached session
+    endMysteryBoxTimers(id);
+    endPauseTimer(id);     // otherwise the pause tick keeps dragging a detached session's deadline forward
+    endBoostTimer(id);
+    forgetTwitchBot(id);   // a cached access token must not outlive the session it belongs to
     try {
         if (curSession.conSL)
             curSession.conSL.disconnect();
