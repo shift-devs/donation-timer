@@ -21,15 +21,36 @@
 import { TimerUserSession } from "./types";
 import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
-import { activeChatters, chatterName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
+import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
-// what a twitch login may actually contain. used to gate the one place a chat-supplied name is repeated
-// back INTO chat.
-const TWITCH_LOGIN = /^@?[a-zA-Z0-9_]{1,25}$/;
+// what a twitch login may actually contain. used to gate the places a chat-supplied name is acted on or
+// repeated back INTO chat.
+const TWITCH_LOGIN = /^[a-zA-Z0-9_]{1,25}$/;
+
+// a name as somebody actually types it at another person, reduced to the login underneath.
+// "@Victim," is one word to a human and three problems to a parser: the @ twitch's autocomplete adds, the
+// capitals of a display name, and the punctuation of an ordinary sentence. all three are the writer being
+// normal, so none of them should cost a shot.
+function targetLogin(raw: any): string {
+    return String(raw || "")
+        .trim()
+        .replace(/^@+/, "")
+        .replace(/[.,!?;:'"()\[\]]+$/, "")
+        .trim();
+}
+
+// …and when what's left still isn't a login, it may be a DISPLAY name — which is what chat sees and what
+// twitch's autocomplete inserts. anyone who has spoken can be found that way.
+function resolveTarget(session: TimerUserSession, raw: any): string {
+    const cleaned = targetLogin(raw);
+    if (TWITCH_LOGIN.test(cleaned))
+        return cleaned.toLowerCase();
+    return chatterByDisplayName(session, cleaned);
+}
 const MAX_PRIZES = 30;
 const MAX_PRIZE_NAME = 60;
 const MAX_BLURB = 120;        // the line under the prize name on stream
@@ -898,10 +919,10 @@ export function raygunSeconds(session: TimerUserSession): number {
 export async function shootRaygun(session: TimerUserSession, shooter: any, shooterName: any, target: any): Promise<{ ok: boolean, message: string }> {
     const key = boxKey(shooter);
     const who = str(shooterName, MAX_NAME) || key;
-    const at = String(target || "").replace(/^@/, "").trim();
+    const at = resolveTarget(session, target);
     if (!key)
         return { ok: false, message: "" };
-    if (!at || !TWITCH_LOGIN.test(at))
+    if (!at)
         return { ok: false, message: `@${who} shoot who? Try !${mbSettings(session).raygunCommand} someone.` };
     if (raygunCount(session, key) < 1)
         return { ok: false, message: `@${who} you have no ray gun shots left.` };
@@ -1009,7 +1030,7 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         // a mod may ask about somebody else; everyone else gets their own count however they type it. the
         // name is held to twitch's own login grammar because whatever comes back is SAID in chat, and
         // "!mb count <anything>" would otherwise be a way to make the bot repeat arbitrary text.
-        const named = TWITCH_LOGIN.test(parts[2] || "") ? String(parts[2]).replace(/^@/, "") : "";
+        const named = resolveTarget(session, parts[2]);
         const who = isMod && named ? named : self.login;
         const label = isMod && named ? (mbBoxes(session)[boxKey(named)] || {}).name || named : self.displayName;
         const n = boxCount(session, who);

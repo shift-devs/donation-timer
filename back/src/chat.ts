@@ -141,6 +141,21 @@ export function activeChatters(session: TimerUserSession, windowMs = ACTIVE_WIND
     return Object.keys(list).filter((k) => list[k].t >= cutoff && !list[k].mod);
 }
 
+// the login behind a DISPLAY name, for anyone who has spoken. twitch's own autocomplete inserts the display
+// name, which for most accounts is the login with different capitals — but an account with a localised name
+// ("さくら" for the login "sakura123") has no relationship between the two at all, and typing what chat
+// actually shows you would otherwise always miss.
+export function chatterByDisplayName(session: TimerUserSession, name: any): string {
+    const want = String(name || "").trim().toLowerCase();
+    if (!want)
+        return "";
+    const list = chatters(session);
+    for (const login of Object.keys(list))
+        if (String(list[login].name || "").trim().toLowerCase() === want)
+            return login;
+    return "";
+}
+
 export function chatterName(session: TimerUserSession, login: string): string {
     const row = chatters(session)[String(login || "").toLowerCase()];
     return (row && row.name) || login;
