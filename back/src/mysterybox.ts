@@ -114,7 +114,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -154,6 +154,10 @@ function normalizeEffect(raw: any): any {
         percent: numIn(r.percent, 1, 100, 50),
         // raygun: how many shots the winner is credited with. each one is `seconds` long.
         charges: numIn(r.charges, 1, MAX_CHARGES, 5),
+        // timeBoost: a track looped for as long as the sale runs, as opposed to the prize's own `sound`,
+        // which is the one-shot that plays as the reel stops on it
+        loopSound: str(r.loopSound, MAX_PATH),
+        loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.loopVolume)) ? Number(r.loopVolume) : 0.6)),
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
@@ -707,7 +711,7 @@ export function applyEffect(session: TimerUserSession, prize: any){
     if (e.kind === "timeBoost" && e.seconds > 0 && e.factor > 1){
         // the prize's own name is what chat will hear it called, so that's what the terminal and the on-stream
         // banner say — "Bonfire Sale", not "x2 for 60s"
-        startTimeBoost(session, e.seconds * 1000, e.factor, prize.name || "Boost");
+        startTimeBoost(session, e.seconds * 1000, e.factor, prize.name || "Boost", e.loopSound, e.loopVolume);
         return;
     }
     if (e.kind === "nuke" && e.seconds > 0 && e.percent > 0){

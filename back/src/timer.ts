@@ -219,7 +219,7 @@ const boostTimers: { [userId: number]: any } = {};
 // start (or extend) a boost. an overlapping one takes the LATER end and the LARGER factor rather than
 // multiplying the two together — two sales landing back to back should feel generous, not compound into a
 // x4 nobody chose.
-export function startTimeBoost(session: TimerUserSession, ms: number, factor: number, reason: string){
+export function startTimeBoost(session: TimerUserSession, ms: number, factor: number, reason: string, sound = "", volume = 0.6){
     const duration = Math.max(0, Math.trunc(ms));
     const mult = Number.isFinite(factor) ? factor : 1;
     if (!duration || mult <= 1)
@@ -230,6 +230,13 @@ export function startTimeBoost(session: TimerUserSession, ms: number, factor: nu
         until: Math.max(now + duration, cur ? cur.until : 0),
         factor: Math.max(mult, cur ? cur.factor : 0),
         reason,
+        // when the CURRENT run of sale started. the browser source keys its looping track on this, so a sale
+        // that gets extended carries on playing rather than jumping back to the top of the track.
+        startedAt: cur ? cur.startedAt : now,
+        // likewise the track itself: a second sale landing on a running one doesn't swap the music out from
+        // under it. only a sale starting from silence chooses what plays.
+        sound: cur && cur.sound ? cur.sound : sound,
+        volume: cur && cur.sound ? cur.volume : Math.min(1, Math.max(0, volume)),
     };
     clearTimeout(boostTimers[session.userId]);
     boostTimers[session.userId] = setTimeout(() => {
@@ -267,7 +274,15 @@ export function timeBoostView(session: TimerUserSession): any {
     const b = session.timeBoost;
     if (!b || b.until <= Date.now())
         return null;
-    return { until: b.until, factor: b.factor, reason: b.reason };
+    return {
+        until: b.until,
+        factor: b.factor,
+        reason: b.reason,
+        startedAt: b.startedAt,
+        // a track the /mysterybox source loops for as long as the sale lasts
+        sound: b.sound || "",
+        volume: b.volume,
+    };
 }
 
 // tear down on logout so the expiry can't fire against a detached session

@@ -26,7 +26,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -43,7 +43,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "removeTime", label: "Take time away", needs: ["seconds"], hint: "Ignored if the timer is at 0 with \"stop at zero\" on." },
 	{ key: "pauseTimer", label: "Pause the timer", needs: ["seconds"], hint: "The countdown holds still, then carries on where it left off. Time won during a pause still counts." },
 	{ key: "timebomb", label: "Timebomb (freeze chat can chain)", needs: ["seconds"], hint: "Freezes the countdown, and every contribution pushes the freeze back out to its full length again. Chat keeps it frozen by chaining subs and donations; it only lets go once they've gone this long without one. Time won during it still counts." },
-	{ key: "timeBoost", label: "Multiply all contributions", needs: ["factor", "seconds"], hint: "A bonfire sale: for this long, every sub, cheer, donation and order grants multiplied time. A typed \"time\" command is left alone, so you can still correct the clock. Overlapping sales take the later end and the bigger multiplier rather than compounding." },
+	{ key: "timeBoost", label: "Multiply all contributions", needs: ["factor", "seconds", "loopSound"], hint: "A bonfire sale: for this long, every sub, cheer, donation and order grants multiplied time. A typed \"time\" command is left alone, so you can still correct the clock. Overlapping sales take the later end and the bigger multiplier rather than compounding." },
 	{ key: "nuke", label: "Nuke chat", needs: ["percent", "seconds"], hint: "Times out a random share of the people who have actually typed in the last 10 minutes. Mods and the broadcaster are left out — Twitch refuses a timeout on them, so counting them would make the share a lie. Needs a bot account with mod powers in chat; until then it reports who it would have hit." },
 	{ key: "raygun", label: "Ray gun (shots to spend later)", needs: ["charges", "seconds"], hint: "Credits the winner with shots they keep and fire whenever they like, with \"!raygun <name>\", timing that person out. A shot that doesn't land — a name nobody has, a mod Twitch refuses — is handed back. Needs a bot account with mod powers." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
@@ -89,6 +89,8 @@ export function canonPrize(raw: any, i: number) {
 			factor: Math.min(10, Math.max(1, Number.isFinite(Number(e.factor)) ? Number(e.factor) : 2)),
 			percent: numIn(e.percent, 1, 100, 50),
 			charges: numIn(e.charges, 1, 99, 5),
+			loopSound: typeof e.loopSound === "string" ? e.loopSound.slice(0, 300) : "",
+			loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.loopVolume)) ? Number(e.loopVolume) : 0.6)),
 			eventId: typeof e.eventId === "string" ? e.eventId.slice(0, 100) : "",
 			box: typeof e.box === "string" ? e.box.slice(0, 100) : "",
 			text: typeof e.text === "string" ? e.text.slice(0, 500) : "",

@@ -255,6 +255,34 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						</Select>
 					)}
 				</HStack>
+				{spec.needs.includes("loopSound") && (
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="gray.600">Loop</Text>
+						<Select
+							size="sm"
+							maxW="240px"
+							value={prize.effect.loopSound}
+							onChange={(e) => patchEffect(prize.id, { loopSound: e.target.value })}
+						>
+							<option value="">(no music)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={prize.effect.loopVolume}
+							onChange={(e) => patchEffect(prize.id, { loopVolume: Number(e.target.value) }, `lv${prize.id}`)}
+						/>
+						<Text fontSize="xs" color="gray.500">
+							plays on the Mystery Box source for as long as the sale lasts
+						</Text>
+					</HStack>
+				)}
 				{spec.needs.includes("text") && (
 					<Textarea
 						size="sm"

@@ -323,6 +323,20 @@ const MysteryBox: React.FC = () => {
 				/>
 			)}
 
+			{/* a sale's own music, looped for exactly as long as it runs. keyed on when the sale STARTED, not
+			    on when it ends, so a second sale extending the first carries on playing instead of jumping
+			    back to the top of the track — and a source that joins halfway simply comes in mid-loop,
+			    which is what a loop is for. */}
+			{showBoost && boost.sound && (
+				<audio
+					key={`b${boost.startedAt}`}
+					src={`/media/${encodeURIComponent(boost.sound)}`}
+					autoPlay
+					loop
+					ref={(el) => { if (el) el.volume = boost.volume; }}
+				/>
+			)}
+
 			{/* the prize's own sound, once, as the reel stops on it */}
 			{prize && prize.sound && landCue && active && (
 				<audio
