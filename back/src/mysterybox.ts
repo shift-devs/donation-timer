@@ -581,12 +581,10 @@ function landMysteryBox(session: TimerUserSession){
     pushMysteryBox(session);
     // tell chat what landed. the reel only says it to whoever is watching the stream at that second, and
     // half the fun of a rare prize is the people who missed it seeing that somebody got it.
-    // the operator's own blurb is preferred over our description of the effect: it's what they wrote to be
-    // read out ("+5 MINUTES"), where describeEffect is written to be precise on the dashboard.
-    if (prize && !mb.isTest){
-        const detail = String(prize.blurb || "").trim() || describeEffect(prize.effect);
-        chatSay(session, `@${mb.openerName || mb.opener} opened a mystery box and got ${prize.name || "???"}${detail ? ` — ${detail}` : ""}!`);
-    }
+    // just the name: what it DOES is playing out on screen a second later anyway, and spelling it out made
+    // every line read like a rules footnote.
+    if (prize && !mb.isTest)
+        chatSay(session, `@${mb.openerName || mb.opener} opened a mystery box and got ${prize.name || "???"}!`);
     // the effect comes after the push, so the overlay is already showing the prize when the timer jumps
     if (prize){
         try {
