@@ -47,6 +47,15 @@ const CSS = `
 	0%, 100% { box-shadow: 0 0 30px 6px rgba(255,212,0,0.55); }
 	50%      { box-shadow: 0 0 60px 18px rgba(255,212,0,0.95); }
 }
+@keyframes mb-rock {
+	0%   { transform: rotate(-4deg) scale(1); }
+	50%  { transform: rotate(4deg) scale(1.06); }
+	100% { transform: rotate(-4deg) scale(1); }
+}
+@keyframes mb-flash {
+	0%, 49%   { opacity: 1; filter: brightness(1.35); }
+	50%, 100% { opacity: 0.92; filter: brightness(0.7); }
+}
 @keyframes mb-pulse {
 	0%, 100% { opacity: 1; }
 	50%      { opacity: 0.72; }
@@ -230,6 +239,24 @@ const MysteryBox: React.FC = () => {
 	const showBoost = !!boost && boostLeft > 0;
 	const bombLeft = bomb ? bomb.until - Date.now() : 0;
 	const showBomb = !!bomb && bombLeft > 0;
+	// full size only when the sale has the frame to itself. with a box being opened underneath it, the reel
+	// is what chat is watching and a banner this big would land on top of the title.
+	const saleBig = showBoost && !active;
+	// the prize's NAME is whatever the operator typed, so the size has to come off its length or a long one
+	// would run off both sides of the frame — and the rock below swings it wider still. 0.55em is about the
+	// average glyph width of the display face; the firesale source sizes its winner names the same way.
+	const saleName = String((boost && boost.reason) || "");
+	const saleFs = saleBig
+		? Math.max(40, Math.min(116, Math.floor((STAGE_W - 150) / (Math.max(4, saleName.length) * 0.55))))
+		: Math.max(28, Math.min(56, Math.floor((STAGE_W - 150) / (Math.max(4, saleName.length) * 0.55))));
+	const saleSubFs = saleBig ? 46 : 32;
+	// how much room the whole banner takes, so the timebomb's can sit under it rather than through it.
+	// a name too long to fit on one line even at the smallest size WRAPS rather than running off the frame,
+	// so the line count is part of the height — otherwise a wordy prize name would push the timebomb's
+	// banner up underneath its own second line.
+	const salePad = saleBig ? 56 : 24;
+	const saleLines = Math.max(1, Math.ceil((saleName.length * saleFs * 0.55) / (STAGE_W - 80)));
+	const saleH = Math.round(salePad + saleFs * 0.95 * saleLines + 8 + saleSubFs * 1.5 * 1.1);
 	if (!token || (!active && !showBoost && !showBomb))
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
 
@@ -352,7 +379,9 @@ const MysteryBox: React.FC = () => {
 					<div
 						style={{
 							position: "absolute",
-							top: showBoost ? 108 : 0,
+							// clear of the sale's banner when both are up, measured from its actual type sizes
+							// rather than guessed — the sale's name is operator-set and so is its height
+							top: showBoost ? saleH : 0,
 							left: 0,
 							right: 0,
 							padding: "10px 0 14px",
@@ -395,27 +424,54 @@ const MysteryBox: React.FC = () => {
 							top: 0,
 							left: 0,
 							right: 0,
-							padding: "10px 0 14px",
-							background: "linear-gradient(180deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0) 100%)",
+							padding: saleBig ? "26px 0 30px" : "10px 0 14px",
+							background: "linear-gradient(180deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0) 100%)",
 							zIndex: 5,
-							animation: "mb-pulse 1100ms ease-in-out infinite",
 						}}
 					>
+						{/* two rhythms, deliberately out of step: a slow rock on the outside and a fast flash on
+						    the type itself. that mismatch is most of why the firesale reads as loud rather than
+						    as a caption, and this is the same trick at the same speeds. */}
+						<div style={{ animation: "mb-rock 700ms ease-in-out infinite" }}>
+							<div
+								style={{
+									animation: "mb-flash 420ms steps(1, end) infinite",
+									color: cfg.titleColor,
+									fontSize: saleFs,
+									lineHeight: 0.95,
+									letterSpacing: "0.03em",
+									WebkitTextStrokeWidth: saleBig ? "6px" : "4px",
+									WebkitTextStrokeColor: "#000",
+									paintOrder: "stroke fill",
+									textShadow: "0 0 40px rgba(255,140,0,0.9), 0 8px 0 rgba(0,0,0,0.55)",
+								}}
+							>
+								{boost.reason}
+							</div>
+						</div>
 						<div
 							style={{
-								color: cfg.titleColor,
-								fontSize: 52,
-								lineHeight: 1,
-								letterSpacing: "0.03em",
-								WebkitTextStrokeWidth: "4px",
-								WebkitTextStrokeColor: "#000",
-								paintOrder: "stroke fill",
+								color: cfg.nameColor,
+								fontSize: saleSubFs,
+								lineHeight: 1.1,
+								marginTop: saleBig ? 6 : 2,
+								textShadow: outline,
 							}}
 						>
-							{boost.reason}
-						</div>
-						<div style={{ color: cfg.nameColor, fontSize: 34, textShadow: outline }}>
-							EVERYTHING IS WORTH x{boost.factor} — {countdown(boostLeft)}
+							EVERYTHING IS WORTH{" "}
+							<span
+								style={{
+									color: cfg.titleColor,
+									fontSize: Math.round(saleSubFs * 1.5),
+									WebkitTextStrokeWidth: "3px",
+									WebkitTextStrokeColor: "#000",
+									paintOrder: "stroke fill",
+									textShadow: "0 0 26px rgba(255,140,0,0.95)",
+								}}
+							>
+								x{boost.factor}
+							</span>{" "}
+							— {countdown(boostLeft)}
 						</div>
 					</div>
 				)}
