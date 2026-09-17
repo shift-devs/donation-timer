@@ -309,7 +309,7 @@ function slots(userId: number){
 
 export function getMysteryBox(session: TimerUserSession): any {
     if (!session.mysterybox || typeof session.mysterybox !== "object")
-        session.mysterybox = { nonce: 0, phase: "idle", opener: "", openerName: "", prizeId: "", reel: [], startIndex: 0, landIndex: 0, startedAt: 0, endsAt: 0, wonAt: 0 };
+        session.mysterybox = { nonce: 0, phase: "idle", opener: "", openerName: "", prizeId: "", reel: [], startIndex: 0, landIndex: 0, startedAt: 0, endsAt: 0, wonAt: 0, isTest: false };
     return session.mysterybox;
 }
 
@@ -542,6 +542,7 @@ export function openMysteryBox(session: TimerUserSession, login: any, displayNam
     mb.phase = "spinning";
     mb.opener = key;
     mb.openerName = who;
+    mb.isTest = false;
     mb.prizeId = prize.id;
     const strip = buildReel(session, prize.id);
     mb.reel = strip.reel;
@@ -578,6 +579,14 @@ function landMysteryBox(session: TimerUserSession){
     const prize = findPrize(session, mb.prizeId);
     emitTerminal(session.userId, `MYSTERYBOX — ${mb.openerName || mb.opener} won ${prize ? (prize.name || prize.id) : "nothing"}!`, true);
     pushMysteryBox(session);
+    // tell chat what landed. the reel only says it to whoever is watching the stream at that second, and
+    // half the fun of a rare prize is the people who missed it seeing that somebody got it.
+    // the operator's own blurb is preferred over our description of the effect: it's what they wrote to be
+    // read out ("+5 MINUTES"), where describeEffect is written to be precise on the dashboard.
+    if (prize && !mb.isTest){
+        const detail = String(prize.blurb || "").trim() || describeEffect(prize.effect);
+        chatSay(session, `@${mb.openerName || mb.opener} opened a mystery box and got ${prize.name || "???"}${detail ? ` — ${detail}` : ""}!`);
+    }
     // the effect comes after the push, so the overlay is already showing the prize when the timer jumps
     if (prize){
         try {
@@ -608,6 +617,7 @@ export function endMysteryBox(session: TimerUserSession){
     mb.phase = "idle";
     mb.opener = "";
     mb.openerName = "";
+    mb.isTest = false;
     mb.prizeId = "";
     mb.reel = [];
     mb.startIndex = 0;
@@ -851,6 +861,7 @@ export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok
     mb.phase = "spinning";
     mb.opener = "test";
     mb.openerName = "TEST";
+    mb.isTest = true; // a rehearsal changes the timer for real, but it must not announce itself to chat
     mb.prizeId = prize.id;
     const strip = buildReel(session, prize.id);
     mb.reel = strip.reel;
