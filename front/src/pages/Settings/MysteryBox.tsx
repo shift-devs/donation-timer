@@ -526,8 +526,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 												value={p.weight}
 												onCommit={(n) => patchPrize(p.id, { weight: n }, `w${p.id}`)}
 											/>
+											{/* two decimals throughout: rounding to whole numbers hid the difference between
+											    a 1-in-200 prize and a 1-in-2000 one, which is exactly the end of the range
+											    the weights are being tuned at */}
 											<Badge colorScheme={odds > 0 ? "blue" : "gray"}>
-												{odds > 0 ? `${odds < 1 ? odds.toFixed(1) : Math.round(odds)}%` : "never"}
+												{odds > 0 ? `${odds.toFixed(2)}%` : "never"}
 											</Badge>
 										</HStack>
 										<HStack spacing={1}>
