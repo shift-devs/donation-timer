@@ -26,6 +26,9 @@ import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
+// what a twitch login may actually contain. used to gate the one place a chat-supplied name is repeated
+// back INTO chat.
+const TWITCH_LOGIN = /^@?[a-zA-Z0-9_]{1,25}$/;
 const MAX_PRIZES = 30;
 const MAX_PRIZE_NAME = 60;
 const MAX_BLURB = 120;        // the line under the prize name on stream
@@ -856,10 +859,16 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         return true;
     }
     if (action === "count"){
-        const n = boxCount(session, self.login);
-        // through the chat seam, which reports to the terminal until there's an account that can actually
-        // say it — at which point this starts answering in chat with no change here
-        chatSay(session, `@${self.displayName} has ${n} mystery box${n === 1 ? "" : "es"}.`);
+        // a mod may ask about somebody else; everyone else gets their own count however they type it. the
+        // name is held to twitch's own login grammar because whatever comes back is SAID in chat, and
+        // "!mb count <anything>" would otherwise be a way to make the bot repeat arbitrary text.
+        const named = TWITCH_LOGIN.test(parts[2] || "") ? String(parts[2]).replace(/^@/, "") : "";
+        const who = isMod && named ? named : self.login;
+        const label = isMod && named ? (mbBoxes(session)[boxKey(named)] || {}).name || named : self.displayName;
+        const n = boxCount(session, who);
+        // through the chat seam, which reports to the terminal when no bot account is connected — so this
+        // answers in chat the moment one is, with no change here
+        chatSay(session, `@${label} has ${n} mystery box${n === 1 ? "" : "es"}.`);
         return true;
     }
     if (!isMod)
