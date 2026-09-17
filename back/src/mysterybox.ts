@@ -21,6 +21,7 @@
 import { TimerUserSession } from "./types";
 import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
+import { activeChatters, chatterName, chatTimeout, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
 
@@ -42,8 +43,9 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timeBoost", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timeBoost", "nuke", "playEvent", "textBox"];
 const MAX_BOOST = 10;
+const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 
 export const DEFAULT_MYSTERYBOX = {
     // off = "!mb open" does nothing and firesales credit nobody. the boxes people already hold are kept.
@@ -85,7 +87,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -121,6 +123,8 @@ function normalizeEffect(raw: any): any {
         seconds: numIn(r.seconds, 0, 24 * 3600, 0),
         // timeBoost: what every contribution's time is multiplied by while it lasts. 2 is the bonfire sale.
         factor: Math.min(MAX_BOOST, Math.max(1, Number.isFinite(Number(r.factor)) ? Number(r.factor) : 2)),
+        // nuke: what share of the chatters who are actually talking get timed out
+        percent: numIn(r.percent, 1, 100, 50),
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
@@ -617,6 +621,10 @@ export function applyEffect(session: TimerUserSession, prize: any){
         startTimeBoost(session, e.seconds * 1000, e.factor, prize.name || "Boost");
         return;
     }
+    if (e.kind === "nuke" && e.seconds > 0 && e.percent > 0){
+        nukeChat(session, e.percent, Math.min(MAX_NUKE_SEC, e.seconds), prize.name || "Nuke");
+        return;
+    }
     if (e.kind === "playEvent" && e.eventId){
         // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
         // and the event's delayed command (if it has one) runs too
@@ -648,6 +656,38 @@ export function applyEffect(session: TimerUserSession, prize: any){
     }
 }
 
+// time out a share of the people currently talking. "currently talking" is what chat.ts's roster says: who
+// has typed inside the activity window, minus the mods and the broadcaster, because twitch refuses a timeout
+// on those and counting them would make the percentage a lie.
+//
+// picked at random, and the pick is made HERE rather than being handed to twitch as a filter — there is no
+// such twitch feature. each timeout is its own command.
+export function nukeChat(session: TimerUserSession, percent: number, seconds: number, reason: string): { hit: string[], pool: number } {
+    const pool = activeChatters(session);
+    if (!pool.length){
+        emitTerminal(session.userId, `${reason} — nobody has said anything in the last ${Math.round(ACTIVE_WINDOW_MS / 60000)} minutes, so there was nobody to hit.`);
+        return { hit: [], pool: 0 };
+    }
+    // shuffle, then take the share off the front
+    const order = pool.slice();
+    for (let i = order.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+    }
+    // at least one: a prize that announces itself and then does nothing because chat was quiet reads as broken
+    const take = Math.max(1, Math.min(order.length, Math.round((order.length * percent) / 100)));
+    const hit = order.slice(0, take);
+    for (const login of hit)
+        chatTimeout(session, login, seconds, reason);
+    const names = hit.map((l) => chatterName(session, l)).join(", ");
+    if (canTimeout(session))
+        emitTerminal(session.userId, `${reason} — timed out ${hit.length} of ${pool.length} chatters for ${seconds}s: ${names}`, true);
+    else
+        // the bot account isn't wired up yet, so say exactly what would have happened rather than pretending
+        emitTerminal(session.userId, `${reason} WOULD have timed out ${hit.length} of ${pool.length} chatters for ${seconds}s, but there's no bot account with mod powers in chat yet: ${names}`);
+    return { hit, pool: pool.length };
+}
+
 function restorableText(session: TimerUserSession, box: any): string {
     const boxes = Array.isArray(session.textBoxes) ? session.textBoxes : [];
     const want = String(box || "").trim().toLowerCase();
@@ -671,6 +711,10 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0 && e.factor > 1
             ? `every contribution is worth x${e.factor} for ${mins(e.seconds)}`
             : "boosts nothing (set the seconds and a multiplier above 1)";
+    if (e.kind === "nuke")
+        return e.seconds > 0 && e.percent > 0
+            ? `times out ${e.percent}% of the chatters who are talking, for ${mins(e.seconds)}`
+            : "times out nobody (set the share and the seconds)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")
@@ -798,9 +842,9 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
     }
     if (action === "count"){
         const n = boxCount(session, self.login);
-        // nothing to reply WITH yet — the bot account that would say this in chat isn't wired up, so for now
-        // it goes to the dashboard terminal and the operator can read it out. see chat.ts.
-        emitTerminal(session.userId, `Chat (${self.login}): ${self.displayName} has ${n} mystery box${n === 1 ? "" : "es"}.`, true);
+        // through the chat seam, which reports to the terminal until there's an account that can actually
+        // say it — at which point this starts answering in chat with no change here
+        chatSay(session, `@${self.displayName} has ${n} mystery box${n === 1 ? "" : "es"}.`);
         return true;
     }
     if (!isMod)

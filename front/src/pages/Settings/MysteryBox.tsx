@@ -166,6 +166,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								{prize.effect.kind === "pauseTimer" ? "Pause for"
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
+									: prize.effect.kind === "nuke" ? ""
 									: "Seconds"}
 							</Text>
 							<NumberField
@@ -191,6 +192,19 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								value={prize.effect.factor}
 								onCommit={(n) => patchEffect(prize.id, { factor: n }, `f${prize.id}`)}
 							/>
+						</HStack>
+					)}
+					{spec.needs.includes("percent") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Hits</Text>
+							<NumberField
+								width="80px"
+								min={1}
+								max={100}
+								value={prize.effect.percent}
+								onCommit={(n) => patchEffect(prize.id, { percent: n }, `pc${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">% of chat, for</Text>
 						</HStack>
 					)}
 					{spec.needs.includes("eventId") && (

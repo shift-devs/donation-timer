@@ -5,6 +5,7 @@ import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleMysteryBoxChat, runMysteryBoxCommand } from "../mysterybox";
+import { recordChatter, pruneChatters } from "../chat";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -93,6 +94,10 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (!tags.username)
             return;
         const isMod = !!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase());
+        // note who is talking, for the prizes that act on chat. recorded before anything below can return,
+        // so somebody typing "!mb open" still counts as being in chat.
+        recordChatter(session, tags.username, String(tags["display-name"] || tags.username), isMod);
+        pruneChatters(session);
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)

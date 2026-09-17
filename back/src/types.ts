@@ -63,6 +63,9 @@ export interface TimerUserSession {
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
     // the firesale run above — a spin that was interrupted by a restart must not come back with it.
     mysterybox?: any
+    // who has spoken in twitch chat lately, for the prizes that act on chat (see chat.ts). transient:
+    // a restart empties it and the next few minutes of chat fill it back in.
+    chatters?: { [login: string]: { name: string, t: number, mod: boolean } }
     // set while a prize has every contribution granting more time than its rate says (the "bonfire sale").
     // `factor` is what a contribution's seconds are multiplied by, `until` is when it lapses. the rates
     // themselves are never touched — see timer.ts.
