@@ -72,7 +72,9 @@ export interface TimerUserSession {
     timeBoost?: { until: number, factor: number, reason: string }
     // set while a prize is holding the countdown still. `until` is when it resumes and `remainingMs` is the
     // time being held — that one is authoritative, and endTime is re-derived from it by the tick in timer.ts.
-    timerPause?: { until: number, reason: string, remainingMs: number }
+    // `rollMs` marks a ROLLING pause (the timebomb): every contribution pushes `until` back out to this far
+    // ahead, so the freeze lasts as long as chat keeps feeding it. 0/absent = a plain pause that just expires.
+    timerPause?: { until: number, reason: string, remainingMs: number, rollMs: number }
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any

@@ -43,7 +43,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timeBoost", "nuke", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "playEvent", "textBox"];
 const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 
@@ -615,6 +615,12 @@ export function applyEffect(session: TimerUserSession, prize: any){
         pauseTimerFor(session, e.seconds * 1000, label);
         return;
     }
+    if (e.kind === "timebomb" && e.seconds > 0){
+        // the same freeze as pauseTimer, but rolling: every contribution buys chat another e.seconds of it,
+        // and it only lets go once they've gone that long without one
+        pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", e.seconds * 1000);
+        return;
+    }
     if (e.kind === "timeBoost" && e.seconds > 0 && e.factor > 1){
         // the prize's own name is what chat will hear it called, so that's what the terminal and the on-stream
         // banner say — "Bonfire Sale", not "x2 for 60s"
@@ -707,6 +713,10 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0 ? `takes ${mins(e.seconds)}` : "takes nothing (set the seconds)";
     if (e.kind === "pauseTimer")
         return e.seconds > 0 ? `pauses the timer ${mins(e.seconds)}` : "pauses nothing (set the seconds)";
+    if (e.kind === "timebomb")
+        return e.seconds > 0
+            ? `freezes the timer, and every contribution keeps it frozen another ${mins(e.seconds)}`
+            : "freezes nothing (set the seconds)";
     if (e.kind === "timeBoost")
         return e.seconds > 0 && e.factor > 1
             ? `every contribution is worth x${e.factor} for ${mins(e.seconds)}`

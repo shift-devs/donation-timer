@@ -164,6 +164,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<HStack spacing={1}>
 							<Text fontSize="sm" color="gray.600">
 								{prize.effect.kind === "pauseTimer" ? "Pause for"
+									: prize.effect.kind === "timebomb" ? "Each contribution buys"
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
 									: prize.effect.kind === "nuke" ? ""
@@ -286,9 +287,10 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				    own way out, for when it has to end early */}
 				{pause && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Badge colorScheme="orange">TIMER PAUSED</Badge>
+						<Badge colorScheme="orange">{pause.rollMs ? "TIMEBOMB" : "TIMER PAUSED"}</Badge>
 						<Text fontSize="sm" color="gray.600">
 							{countdown(pause.until - Date.now())} left — {pause.reason}
+							{pause.rollMs ? ` (each contribution resets it to ${Math.round(pause.rollMs / 1000)}s)` : ""}
 						</Text>
 						<Button size="xs" onClick={() => resumeTimer(ws)}>Resume now</Button>
 					</Flex>

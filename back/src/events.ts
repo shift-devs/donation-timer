@@ -1,7 +1,7 @@
 import { TimerUserSession, TimerEvent } from "./types";
 import { CHAT_CMD_MAX_TIME } from "./config";
 import { toSeconds } from "./rates";
-import { addToEndTime, boostFactor } from "./timer";
+import { addToEndTime, boostFactor, refreshTimebomb } from "./timer";
 import { emitSync, reportError } from "./bus";
 import { firePlatformTriggers } from "./scheduler";
 
@@ -21,6 +21,15 @@ function countSub(session: TimerUserSession, event: TimerEvent): boolean {
     return true;
 }
 
+// what counts as a CONTRIBUTION — a sub, a cheer, a donation, an order, or a mod entering one by hand
+// because we missed it. everything except a typed "time <seconds>", which isn't somebody giving anything but
+// somebody naming the exact number of seconds they want the clock moved by.
+// the prizes that react to contributions (the bonfire sale's multiplier, the timebomb's freeze) both ask
+// this, so the two can't drift into disagreeing about what chat just did.
+function isContribution(event: TimerEvent): boolean {
+    return !(event.kind === "time" && event.manual);
+}
+
 // the one place that decides what an event does: anon filter -> rate -> cap (manual only) -> add time + log.
 // every sub/donation/timer change funnels through here, so this try/catch is the containment point: a bad
 // payload can lose its own event but never crash the server, and the failure lands on the dashboard terminal.
@@ -37,6 +46,11 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         // the thing happened whether or not it grants any time.
         if (!event.manual)
             firePlatformTriggers(session, event);
+        // a timebomb's freeze is pushed back out by every contribution. done here, before the anon and rate
+        // short-circuits below, because chaining the freeze is about the contribution HAPPENING — an anon
+        // gifter, or a sub whose rate is set to zero, still bought chat another few seconds.
+        if (isContribution(event))
+            refreshTimebomb(session);
         if (event.kind === "sub" && session.ignoreAnon && event.anonymous)
             return;
         const rated = toSeconds(session.rates, event);
@@ -50,7 +64,7 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         // clock, and would silently double the time commands that scheduled events fire. everything else is
         // in, including the flat and per-product bonuses a fourthwall order carries, because those ARE part
         // of what the purchase granted.
-        const factor = event.kind === "time" && event.manual ? 1 : boostFactor(session);
+        const factor = isContribution(event) ? boostFactor(session) : 1;
         const seconds = factor === 1 ? rated : Math.round(rated * factor);
         const label = factor === 1
             ? event.label

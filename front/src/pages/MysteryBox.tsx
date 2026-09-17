@@ -65,6 +65,10 @@ const MysteryBox: React.FC = () => {
 	// a bonfire sale outlives the reveal that started it by a long way, so it's tracked apart from the open:
 	// the source keeps a banner up for as long as one runs, which is the only way chat learns it's on.
 	const [boost, setBoost] = useState<any>(null);
+	// a timebomb's countdown is the whole game — chat can only chain contributions if they can see how long
+	// they have left. a plain pause gets no banner: nothing they do changes it, and the frozen timer on the
+	// widget already says it's frozen.
+	const [bomb, setBomb] = useState<any>(null);
 	// which open's prize sound has already been played, keyed on the open's nonce. NOT a bare "have i played
 	// one" flag: that stays truthy after the overlay goes idle, so the element would remount — and replay —
 	// the moment the next box was opened. (the firesale source learned this the hard way.)
@@ -95,6 +99,8 @@ const MysteryBox: React.FC = () => {
 			// push has no opinion on it, so the key's absence must not read as "the sale ended"
 			if ("timeBoost" in response)
 				setBoost(response.timeBoost);
+			if ("timerPause" in response)
+				setBomb(response.timerPause && response.timerPause.rollMs ? response.timerPause : null);
 			if (!("mysterybox" in response) && "error" in response)
 				console.log(`error: ${response.error}`);
 		};
@@ -205,11 +211,11 @@ const MysteryBox: React.FC = () => {
 	// re-render once a second purely to move the banner's countdown on
 	const [, setTick] = useState(0);
 	useEffect(() => {
-		if (!boost)
+		if (!boost && !bomb)
 			return;
-		const id = setInterval(() => setTick((n) => n + 1), 500);
+		const id = setInterval(() => setTick((n) => n + 1), 250);
 		return () => clearInterval(id);
-	}, [!!boost]);
+	}, [!!boost, !!bomb]);
 
 	useEffect(() => {
 		if (phase === "idle"){
@@ -222,7 +228,9 @@ const MysteryBox: React.FC = () => {
 	// box open at all
 	const boostLeft = boost ? boost.until - Date.now() : 0;
 	const showBoost = !!boost && boostLeft > 0;
-	if (!token || (!active && !showBoost))
+	const bombLeft = bomb ? bomb.until - Date.now() : 0;
+	const showBomb = !!bomb && bombLeft > 0;
+	if (!token || (!active && !showBoost && !showBomb))
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
 
 	const transparent = cfg.bgColor === "transparent";
@@ -323,6 +331,46 @@ const MysteryBox: React.FC = () => {
 			)}
 
 			<div style={stage}>
+				{showBomb && (
+					<div
+						style={{
+							position: "absolute",
+							top: showBoost ? 108 : 0,
+							left: 0,
+							right: 0,
+							padding: "10px 0 14px",
+							background: "linear-gradient(180deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0) 100%)",
+							zIndex: 5,
+						}}
+					>
+						<div
+							style={{
+								color: cfg.titleColor,
+								fontSize: 52,
+								lineHeight: 1,
+								letterSpacing: "0.03em",
+								WebkitTextStrokeWidth: "4px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+							}}
+						>
+							{bomb.reason}
+						</div>
+						{/* to a tenth, and pulsing under five seconds: the point of the number is that chat can
+						    see how long they have to land the next one, and whole seconds hide the last of it */}
+						<div
+							style={{
+								color: bombLeft <= 5000 ? cfg.titleColor : cfg.nameColor,
+								fontSize: 44,
+								textShadow: outline,
+								animation: bombLeft <= 5000 ? "mb-pulse 450ms ease-in-out infinite" : undefined,
+							}}
+						>
+							TIMER FROZEN — {(bombLeft / 1000).toFixed(1)}s
+						</div>
+					</div>
+				)}
+
 				{showBoost && (
 					<div
 						style={{

@@ -72,7 +72,12 @@ const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, 
 
 // freeze the countdown for `ms`. pausing something already paused EXTENDS it to whichever end is later,
 // rather than restarting it — two prizes landing close together shouldn't cut the first one short.
-export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string){
+//
+// `rollMs` makes it a TIMEBOMB: a freeze that every contribution pushes back out to rollMs from now, so chat
+// can keep it alive by chaining subs and donations and it only lapses once they stop for that long. it's the
+// same freeze underneath — the only difference is that something else moves the deadline (see
+// refreshTimebomb, called from events.ts).
+export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string, rollMs = 0){
     const now = Date.now();
     const duration = Math.max(0, Math.trunc(ms));
     if (!duration)
@@ -87,7 +92,14 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
     // extending an existing pause keeps the remaining time it's already holding — re-reading it here would
     // pick up whatever the last tick left, and hand back the fraction of a tick's worth of drift with it
     const until = Math.max(now + duration, cur ? cur.until : 0);
-    session.timerPause = { until, reason, remainingMs: cur ? cur.remainingMs : session.endTime - now };
+    session.timerPause = {
+        until,
+        reason,
+        remainingMs: cur ? cur.remainingMs : session.endTime - now,
+        // a bomb landing on a plain pause makes the whole thing rolling, and a plain pause landing on a bomb
+        // leaves it rolling — either way the more generous behaviour wins, as with the end time above
+        rollMs: Math.max(Math.max(0, Math.trunc(rollMs)), cur ? cur.rollMs : 0),
+    };
     const slot = pauseTicks[session.userId];
     if (slot){
         slot.session = session;
@@ -123,8 +135,25 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
             }, PAUSE_TICK),
         };
     }
-    emitTerminal(session.userId, `Timer paused for ${Math.round(duration / 1000)}s — ${reason}.`, true);
+    emitTerminal(session.userId, session.timerPause.rollMs
+        ? `${reason} — the timer is frozen, and every contribution buys another ${Math.round(session.timerPause.rollMs / 1000)}s of it.`
+        : `Timer paused for ${Math.round(duration / 1000)}s — ${reason}.`, true);
     emitSync(session.userId);
+}
+
+// a contribution landed while a timebomb is running: push the freeze back out to its full length. this is
+// what makes the thing a game — chat keeps the timer frozen for as long as they keep feeding it, and the
+// moment they stop for rollMs the tick above lets it go.
+// does nothing to a plain pause, which is a fixed window nobody can extend.
+export function refreshTimebomb(session: TimerUserSession){
+    const p = session.timerPause;
+    if (!p || !p.rollMs)
+        return;
+    const now = Date.now();
+    if (p.until <= now)
+        return; // already lapsed; the tick is about to clear it and reviving it here would be a second freeze
+    p.until = now + p.rollMs;
+    emitSync(session.userId); // the countdown on stream has to be seen to reset, or chaining has no feedback
 }
 
 export function resumeTimer(session: TimerUserSession){
@@ -135,6 +164,16 @@ export function resumeTimer(session: TimerUserSession){
         emitTerminal(session.userId, `Timer running again.`, true);
         emitSync(session.userId);
     }
+}
+
+// time that has landed since the last tick and hasn't been folded into the held total yet. the tick does
+// that fold four times a second, which is soon enough for the clock but not for the SYNC a contribution
+// sends immediately after granting time — that one would otherwise report the held time as it was a moment
+// before, and a timebomb would show chat's sub arriving a quarter of a second late. read, never written:
+// the fold itself belongs to the tick.
+function pendingDrift(session: TimerUserSession): number {
+    const cell = pauseTicks[session.userId];
+    return cell ? session.endTime - cell.expected : 0;
 }
 
 // what the clients are told: how long the pause has left, and the remaining time to hold on screen while it
@@ -148,7 +187,9 @@ export function timerPauseView(session: TimerUserSession): any {
     return {
         until: p.until,
         reason: p.reason,
-        remainingMs: Math.max(0, p.remainingMs),
+        remainingMs: Math.max(0, p.remainingMs + pendingDrift(session)),
+        // non-zero means the clients should draw this as a countdown chat can reset, not a fixed wait
+        rollMs: p.rollMs || 0,
     };
 }
 
