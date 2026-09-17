@@ -67,6 +67,10 @@ export interface TimerUserSession {
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
     // the firesale run above — a spin that was interrupted by a restart must not come back with it.
     mysterybox?: any
+    // a prize's after-effect that is still running but keeps no state of its own (a nuke's timeouts, a text
+    // box holding its words). the freezes and the bonfire sale are visible in timerPause/timeBoost instead.
+    // what it's for: knowing whether the last box is still playing out, so the next one can't start on top.
+    mbEffect?: { until: number, what: string }
     // who has spoken in twitch chat lately, for the prizes that act on chat (see chat.ts). transient:
     // a restart empties it and the next few minutes of chat fill it back in.
     chatters?: { [login: string]: { name: string, t: number, mod: boolean } }

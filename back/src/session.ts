@@ -81,6 +81,7 @@ export function loginUser(inObj: Object){
     lvObj.timerPause = undefined;   // nor does a pause: the deadline in the db is already the paused one
     lvObj.timeBoost = undefined;    // nor a bonfire sale — it lapses with the process that was running it
     lvObj.chatters = {};            // who's talking is rebuilt from chat itself within a few minutes
+    lvObj.mbEffect = undefined;     // a prize's after-effect doesn't survive the process either
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);

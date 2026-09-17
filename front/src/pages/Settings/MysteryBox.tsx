@@ -283,6 +283,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{phase !== "idle" && <Button size="xs" variant="ghost" onClick={() => stopMysteryBox(ws)}>Clear</Button>}
 				</Flex>
 
+				{/* one thing at a time: while anything is playing out, "!mb open" is answered with a reason
+				    rather than queued, so it's worth showing the operator what chat is being told */}
+				{run && run.blocked && (
+					<Text fontSize="sm" color="orange.300" mb={2}>
+						Chat can&apos;t open a box right now — {run.blocked}.
+					</Text>
+				)}
+
 				{/* a prize that pauses the timer outlives the reveal by minutes, so it gets its own line — and its
 				    own way out, for when it has to end early */}
 				{pause && (

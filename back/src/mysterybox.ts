@@ -348,6 +348,9 @@ export function mysteryBoxView(session: TimerUserSession): any {
         // every prize, for the reel art and the preload — ids and images only, since the source has no use
         // for the weights or the effects
         prizes: cfg.prizes.map((p: any) => ({ id: p.id, name: p.name, image: p.image })),
+        // why "!mb open" is being turned away, if it is — the dashboard shows it so the operator isn't left
+        // wondering why chat is complaining
+        blocked: openBlockedBy(session),
         command: cfg.command,
         music: cfg.music,
         volume: cfg.volume,
@@ -484,6 +487,29 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
     return { reel, startIndex, landIndex };
 }
 
+// why a box can't be opened right now, or "" if it can. ONE thing happens at a time: the overlay is a single
+// reel with a single soundtrack, and a prize landing on top of the last one's after-effect — a second reel
+// over a bonfire sale, a nuke during a freeze — reads as the feature misfiring rather than as two prizes.
+// a firesale counts too: that overlay owns the screen and the music while it runs.
+// the reason is written to be said out loud in chat, so it names the prize rather than the mechanism.
+export function openBlockedBy(session: TimerUserSession): string {
+    if (isOpening(session))
+        return "a box is already being opened";
+    const f = session.firesale;
+    if (f && Array.isArray(f.runs) && f.runs.length)
+        return "a firesale is running";
+    const pause = session.timerPause;
+    if (pause)
+        return `${pause.reason} still has the timer frozen`;
+    const boost = session.timeBoost;
+    if (boost && boost.until > Date.now())
+        return `${boost.reason} is still going`;
+    const eff = session.mbEffect;
+    if (eff && eff.until > Date.now())
+        return `${eff.what} is still going`;
+    return "";
+}
+
 // open one box for someone. this is the only place a box is spent.
 // returns a line for whoever asked; `ok: false` with a blank message means "ignored on purpose, say nothing"
 // — which is what a second opener during a spin gets.
@@ -495,11 +521,15 @@ export function openMysteryBox(session: TimerUserSession, login: any, displayNam
         return { ok: false, message: "" };
     if (!key)
         return { ok: false, message: "" };
-    // the lock. checked BEFORE the box is spent, so someone who typed during a spin still has theirs.
-    if (isOpening(session))
-        return { ok: false, message: "" };
+    // whether they HAVE one is asked before whether now is a good time, so the only people who ever hear
+    // "you can't right now" are people who could otherwise have opened one. everybody else gets the honest
+    // answer, and a chat full of hopefuls typing !mb open can't turn the bot into a megaphone.
     if (boxCount(session, key) < 1)
-        return { ok: false, message: `${who} has no mystery boxes to open.` };
+        return { ok: false, message: `@${who} you have no mystery boxes to open.` };
+    // checked BEFORE the box is spent, so somebody turned away still has theirs
+    const blocked = openBlockedBy(session);
+    if (blocked)
+        return { ok: false, message: `@${who} you can't open a box right now — ${blocked}.` };
     const prize = drawPrize(session);
     if (!prize){
         emitTerminal(session.userId, `MYSTERYBOX — ${who} tried to open a box, but no prize is set up to be won. Their box was not spent.`);
@@ -590,6 +620,7 @@ export function endMysteryBox(session: TimerUserSession){
 
 // tear down on logout so a phase timer can't fire against a detached session
 export function endMysteryBoxTimers(userId: number){
+    delete toldAt[userId];
     const t = slots(userId);
     clearTimeout(t.land);
     clearTimeout(t.done);
@@ -603,6 +634,14 @@ export function endMysteryBoxTimers(userId: number){
 
 // the one place a prize is allowed to reach into the rest of the app. every branch is reversible or bounded:
 // nothing here can add time without it going through the timer's own cap, and nothing can hold the overlay.
+// mark a prize's after-effect as still playing out, for the ones that keep no state of their own. the
+// freezes and the bonfire sale don't need this — they're already visible in timerPause and timeBoost.
+function holdEffect(session: TimerUserSession, seconds: number, what: string){
+    const until = Date.now() + Math.max(0, seconds) * 1000;
+    if (!session.mbEffect || session.mbEffect.until < until)
+        session.mbEffect = { until, what };
+}
+
 export function applyEffect(session: TimerUserSession, prize: any){
     const e = prize.effect || {};
     const label = `mystery box: ${prize.name || prize.id}`;
@@ -631,7 +670,9 @@ export function applyEffect(session: TimerUserSession, prize: any){
         return;
     }
     if (e.kind === "nuke" && e.seconds > 0 && e.percent > 0){
-        nukeChat(session, e.percent, Math.min(MAX_NUKE_SEC, e.seconds), prize.name || "Nuke");
+        const secs = Math.min(MAX_NUKE_SEC, e.seconds);
+        holdEffect(session, secs, prize.name || "Nuke");
+        nukeChat(session, e.percent, secs, prize.name || "Nuke");
         return;
     }
     if (e.kind === "playEvent" && e.eventId){
@@ -648,6 +689,8 @@ export function applyEffect(session: TimerUserSession, prize: any){
             return;
         }
         emitSync(session.userId); // pushes the words to that box's browser source(s)
+        if (e.seconds > 0)
+            holdEffect(session, e.seconds, prize.name || "that prize");
         // seconds = 0 means the words stay until someone changes them. otherwise put back whatever was there
         // before — including nothing, which is the usual case.
         if (e.seconds > 0){
@@ -835,6 +878,23 @@ export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok
 // chat
 // ---------------------------------------------------------------------------
 
+// how often one person may be told why they can't open a box
+const TELL_COOLDOWN = 20000;
+const toldAt: { [userId: number]: { [login: string]: number } } = {};
+
+function tellNow(userId: number, login: string): boolean {
+    const mine = toldAt[userId] || (toldAt[userId] = {});
+    const now = Date.now();
+    // sweep anyone whose cooldown lapsed, so a long stream can't grow this without bound
+    for (const k of Object.keys(mine))
+        if (now - mine[k] > TELL_COOLDOWN)
+            delete mine[k];
+    if (mine[login] !== undefined)
+        return false;
+    mine[login] = now;
+    return true;
+}
+
 // every twitch chat line gets offered here, the same way firesale does it. returns true if the line was
 // consumed as mysterybox traffic and the caller should stop processing it.
 // "!mb open" and "!mb count" are open to EVERY chatter — they're spending their own box and asking about
@@ -853,9 +913,17 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
 
     if (action === "open" || action === ""){
         const res = openMysteryBox(session, self.login, self.displayName);
-        // a blank message is the deliberate silence: a spin already running, or the feature turned off
-        if (res.message)
-            emitTerminal(session.userId, `Chat (${self.login}): ${res.message}`, res.ok);
+        if (res.ok || !res.message){
+            // a blank message is the deliberate silence: the feature is off, or there was nothing to say
+            if (res.message)
+                emitTerminal(session.userId, `Chat (${self.login}): ${res.message}`, true);
+            return true;
+        }
+        // a refusal is told to the person who asked — being ignored looks like the bot is broken. but only
+        // once in a while per person: a modded account that answers every "!mb open" is a modded account
+        // anyone can make flood chat, and twitch drops a bot's messages once it's over the rate limit.
+        if (tellNow(session.userId, self.login))
+            chatSay(session, res.message);
         return true;
     }
     if (action === "count"){
