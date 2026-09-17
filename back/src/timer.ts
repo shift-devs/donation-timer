@@ -64,6 +64,11 @@ export function addToEndTime(session: TimerUserSession, seconds: number, action:
 // endTime every few seconds: left to itself it would count down from the last one it heard and then jump
 // back on the next sync. knowing it's paused, it holds the number still instead.
 
+// the freeze colour ends up in a css property in a browser source, so it's checked HERE rather than trusted
+// from the caller: this is the module that stores it, and validating at the boundary that owns the value is
+// the difference between one guard and a guard at every call site that ever adds one.
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
 const PAUSE_TICK = 250;  // ms; small enough that the drag is invisible in the deadline the sync carries
 // one tick per user. it holds the SESSION it is dragging, refreshed on every pause, rather than closing over
 // the one that started it: a logout and a fresh login replace the session object entirely, and a tick still
@@ -77,7 +82,9 @@ const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, 
 // can keep it alive by chaining subs and donations and it only lapses once they stop for that long. it's the
 // same freeze underneath — the only difference is that something else moves the deadline (see
 // refreshTimebomb, called from events.ts).
-export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string, rollMs = 0, sound = "", volume = 0.6){
+export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string,
+    opts: { rollMs?: number, sound?: string, volume?: number, color?: string } = {}){
+    const rollMs = opts.rollMs || 0;
     const now = Date.now();
     const duration = Math.max(0, Math.trunc(ms));
     if (!duration)
@@ -104,8 +111,11 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
         // rather than snapping back to the top of the track each time chat feeds it, which is the one sound
         // a viewer would notice immediately.
         startedAt: cur ? cur.startedAt : now,
-        sound: cur && cur.sound ? cur.sound : sound,
-        volume: cur && cur.sound ? cur.volume : Math.min(1, Math.max(0, volume)),
+        sound: cur && cur.sound ? cur.sound : (opts.sound || ""),
+        volume: cur && cur.sound ? cur.volume : Math.min(1, Math.max(0, opts.volume === undefined ? 0.6 : opts.volume)),
+        // what the countdown turns while it's held. same rule as the track: the freeze already on screen
+        // keeps its look rather than changing colour under a viewer mid-freeze.
+        color: cur && cur.color ? cur.color : (HEX_COLOR.test(String(opts.color || "").trim()) ? String(opts.color).trim() : ""),
     };
     const slot = pauseTicks[session.userId];
     if (slot){
@@ -201,6 +211,8 @@ export function timerPauseView(session: TimerUserSession): any {
         // a track the /mysterybox source loops for as long as the freeze lasts
         sound: p.sound || "",
         volume: p.volume,
+        // what the timer's digits turn while it's held; blank leaves them as they were
+        color: p.color || "",
     };
 }
 

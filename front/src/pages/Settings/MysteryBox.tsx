@@ -293,6 +293,26 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						</Text>
 					</HStack>
 				)}
+				{spec.needs.includes("freezeColor") && (
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="gray.600">Timer turns</Text>
+						<input
+							type="color"
+							value={prize.effect.freezeColor || "#5bd5ff"}
+							onChange={(e) => patchEffect(prize.id, { freezeColor: e.target.value }, `fc${prize.id}`)}
+						/>
+						{prize.effect.freezeColor ? (
+							<Button size="xs" variant="ghost" onClick={() => patchEffect(prize.id, { freezeColor: "" })}>
+								leave it alone
+							</Button>
+						) : (
+							<Text fontSize="xs" color="gray.500">not tinted — pick a colour to turn the digits while it holds</Text>
+						)}
+						<Text fontSize="xs" color="gray.500">
+							the countdown itself, on every timer source, for as long as the freeze lasts
+						</Text>
+					</HStack>
+				)}
 				{spec.needs.includes("text") && (
 					<Textarea
 						size="sm"

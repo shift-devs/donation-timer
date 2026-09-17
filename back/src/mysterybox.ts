@@ -117,7 +117,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -161,6 +161,8 @@ function normalizeEffect(raw: any): any {
         // which is the one-shot that plays as the reel stops on it
         loopSound: str(r.loopSound, MAX_PATH),
         loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.loopVolume)) ? Number(r.loopVolume) : 0.6)),
+        // timebomb: what the countdown's digits turn while it's frozen. blank = leave them alone.
+        freezeColor: hexOr(r.freezeColor, ""),
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
@@ -745,7 +747,12 @@ export function applyEffect(session: TimerUserSession, prize: any){
     if (e.kind === "timebomb" && e.seconds > 0){
         // the same freeze as pauseTimer, but rolling: every contribution buys chat another e.seconds of it,
         // and it only lets go once they've gone that long without one
-        pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", e.seconds * 1000, e.loopSound, e.loopVolume);
+        pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", {
+            rollMs: e.seconds * 1000,
+            sound: e.loopSound,
+            volume: e.loopVolume,
+            color: e.freezeColor,
+        });
         return;
     }
     if (e.kind === "timeBoost" && e.seconds > 0 && e.factor > 1){

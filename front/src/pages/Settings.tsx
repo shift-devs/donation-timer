@@ -185,7 +185,12 @@ const Settings: React.FC = () => {
 					overflow: "hidden",
 				}}
 			>
-				<Timer endTime={endTime} pausedMs={(settings as any).timerPause ? (settings as any).timerPause.remainingMs : null} textAlign='center' />
+				<Timer
+					endTime={endTime}
+					pausedMs={(settings as any).timerPause ? (settings as any).timerPause.remainingMs : null}
+					pausedColor={((settings as any).timerPause && (settings as any).timerPause.color) || ""}
+					textAlign='center'
+				/>
 				<br />
 				<Tabs
 					index={tabIndex}

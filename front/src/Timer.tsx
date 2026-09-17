@@ -102,12 +102,18 @@ export function timerTextStyle(o: {
 	effect?: string;
 	effectColor?: string;
 	effectWidth?: number;
+	// what the digits are. white unless something is deliberately colouring them — a mystery box timebomb
+	// tints them for as long as it holds the clock, so the freeze is visible on the timer itself and not
+	// only on a source somebody might not have in the scene.
+	color?: string;
 }): React.CSSProperties {
 	const face = TIMER_FONTS[o.font || ""] || TIMER_FONTS.display;
 	return {
 		// white text; black background by default (the /widget page overrides to chroma green)
 		background: o.background,
-		color: "white",
+		color: o.color || "white",
+		// so a freeze tinting the digits fades in rather than snapping, and fades back when it lets go
+		transition: "color 400ms linear",
 		fontFamily: face.stack,
 		fontSize: o.fontSize || "128px",
 		fontWeight: face.weight,
@@ -124,6 +130,8 @@ const Timer: React.FC<{
 	endTime: number;
 	// non-null while a mystery box prize has the countdown paused: the remaining time to hold on screen
 	pausedMs?: number | null;
+	// and what to tint the digits while that lasts, if the prize that froze it named a colour
+	pausedColor?: string;
 	textAlign?: any;
 	color?: any;
 	background?: string;
@@ -131,7 +139,7 @@ const Timer: React.FC<{
 	effect?: string;
 	effectColor?: string;
 	effectWidth?: number;
-}> = ({ endTime, pausedMs = null, textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
+}> = ({ endTime, pausedMs = null, pausedColor = "", textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
 	// the countdown state lives here (the only thing that changes every second) so the pages that mount
 	// the timer don't re-render — and drag their whole tree along — on every tick.
 	const input_seconds = useCountdownSeconds(endTime, pausedMs);
@@ -200,7 +208,7 @@ const Timer: React.FC<{
 
 
 	return (
-		<div className='Timer' style={timerTextStyle({ background, textAlign, font, effect, effectColor, effectWidth })}>
+		<div className='Timer' style={timerTextStyle({ background, textAlign, font, effect, effectColor, effectWidth, color: pausedMs !== null ? pausedColor : "" })}>
 			{renderTimerText(timer_text, font)}
 		</div>
 	);
