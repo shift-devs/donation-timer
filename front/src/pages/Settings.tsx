@@ -250,7 +250,7 @@ const Settings: React.FC = () => {
 							<Firesale ws={ws} token={token} settings={settings} run={firesale} />
 						</TabPanel>
 						<TabPanel>
-							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} />
+							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} products={fwProducts} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />

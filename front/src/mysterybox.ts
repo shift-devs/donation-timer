@@ -7,6 +7,7 @@ export const DEFAULT_MYSTERYBOX = {
 	command: "mb",
 	raygunCommand: "raygun",
 	grantOnFiresale: true,
+	firesaleItems: [] as string[],
 	music: "",
 	volume: 0.7,
 	spinSec: 6,
@@ -111,6 +112,12 @@ export function canonMysteryBox(raw: any) {
 		command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
 		raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
 		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
+		firesaleItems: Array.isArray(r.firesaleItems)
+			? r.firesaleItems
+				.map((v: any) => (typeof v === "string" ? v.slice(0, 200).trim() : ""))
+				.filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
+				.slice(0, 50)
+			: d.firesaleItems,
 		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
 		spinSec: numIn(r.spinSec, 1, 30, d.spinSec),

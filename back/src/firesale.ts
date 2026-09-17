@@ -21,7 +21,7 @@
 
 import { TimerUserSession } from "./types";
 import { emitFiresale, emitTerminal, reportError } from "./bus";
-import { mbSettings, grantMysteryBox, alreadyMintedFor } from "./mysterybox";
+import { mbSettings, grantMysteryBox, alreadyMintedFor, earnsBoxFor } from "./mysterybox";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 const MAX_PRIZE = 200;
@@ -388,8 +388,11 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
     // its owner later types "!mb open" from.
     // ...but only once per giveaway. the run dedupe above only covers a replay that lands while entries are
     // still open; a box is currency, so it needs to survive a later replay too.
+    // ...and only for the items the operator says are worth one. a giveaway of something cheap shouldn't
+    // buy the same spin as a collector's edition.
     const mb = mbSettings(session);
-    if (gifter && mb.enabled && mb.grantOnFiresale && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
+    if (gifter && mb.enabled && mb.grantOnFiresale && earnsBoxFor(session, prize)
+        && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
         grantMysteryBox(session, gifter, gifter, 1, `put "${prize || "an item"}" up for firesale`);
 
     emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);

@@ -9,6 +9,7 @@ import {
 	HStack,
 	Input,
 	Select,
+	Checkbox,
 	Switch,
 	Text,
 	Textarea,
@@ -43,7 +44,7 @@ const SEND_DEBOUNCE = 300; // colour pickers and typing fire continuously; the s
 // gifter is credited one box, and they spend it with "!mb open" in chat — which takes over the /mysterybox
 // browser source and lands on a prize whose effect then fires for real. Everything here applies immediately —
 // no Save.
-const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any }> = ({ ws, token, settings, run }) => {
+const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any; products: any[] | null }> = ({ ws, token, settings, run, products }) => {
 	const toast = useToast();
 
 	const server = canonMysteryBox(settings.mysteryBoxSettings || {});
@@ -59,6 +60,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const [mergeFrom, setMergeFrom] = useState("");
 	const [mergeTo, setMergeTo] = useState("");
 	const [openPrize, setOpenPrize] = useState<string>("");
+	const [itemRule, setItemRule] = useState("");
 	// the live open and the pause both carry deadlines, so the countdowns here tick on their own
 	const [, setTick] = useState(0);
 
@@ -126,6 +128,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	};
 
 	const removePrize = (id: string) => patch({ prizes: draft.prizes.filter((z: any) => z.id !== id) });
+
+	const addItemRule = () => {
+		const v = itemRule.trim();
+		if (!v || draft.firesaleItems.includes(v))
+			return;
+		patch({ firesaleItems: [...draft.firesaleItems, v] });
+		setItemRule("");
+	};
 
 	const url = `${BASE_URL}/mysterybox?token=${encodeURIComponent(token || "")}`;
 
@@ -653,6 +663,68 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						/>
 					</HStack>
 				</HStack>
+				{draft.grantOnFiresale && (
+					<Box borderWidth="1px" borderRadius="md" p={3}>
+						<Text fontSize="sm" fontWeight="bold" mb={1}>Which giveaways earn one</Text>
+						<Text fontSize="xs" color="gray.500" mb={2}>
+							{draft.firesaleItems.length === 0
+								? "Nothing ticked, so every Fourthwall giveaway earns the gifter a box. Tick some to narrow it down."
+								: `Only giveaways of these earn a box — ${draft.firesaleItems.length} picked.`}
+						</Text>
+						{products === null && (
+							<Text fontSize="xs" color="gray.500">Loading your Fourthwall products…</Text>
+						)}
+						{products !== null && products.length === 0 && (
+							<Text fontSize="xs" color="gray.500">
+								No products loaded — connect Fourthwall, or type an item name in the box below.
+							</Text>
+						)}
+						<VStack align="stretch" spacing={0} maxH="200px" overflowY="auto" mb={2}>
+							{(products || []).map((p: any) => (
+								<Checkbox
+									key={p.id}
+									size="sm"
+									isChecked={draft.firesaleItems.includes(p.name)}
+									onChange={(e) => patch({
+										firesaleItems: e.target.checked
+											? [...draft.firesaleItems, p.name]
+											: draft.firesaleItems.filter((n: string) => n !== p.name),
+									})}
+								>
+									<Text fontSize="sm">{p.name}</Text>
+								</Checkbox>
+							))}
+						</VStack>
+						{/* anything ticked that ISN'T one of the loaded products — a name typed by hand, or a
+						    product that has since been renamed or delisted. it would otherwise vanish from the
+						    list while still silently deciding who gets a box. */}
+						{draft.firesaleItems.filter((n: string) => !(products || []).some((p: any) => p.name === n)).map((n: string) => (
+							<Flex key={n} align="center" gap={2} mb={1}>
+								<Badge colorScheme="purple">match</Badge>
+								<Text fontSize="sm" flex="1">{n}</Text>
+								<Button size="xs" variant="ghost" onClick={() => patch({ firesaleItems: draft.firesaleItems.filter((x: string) => x !== n) })}>
+									remove
+								</Button>
+							</Flex>
+						))}
+						<HStack spacing={2} mt={1}>
+							<Input
+								size="sm"
+								maxW="280px"
+								placeholder="…or part of an item name, e.g. box of 8"
+								value={itemRule}
+								onChange={(e) => setItemRule(e.target.value)}
+								onKeyDown={(e) => { if (e.key === "Enter") addItemRule(); }}
+							/>
+							<Button size="sm" isDisabled={!itemRule.trim()} onClick={addItemRule}>Add</Button>
+						</HStack>
+						<Text fontSize="xs" color="gray.500" mt={1}>
+							Matched against what Fourthwall announces, ignoring case — a partial name is enough, so
+							&quot;collector&quot; covers every collector&apos;s edition.
+						</Text>
+					</Box>
+				)}
+
 				<Text fontSize="xs" color="gray.500">
 					Chat types <Code fontSize="xs">!{draft.command} open</Code> to open one and{" "}
 					<Code fontSize="xs">!{draft.command} count</Code> to ask how many they have. Counts land in the

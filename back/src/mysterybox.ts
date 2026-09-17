@@ -82,6 +82,9 @@ export const DEFAULT_MYSTERYBOX = {
     // credit the gifter named in fourthwall's giveaway announcement with one box per giveaway. off = boxes
     // are only handed out by hand, from the tab or the terminal.
     grantOnFiresale: true,
+    // WHICH giveaways earn one. each entry is matched against the item fourthwall announced; empty means
+    // every giveaway does, which is what this did before the list existed.
+    firesaleItems: [] as string[],
     // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
     // one open, and looping it would have the tail of the last spin still going under the reveal.
     music: "",
@@ -208,6 +211,12 @@ export function normalizeMysteryBox(raw: any): any {
         command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
         raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
+        firesaleItems: Array.isArray(r.firesaleItems)
+            ? r.firesaleItems
+                .map((v: any) => str(v, 200).trim())
+                .filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
+                .slice(0, 50)
+            : d.firesaleItems,
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
@@ -218,6 +227,37 @@ export function normalizeMysteryBox(raw: any): any {
         nameColor: hexOr(r.nameColor, d.nameColor),
         prizes: normalizePrizes(r.prizes),
     };
+}
+
+// what an item name is compared as. fourthwall writes its product names with em dashes and curly quotes and
+// the announcement carries them through verbatim, so a rule typed with a plain hyphen would never match the
+// item it names — which would look like the feature is simply broken.
+function matchable(s: any): string {
+    return String(s || "")
+        .toLowerCase()
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201c\u201d]/g, '"')
+        .replace(/[\u2013\u2014]/g, "-")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+// does a giveaway of this item earn the gifter a box?
+// an empty list means every giveaway does — that's what this did before the list existed, and it's the
+// right default for somebody who hasn't thought about it yet.
+// a rule matches if the announced item CONTAINS it, so "box of 8" covers "Box of 8 Packs - 10 Years
+// Running" without the operator having to reproduce fourthwall's full product name exactly.
+export function earnsBoxFor(session: TimerUserSession, prize: any): boolean {
+    const rules = mbSettings(session).firesaleItems;
+    if (!rules.length)
+        return true;
+    const item = matchable(prize);
+    if (!item)
+        return false; // a giveaway with no item named can't be matched against a list that names some
+    return rules.some((r: string) => {
+        const rule = matchable(r);
+        return !!rule && item.includes(rule);
+    });
 }
 
 export function mbSettings(session: TimerUserSession): any {
