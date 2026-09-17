@@ -6,6 +6,7 @@ import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { normalizeTextBoxes } from "./textBoxes";
 import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
+import { forgetTwitchBot } from "./platforms/twitchBot";
 import { endPauseTimer, endBoostTimer } from "./timer";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
@@ -104,6 +105,8 @@ export function loginUser(inObj: Object){
     lvObj.fourthwallLastOkAt = 0;
     lvObj.twitchSubsStatus = false;
     lvObj.twitchSubsError = "";
+    lvObj.twitchBotError = "";
+    lvObj.twitchBotPending = undefined;
     lvObj.twitchSubsLastOkAt = 0;
     lvObj.lastEventAt = {};
     const existingSession = getUserSession(lvObj.userId);
@@ -156,6 +159,7 @@ export function logoutUser(id: number){
     endMysteryBoxTimers(id);
     endPauseTimer(id);     // otherwise the pause tick keeps dragging a detached session's deadline forward
     endBoostTimer(id);
+    forgetTwitchBot(id);   // a cached access token must not outlive the session it belongs to
     try {
         if (curSession.conSL)
             curSession.conSL.disconnect();

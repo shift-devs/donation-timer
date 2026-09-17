@@ -21,7 +21,7 @@
 import { TimerUserSession } from "./types";
 import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
-import { activeChatters, chatterName, chatTimeout, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
+import { activeChatters, chatterName, chatTimeoutMany, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
 
@@ -683,14 +683,19 @@ export function nukeChat(session: TimerUserSession, percent: number, seconds: nu
     // at least one: a prize that announces itself and then does nothing because chat was quiet reads as broken
     const take = Math.max(1, Math.min(order.length, Math.round((order.length * percent) / 100)));
     const hit = order.slice(0, take);
-    for (const login of hit)
-        chatTimeout(session, login, seconds, reason);
     const names = hit.map((l) => chatterName(session, l)).join(", ");
-    if (canTimeout(session))
-        emitTerminal(session.userId, `${reason} — timed out ${hit.length} of ${pool.length} chatters for ${seconds}s: ${names}`, true);
-    else
-        // the bot account isn't wired up yet, so say exactly what would have happened rather than pretending
-        emitTerminal(session.userId, `${reason} WOULD have timed out ${hit.length} of ${pool.length} chatters for ${seconds}s, but there's no bot account with mod powers in chat yet: ${names}`);
+    if (!canTimeout(session)){
+        // no bot authorized: say exactly what would have happened rather than pretending it did
+        emitTerminal(session.userId, `${reason} WOULD have timed out ${hit.length} of ${pool.length} chatters for ${seconds}s, but no bot account is connected: ${names}`);
+        return { hit, pool: pool.length };
+    }
+    // fired and not awaited — the prize has already landed on screen and the reveal shouldn't wait on a
+    // round trip per person. the count is reported once they've all been through.
+    chatTimeoutMany(session, hit, seconds, reason).then((done) => {
+        emitTerminal(session.userId, done === hit.length
+            ? `${reason} — timed out ${done} of ${pool.length} chatters for ${seconds}s: ${names}`
+            : `${reason} — timed out ${done} of the ${hit.length} it picked (of ${pool.length} talking) for ${seconds}s: ${names}`, true);
+    }).catch((err) => reportError(session.userId, "running a nuke", err));
     return { hit, pool: pool.length };
 }
 

@@ -40,6 +40,10 @@ export interface TimerUserSession {
     // server; the ui only needs the short user code and the url.
     twitchSubsPending?: { deviceCode: string, userCode: string, verificationUri: string, expiresAt: number, interval: number }
     twitchSubsLogin?: string
+    // the bot account's live state. the credentials themselves live on connections.twitchBot; these are the
+    // transient halves — whether it last worked, and an authorization the operator is mid-way through.
+    twitchBotError?: string
+    twitchBotPending?: { deviceCode: string, userCode: string, verificationUri: string, expiresAt: number, interval: number }
     // ms timestamp of the last genuine (non-command) event we received per platform — proof data is actually flowing
     lastEventAt?: { [platform: string]: number }
     rates: any

@@ -235,6 +235,24 @@ export function startTwitchSubsDeviceAuth(ws: WebSocket) {
 	return 1;
 }
 
+// the bot account the app speaks and moderates as. its Twitch app may be left blank, in which case the
+// Sub Count connection's is shared.
+export function setTwitchBot(ws: WebSocket, config: any) {
+	send(ws, { event: "setTwitchBot", config: config });
+	return 1;
+}
+
+export function startTwitchBotDeviceAuth(ws: WebSocket) {
+	send(ws, { event: "startTwitchBotDeviceAuth" });
+	return 1;
+}
+
+// proves the authorization works and says whether the bot is actually a mod — says nothing in chat
+export function testTwitchBot(ws: WebSocket) {
+	send(ws, { event: "testTwitchBot" });
+	return 1;
+}
+
 export function runCommand(ws: WebSocket, command: string) {
 	send(ws, { event: "runCommand", command: command });
 	return 1;

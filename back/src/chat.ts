@@ -1,17 +1,20 @@
-// the chat seam: everything this app would SAY or DO in twitch chat, and the roster of who is talking.
+// the chat seam: everything this app SAYS or DOES in twitch chat, and the roster of who is talking.
 //
 // reading chat needs no identity — tmi.js connects anonymously and that's what platforms/twitch.ts does. but
-// SAYING something, or timing somebody out, needs an account, and timing out needs that account to be a mod
-// in the channel. that account doesn't exist yet, so everything outbound funnels through here and reports to
-// the dashboard terminal instead of happening. when the bot lands, this file is the only one that changes:
-// callers already ask for what they want rather than reaching for the tmi client themselves.
+// saying something, or timing somebody out, needs an account, and timing out needs that account to be a mod
+// in the channel. that's the bot connection (platforms/twitchBot.ts), and until one is authorized everything
+// here reports to the dashboard terminal instead of happening, rather than failing silently.
 //
-// it isn't a stub, though — sendable() checks whether the connected client actually has an identity, so the
-// moment the tmi client is built with real credentials these start working with no further wiring. an
-// anonymous tmi connection gets a "justinfan12345" username, which is how we tell the two apart.
+// none of it goes through the chat socket. twitch removed moderation commands over IRC in february 2023, so
+// a "/timeout" sent down it is simply ignored now; it has to be helix. messages go the same way for the sake
+// of one credential path (see the note in twitchBot.ts).
+//
+// callers ask for what they want — say this, time that person out — and never touch a client or a token, so
+// none of the above is visible from the prizes that use it.
 
 import { TimerUserSession } from "./types";
-import { emitTerminal, reportError } from "./bus";
+import { emitTerminal } from "./bus";
+import { twitchBotReady, botSay, botTimeout, resolveUserIds, reportBotError } from "./platforms/twitchBot";
 
 const MAX_CHATTERS = 2000;       // roster ceiling; the oldest are dropped past it
 const MAX_TIMEOUT_SEC = 3600;    // twitch's own ceiling for a timeout is 2 weeks; this is ours, and plenty
@@ -20,58 +23,56 @@ const MAX_TIMEOUT_SEC = 3600;    // twitch's own ceiling for a timeout is 2 week
 // stream's last break).
 export const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
 
-// is there an account behind this connection, or are we reading anonymously?
-function sendable(session: TimerUserSession): boolean {
-    const client: any = session.conTMI;
-    if (!client || typeof client.getUsername !== "function")
-        return false;
-    const me = String(client.getUsername() || "");
-    return !!me && !/^justinfan/i.test(me);
-}
-
-function channelOf(session: TimerUserSession): string {
-    return String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "");
-}
-
-// say something in chat. until the bot account exists this lands on the dashboard terminal, where the
-// operator can read it out — which is worth more than silently dropping it.
+// say something in chat. with no bot authorized this lands on the dashboard terminal, where the operator can
+// read it out — which is worth more than silently dropping it.
 export function chatSay(session: TimerUserSession, message: string){
     const text = String(message || "").slice(0, 450); // twitch cuts a message off around 500
     if (!text)
         return;
-    if (!sendable(session)){
+    if (!twitchBotReady(session)){
         emitTerminal(session.userId, `CHAT (would say): ${text}`);
         return;
     }
-    try {
-        (session.conTMI as any).say(channelOf(session), text);
-    } catch (err) {
-        reportError(session.userId, "saying something in chat", err);
-    }
+    // nothing awaits this: a chat line is not worth holding up the prize, the sub handler or the reel that
+    // triggered it, and a failure has somewhere to go on its own
+    botSay(session, text).catch((err) => reportBotError(session, "saying something in chat", err));
 }
 
-// time somebody out. needs the account to be a MOD in the channel, so it fails loudly rather than quietly if
-// it ever gets called without that — a nuke that silently does nothing would look like a broken prize.
-export function chatTimeout(session: TimerUserSession, login: string, seconds: number, reason: string){
-    const who = String(login || "").replace(/^@/, "").trim();
+// time a batch of people out. taken as a batch rather than one at a time because helix works in user IDS,
+// not logins — resolving them is one request for up to a hundred people, against one per person.
+// returns what was attempted; the caller does the reporting, since one terminal line per person during a
+// nuke would bury everything else.
+export async function chatTimeoutMany(session: TimerUserSession, logins: string[], seconds: number, reason: string): Promise<number> {
     const secs = Math.min(MAX_TIMEOUT_SEC, Math.max(1, Math.trunc(seconds)));
-    if (!who)
-        return;
-    if (!sendable(session))
-        return; // the caller reports the batch; one line per person would bury the terminal
+    const clean = logins.map((l) => String(l || "").replace(/^@/, "").trim().toLowerCase()).filter(Boolean);
+    if (!clean.length || !twitchBotReady(session))
+        return 0;
+    let done = 0;
     try {
-        (session.conTMI as any).timeout(channelOf(session), who, secs, reason).catch((err: any) => {
-            // tmi rejects with twitch's own notice, e.g. "bad_timeout_admin" for a mod or the broadcaster
-            emitTerminal(session.userId, `Couldn't time out ${who}: ${(err && err.message) || err}`);
-        });
+        const ids = await resolveUserIds(session, clean);
+        for (const login of clean){
+            const id = ids[login];
+            if (!id)
+                continue; // renamed, deleted, or never existed — drop them rather than fail the batch
+            try {
+                await botTimeout(session, id, secs, reason);
+                done++;
+            } catch (err: any) {
+                // one refusal must not cost the rest of the batch. twitch refuses a mod or the broadcaster
+                // with a 400, which is expected enough not to be worth a line of its own.
+                if (!(err && err.response && err.response.status === 400))
+                    reportBotError(session, `timing out ${login}`, err);
+            }
+        }
     } catch (err) {
-        reportError(session.userId, `timing out ${who}`, err);
+        reportBotError(session, "timing out a batch of chatters", err);
     }
+    return done;
 }
 
 // whether a batch of timeouts will actually happen, so the caller can say which it is
 export function canTimeout(session: TimerUserSession): boolean {
-    return sendable(session);
+    return twitchBotReady(session);
 }
 
 // ---------------------------------------------------------------------------

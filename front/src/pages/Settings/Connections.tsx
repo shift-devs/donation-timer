@@ -14,7 +14,7 @@ import {
 	Tooltip,
 	VStack,
 } from "@chakra-ui/react";
-import { setConnection, startTwitchSubsDeviceAuth } from "../../Api";
+import { setConnection, startTwitchSubsDeviceAuth, setTwitchBot, startTwitchBotDeviceAuth, testTwitchBot } from "../../Api";
 
 // green only when the server reports the connection is actually live; the only meaningful signal.
 // tips spells out what each state actually proves so a hover explains the colour.
@@ -112,6 +112,17 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 	const tsPending = ts.pending || null; // a code the streamer still has to type in on twitch
 	const tsLogin = ts.login || "";
 	const lastEventAt = settings.lastEventAt || {};
+	// the account the app speaks and moderates as. separate from everything above: chat is read anonymously,
+	// but saying anything (or timing anyone out) needs an account, and timing out needs it to be a mod.
+	const tb = conns.twitchBot || {};
+	const tbHasApp = !!tb.hasApp;
+	const tbSharedApp = !!tb.sharedApp;
+	const tbAuthorized = !!tb.authorized;
+	const tbPending = tb.pending || null;
+	const tbLogin = tb.login || "";
+	const tbError = tb.error || "";
+	const [tbId, setTbId] = useState("");
+	const [tbSecret, setTbSecret] = useState("");
 	const [twitchChannel, setTwitchChannel] = useState("");
 	const [slToken, setSlToken] = useState("");
 	const [fwUser, setFwUser] = useState("");
@@ -396,6 +407,124 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 									variant="link"
 									colorScheme="purple"
 									onClick={() => setConnection(ws, "twitchsubs", { disconnect: true })}
+								>
+									disconnect
+								</Button>
+							)}
+						</VStack>
+					</AccordionPanel>
+				</AccordionItem>
+				<AccordionItem>
+					<AccordionButton>
+						<HStack flex="1" textAlign="left">
+							<Text fontWeight={600}>Twitch — chat bot</Text>
+							{statusBadge(tbAuthorized, tbHasApp, {
+								ok: `Authorized as ${tbLogin || "the bot"} — it can talk in chat and run timeouts.`,
+								notConnecting: "An app is set up, but the bot hasn't been authorized yet.",
+								notSetup: "Not set up — prizes that talk or time people out will only report what they would have done.",
+							})}
+						</HStack>
+						<AccordionIcon />
+					</AccordionButton>
+					<AccordionPanel pb={4}>
+						<VStack align="stretch" spacing={3}>
+							<Text fontSize="sm" color="gray.600">
+								The account this app <b>speaks and moderates as</b>. Reading chat needs nobody, but saying
+								anything — or the Mystery Box&apos;s <b>Nuke</b> prize timing people out — needs an account,
+								and timeouts need that account to be a <b>moderator</b> in the channel. Without this, those
+								prizes report what they would have done and change nothing.
+							</Text>
+							<ErrorBox show={!!tbError} text={tbError} />
+							<Box fontSize="sm" color="gray.600">
+								<Text>
+									<b>1.</b> In the channel&apos;s chat, the broadcaster types{" "}
+									<Text as="code">/mod yourbotname</Text>.
+								</Text>
+								<Text>
+									<b>2.</b> {tbSharedApp
+										? "The Twitch app from the active-subs connection above will be used — leave the boxes below blank. (An app identifies this software, not an account, so sharing one is fine.)"
+										: "Paste a Twitch app's Client ID and Secret below, or set up the active-subs connection above and this will share its app."}
+								</Text>
+								<Text><b>3.</b> Hit Authorize and enter the code it gives you.</Text>
+								<Text color="orange.300" mt={1}>
+									<b>Enter that code while logged into Twitch AS THE BOT</b> — use a private window. Twitch
+									gives the access to whoever is signed in, so doing it on the broadcaster&apos;s login
+									quietly authorizes the wrong account.
+								</Text>
+							</Box>
+							<HStack>
+								<Input
+									placeholder={tbSharedApp ? "Client ID (optional — sharing the app above)" : "Client ID"}
+									value={tbId}
+									onChange={(e) => setTbId(e.currentTarget.value)}
+									width="240px"
+								/>
+								<Input
+									type="password"
+									placeholder="Client Secret"
+									value={tbSecret}
+									onChange={(e) => setTbSecret(e.currentTarget.value)}
+									width="200px"
+								/>
+								<Button
+									colorScheme="purple"
+									isDisabled={!tbId.trim() || !tbSecret}
+									onClick={() => {
+										setTwitchBot(ws, { clientId: tbId.trim(), clientSecret: tbSecret });
+										setTbId("");
+										setTbSecret("");
+									}}
+								>
+									Save app
+								</Button>
+							</HStack>
+							{tbHasApp && !tbPending && (
+								<HStack>
+									<Button
+										colorScheme="purple"
+										variant="outline"
+										size="sm"
+										onClick={() => startTwitchBotDeviceAuth(ws)}
+									>
+										{tbAuthorized ? "Re-authorize" : "Authorize"}
+									</Button>
+									{tbAuthorized && (
+										<Button size="sm" variant="outline" onClick={() => testTwitchBot(ws)}>
+											Test
+										</Button>
+									)}
+									<Text fontSize="xs" color="gray.500">
+										{tbAuthorized && tbLogin
+											? `talking as ${tbLogin} — Test checks it's still a mod (result on the Terminal tab)`
+											: "gives you a code to enter on Twitch, signed in as the bot"}
+									</Text>
+								</HStack>
+							)}
+							{tbPending && (
+								<Box borderWidth="1px" borderRadius="md" borderColor="purple.300" p={3}>
+									<Text fontSize="sm" mb={2}>
+										Go to{" "}
+										<Text as="a" href={tbPending.verificationUri} target="_blank" rel="noreferrer"
+											color="purple.300" textDecoration="underline">
+											{tbPending.verificationUri.replace(/\?.*$/, "")}
+										</Text>{" "}
+										<b>signed in as the bot account</b>, and enter this code:
+									</Text>
+									<Text fontSize="3xl" fontWeight={700} letterSpacing="0.2em" fontFamily="mono">
+										{tbPending.userCode}
+									</Text>
+									<Text fontSize="xs" color="gray.500" mt={2}>
+										Waiting for Twitch — this page picks it up on its own. The code stops working in about
+										30 minutes.
+									</Text>
+								</Box>
+							)}
+							{tbAuthorized && (
+								<Button
+									size="xs"
+									variant="link"
+									colorScheme="purple"
+									onClick={() => setTwitchBot(ws, { disconnect: true })}
 								>
 									disconnect
 								</Button>

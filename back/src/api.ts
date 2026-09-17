@@ -15,6 +15,7 @@ import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreaml
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwitchSubsDeviceAuth, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
+import { normalizeTwitchBot, twitchBotReady, appFor, startTwitchBotDeviceAuth, runTwitchBotDeviceAuth, testTwitchBot, forgetTwitchBot, describeError as describeTwitchBotError } from "./platforms/twitchBot";
 import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer, timeBoostView, endTimeBoost } from "./timer";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
@@ -127,6 +128,21 @@ function wsSync(ws: TimerWebSocket) {
                     configured: !!(curSession.connections.fourthwall && curSession.connections.fourthwall.username),
                     error: curSession.fourthwallError || "",
                     lastOkAt: curSession.fourthwallLastOkAt || 0 // last successful credential-verifying poll
+                },
+                // the account the app speaks and moderates as. the tokens never leave the server; the ui
+                // needs only whether it's authorized, who as, and whether it's still mid-authorize.
+                twitchBot: {
+                    hasApp: !!appFor(curSession).clientId,
+                    // true when the bot's twitch app is the sub-count connection's rather than its own
+                    sharedApp: appFor(curSession).shared,
+                    authorized: twitchBotReady(curSession),
+                    login: (curSession.connections.twitchBot && curSession.connections.twitchBot.botLogin) || "",
+                    error: curSession.twitchBotError || "",
+                    pending: curSession.twitchBotPending ? {
+                        userCode: curSession.twitchBotPending.userCode,
+                        verificationUri: curSession.twitchBotPending.verificationUri,
+                        expiresAt: curSession.twitchBotPending.expiresAt
+                    } : null
                 },
                 twitchSubs: {
                     // credentials pasted, but the one-time authorize may still be outstanding — the ui needs
@@ -728,6 +744,56 @@ export function startApi(){
                     curSession.widgetSettings = normalizeWidgetSettings({ ...(curSession.widgetSettings || {}), ...patch });
                     break;
                 }
+                case "setTwitchBot": {
+                    // the bot's own twitch app, or blank to share the sub-count connection's. changing it
+                    // invalidates the authorization, since a refresh token belongs to the app that issued it.
+                    forgetTwitchBot(id);
+                    curSession.twitchBotError = "";
+                    curSession.twitchBotPending = undefined;
+                    if (jData.config && jData.config.disconnect){
+                        curSession.connections.twitchBot = normalizeTwitchBot({});
+                        break;
+                    }
+                    const prev = curSession.connections.twitchBot || {};
+                    const clientId = typeof jData.config.clientId === "string" ? jData.config.clientId.trim() : "";
+                    const clientSecret = typeof jData.config.clientSecret === "string" ? jData.config.clientSecret.trim() : "";
+                    const sameApp = clientId === prev.clientId && clientSecret === prev.clientSecret;
+                    curSession.connections.twitchBot = normalizeTwitchBot({
+                        clientId,
+                        clientSecret,
+                        refreshToken: sameApp ? prev.refreshToken : "",
+                        botId: sameApp ? prev.botId : "",
+                        botLogin: sameApp ? prev.botLogin : "",
+                    });
+                    break;
+                }
+                case "startTwitchBotDeviceAuth": {
+                    if (!appFor(curSession).clientId){
+                        curSession.twitchBotError = "No Twitch app to authorize through — paste a Client ID, or set up the Sub Count connection first.";
+                        emitSync(id);
+                        return;
+                    }
+                    startTwitchBotDeviceAuth(curSession)
+                        .then(() => {
+                            curSession.twitchBotError = "";
+                            emitSync(id); // hands the code to the dashboard
+                            runTwitchBotDeviceAuth(curSession, () => emitSync(id));
+                        })
+                        .catch((err) => {
+                            curSession.twitchBotError = err && err.response
+                                ? describeTwitchBotError(err)
+                                : (err && err.message) || "Couldn't start the Twitch authorization.";
+                            emitSync(id);
+                        });
+                    return;
+                }
+                case "testTwitchBot":
+                    // proves the token mints and says whether the bot is actually a mod, without saying
+                    // anything in chat or touching anybody
+                    testTwitchBot(curSession)
+                        .then((message) => ws.send(JSON.stringify({ commandResult: { ok: true, message } })))
+                        .catch((err) => ws.send(JSON.stringify({ commandResult: { ok: false, message: describeTwitchBotError(err) } })));
+                    return;
                 case "startTwitchSubsDeviceAuth": {
                     // no redirect url is involved: twitch requires https on those and this app is served over
                     // plain http, so we ask for a short code the streamer types in on any device instead
