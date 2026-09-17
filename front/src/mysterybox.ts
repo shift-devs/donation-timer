@@ -5,6 +5,7 @@
 export const DEFAULT_MYSTERYBOX = {
 	enabled: true,
 	command: "mb",
+	raygunCommand: "raygun",
 	grantOnFiresale: true,
 	music: "",
 	volume: 0.7,
@@ -25,7 +26,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -44,6 +45,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "timebomb", label: "Timebomb (freeze chat can chain)", needs: ["seconds"], hint: "Freezes the countdown, and every contribution pushes the freeze back out to its full length again. Chat keeps it frozen by chaining subs and donations; it only lets go once they've gone this long without one. Time won during it still counts." },
 	{ key: "timeBoost", label: "Multiply all contributions", needs: ["factor", "seconds"], hint: "A bonfire sale: for this long, every sub, cheer, donation and order grants multiplied time. A typed \"time\" command is left alone, so you can still correct the clock. Overlapping sales take the later end and the bigger multiplier rather than compounding." },
 	{ key: "nuke", label: "Nuke chat", needs: ["percent", "seconds"], hint: "Times out a random share of the people who have actually typed in the last 10 minutes. Mods and the broadcaster are left out — Twitch refuses a timeout on them, so counting them would make the share a lie. Needs a bot account with mod powers in chat; until then it reports who it would have hit." },
+	{ key: "raygun", label: "Ray gun (shots to spend later)", needs: ["charges", "seconds"], hint: "Credits the winner with shots they keep and fire whenever they like, with \"!raygun <name>\", timing that person out. A shot that doesn't land — a name nobody has, a mod Twitch refuses — is handed back. Needs a bot account with mod powers." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
 	{ key: "textBox", label: "Set a text box", needs: ["box", "text", "seconds"], hint: "Puts words on a /text source. Seconds = how long before whatever was there goes back; 0 keeps them up." },
 ];
@@ -86,6 +88,7 @@ export function canonPrize(raw: any, i: number) {
 			seconds: numIn(e.seconds, 0, 24 * 3600, 0),
 			factor: Math.min(10, Math.max(1, Number.isFinite(Number(e.factor)) ? Number(e.factor) : 2)),
 			percent: numIn(e.percent, 1, 100, 50),
+			charges: numIn(e.charges, 1, 99, 5),
 			eventId: typeof e.eventId === "string" ? e.eventId : "",
 			box: typeof e.box === "string" ? e.box : "",
 			text: typeof e.text === "string" ? e.text : "",
@@ -100,6 +103,7 @@ export function canonMysteryBox(raw: any) {
 	return {
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		command: (typeof r.command === "string" ? r.command.replace(/^!/, "") : "") || d.command,
+		raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.replace(/^!/, "") : "") || d.raygunCommand,
 		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
 		music: typeof r.music === "string" ? r.music : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),

@@ -14,7 +14,7 @@
 
 import { TimerUserSession } from "./types";
 import { emitTerminal } from "./bus";
-import { twitchBotReady, botSay, botTimeout, resolveUserIds, reportBotError } from "./platforms/twitchBot";
+import { twitchBotReady, botSay, botTimeout, resolveUserIds, reportBotError, describeError } from "./platforms/twitchBot";
 
 const MAX_CHATTERS = 2000;       // roster ceiling; the oldest are dropped past it
 const MAX_TIMEOUT_SEC = 3600;    // twitch's own ceiling for a timeout is 2 weeks; this is ours, and plenty
@@ -68,6 +68,32 @@ export async function chatTimeoutMany(session: TimerUserSession, logins: string[
         reportBotError(session, "timing out a batch of chatters", err);
     }
     return done;
+}
+
+// one person, with a reason when it doesn't work. the batch version above swallows refusals because a nuke
+// has thirty of them and nobody wants thirty lines; a ray gun shot is a single deliberate act by a viewer
+// who spent something on it, so it owes them an answer — and lets the caller hand the charge back.
+export async function chatTimeoutOne(session: TimerUserSession, login: string, seconds: number, reason: string): Promise<{ ok: boolean, message: string }> {
+    const who = String(login || "").replace(/^@/, "").trim().toLowerCase();
+    const secs = Math.min(MAX_TIMEOUT_SEC, Math.max(1, Math.trunc(seconds)));
+    if (!who)
+        return { ok: false, message: "nobody was named" };
+    if (!twitchBotReady(session))
+        return { ok: false, message: "there's no bot account connected" };
+    try {
+        const ids = await resolveUserIds(session, [who]);
+        if (!ids[who])
+            return { ok: false, message: `there's nobody on Twitch called ${who}` };
+        await botTimeout(session, ids[who], secs, reason);
+        return { ok: true, message: "" };
+    } catch (err: any) {
+        // twitch refuses a moderator or the broadcaster with a 400, which isn't a fault worth reporting as
+        // one — it's the answer to the question
+        if (err && err.response && err.response.status === 400)
+            return { ok: false, message: `${who} can't be timed out` };
+        reportBotError(session, `timing out ${who}`, err);
+        return { ok: false, message: describeError(err) };
+    }
 }
 
 // whether a batch of timeouts will actually happen, so the caller can say which it is

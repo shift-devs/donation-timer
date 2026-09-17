@@ -18,6 +18,7 @@ import {
 import {
 	setMysteryBoxSettings,
 	giveMysteryBox,
+	giveRaygun,
 	renameMysteryBoxOwner,
 	testMysteryBox,
 	stopMysteryBox,
@@ -141,6 +142,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 		.map((k) => ({ key: k, name: boxes[k].name || k, count: boxes[k].count || 0 }))
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 	const outstanding = owners.reduce((sum, o) => sum + o.count, 0);
+	// unfired ray gun shots — the same kind of wallet, won from a prize instead of a firesale
+	const guns: { [key: string]: any } = settings.rayguns || {};
+	const gunners = Object.keys(guns)
+		.map((k) => ({ key: k, name: guns[k].name || k, count: guns[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
 	// what the /events and /text effects can point at
 	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
@@ -168,6 +174,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
 									: prize.effect.kind === "nuke" ? ""
+									: prize.effect.kind === "raygun" ? ""
 									: "Seconds"}
 							</Text>
 							<NumberField
@@ -193,6 +200,19 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								value={prize.effect.factor}
 								onCommit={(n) => patchEffect(prize.id, { factor: n }, `f${prize.id}`)}
 							/>
+						</HStack>
+					)}
+					{spec.needs.includes("charges") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Gives</Text>
+							<NumberField
+								width="80px"
+								min={1}
+								max={99}
+								value={prize.effect.charges}
+								onCommit={(n) => patchEffect(prize.id, { charges: n }, `ch${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">shots, each</Text>
 						</HStack>
 					)}
 					{spec.needs.includes("percent") && (
@@ -396,6 +416,28 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</HStack>
 			</Box>
 
+			{gunners.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">Ray gun shots</Text>
+						<Text fontSize="sm" color="gray.600">
+							unfired — each one times somebody out with{" "}
+							<Code fontSize="xs">!{draft.raygunCommand} &lt;name&gt;</Code>
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{gunners.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="red">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveRaygun(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveRaygun(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
 			{/* ---- the prizes ---- */}
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Prizes</Text>
@@ -567,6 +609,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							maxW="110px"
 							value={draft.command}
 							onChange={(e) => patch({ command: e.target.value.replace(/^!/, "") }, "cmd")}
+						/>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">Ray gun</Text>
+						<Text fontSize="sm" color="gray.500">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.raygunCommand}
+							onChange={(e) => patch({ raygunCommand: e.target.value.replace(/^!/, "") }, "rcmd")}
 						/>
 					</HStack>
 				</HStack>

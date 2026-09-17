@@ -64,6 +64,8 @@ export interface TimerUserSession {
     // the ledger: { [twitch login]: { name, count } } — who is holding how many unopened boxes. earned by
     // putting an item up for firesale, spent with "!mb open". persisted: a box is a debt owed to a viewer.
     mysteryBoxes: any
+    // the same again for unfired ray gun charges, won from a box and spent with "!raygun <name>"
+    rayguns: any
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
     // the firesale run above — a spin that was interrupted by a restart must not come back with it.
     mysterybox?: any

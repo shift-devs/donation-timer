@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand } from "./mysterybox";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -115,8 +115,9 @@ function wsSync(ws: TimerWebSocket) {
             // picks the reel straight back up
             mysterybox: mysteryBoxView(curSession),
             mysteryBoxSettings: curSession.mysteryBoxSettings || {},
-            // the ledger, for the dashboard tab's list of who is holding what
+            // the ledgers, for the dashboard tab's lists of who is holding what
             mysteryBoxes: curSession.mysteryBoxes || {},
+            rayguns: curSession.rayguns || {},
             // non-null only while a prize is holding the countdown still; carries the remaining time to freeze on
             timerPause: timerPauseView(curSession),
             // non-null only while a prize has every contribution granting multiplied time
@@ -693,6 +694,13 @@ export function startApi(){
                     const n = Math.trunc(Number(jData.count) || 1);
                     if (name && n)
                         grantMysteryBox(curSession, name, name, n);
+                    break;
+                }
+                case "giveRaygun": {
+                    const name = typeof jData.name === "string" ? jData.name.trim() : "";
+                    const n = Math.trunc(Number(jData.count) || 1);
+                    if (name && n)
+                        grantRaygun(curSession, name, name, n);
                     break;
                 }
                 case "renameMysteryBoxOwner": {

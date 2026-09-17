@@ -21,7 +21,8 @@
 import { TimerUserSession } from "./types";
 import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
-import { activeChatters, chatterName, chatTimeoutMany, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
+import { activeChatters, chatterName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
+import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
 
@@ -33,8 +34,6 @@ const MAX_PRIZES = 30;
 const MAX_PRIZE_NAME = 60;
 const MAX_BLURB = 120;        // the line under the prize name on stream
 const MAX_PATH = 300;         // an image/sound filename, or a full url
-const MAX_OWNERS = 5000;      // ledger rows; past this the smallest holdings are dropped (see normalizeBoxes)
-const MAX_HELD = 9999;        // boxes one person can be holding
 // how many prizes may be sent past the marker on one spin. the spin always takes spinSec whatever this is,
 // so raising it doesn't lengthen the spin — it speeds the reel up, which is the point of having it.
 const MIN_SPIN_TILES = 5;
@@ -46,7 +45,8 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "playEvent", "textBox"];
+const MAX_CHARGES = 99;
 const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 
@@ -55,6 +55,9 @@ export const DEFAULT_MYSTERYBOX = {
     enabled: true,
     // what chatters type, without the "!". the actions after it (open / count) are fixed.
     command: "mb",
+    // what a ray gun charge is fired with, without the "!". "<command> <name>" shoots; on its own it says
+    // how many shots the asker has left.
+    raygunCommand: "raygun",
     // credit the gifter named in fourthwall's giveaway announcement with one box per giveaway. off = boxes
     // are only handed out by hand, from the tab or the terminal.
     grantOnFiresale: true,
@@ -90,7 +93,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -128,6 +131,8 @@ function normalizeEffect(raw: any): any {
         factor: Math.min(MAX_BOOST, Math.max(1, Number.isFinite(Number(r.factor)) ? Number(r.factor) : 2)),
         // nuke: what share of the chatters who are actually talking get timed out
         percent: numIn(r.percent, 1, 100, 50),
+        // raygun: how many shots the winner is credited with. each one is `seconds` long.
+        charges: numIn(r.charges, 1, MAX_CHARGES, 5),
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
@@ -176,6 +181,7 @@ export function normalizeMysteryBox(raw: any): any {
         enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
         // stored without the "!" so the ui and the chat matcher can't disagree about whether it's there
         command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
+        raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
@@ -223,74 +229,49 @@ export function findPrize(session: TimerUserSession, key: any): any | null {
 // differ, the box lands under a key its owner can't spend — hence renameOwner(), which the tab uses to merge
 // one row into another.
 
-export function boxKey(name: any): string {
-    return String(name || "").trim().replace(/^@/, "").toLowerCase().slice(0, MAX_NAME);
-}
+export const boxKey = ledgerKey;
+export const normalizeBoxes = normalizeLedger;
 
-export function normalizeBoxes(raw: any): any {
-    const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const rows: { key: string, name: string, count: number }[] = [];
-    for (const k of Object.keys(r)){
-        const key = boxKey(k);
-        if (!key)
-            continue;
-        const v = r[k];
-        // tolerate a bare number as well as the {name,count} row, so a hand-edited column still loads
-        const count = numIn(typeof v === "object" && v ? v.count : v, 0, MAX_HELD, 0);
-        if (count <= 0) // nothing held: drop the row rather than carry an empty one forever
-            continue;
-        rows.push({ key, name: str(typeof v === "object" && v ? v.name : "", MAX_NAME) || key, count });
-    }
-    // over the cap, keep the biggest holdings — those are the ones someone is still waiting to spend
-    rows.sort((a, b) => b.count - a.count);
-    const out: any = {};
-    for (const row of rows.slice(0, MAX_OWNERS))
-        out[row.key] = { name: row.name, count: row.count };
-    return out;
-}
-
-export function mbBoxes(session: TimerUserSession): any {
+export function mbBoxes(session: TimerUserSession): Ledger {
     return session.mysteryBoxes || (session.mysteryBoxes = {});
 }
 
 export function boxCount(session: TimerUserSession, login: any): number {
-    const row = mbBoxes(session)[boxKey(login)];
-    return row ? Math.max(0, Math.trunc(Number(row.count) || 0)) : 0;
+    return ledgerCount(mbBoxes(session), login);
 }
 
 // hand someone boxes (or take them, with a negative n). returns what they hold afterwards.
 export function grantMysteryBox(session: TimerUserSession, login: any, displayName: any, n = 1, why = ""): number {
-    const key = boxKey(login);
-    if (!key)
-        return 0;
-    const boxes = mbBoxes(session);
-    const row = boxes[key];
-    const next = Math.min(MAX_HELD, Math.max(0, (row ? row.count : 0) + Math.trunc(n)));
-    if (next <= 0)
-        delete boxes[key];
-    else if (Object.keys(boxes).length < MAX_OWNERS || row)
-        boxes[key] = { name: str(displayName, MAX_NAME) || (row && row.name) || key, count: next };
+    const next = ledgerGrant(mbBoxes(session), login, displayName, n);
     if (why && n > 0)
-        emitTerminal(session.userId, `MYSTERYBOX — ${str(displayName, MAX_NAME) || key} earned ${n === 1 ? "a box" : `${n} boxes`} (${why}); they hold ${next}.`, true);
+        emitTerminal(session.userId, `MYSTERYBOX — ${str(displayName, MAX_NAME) || ledgerKey(login)} earned ${n === 1 ? "a box" : `${n} boxes`} (${why}); they hold ${next}.`, true);
     emitSync(session.userId); // the tab lists the ledger, so it has to see this promptly
+    return next;
+}
+
+// ray gun charges: the same kind of wallet, spent with "!raygun <name>" instead of on a reel
+export function mbRayguns(session: TimerUserSession): Ledger {
+    return session.rayguns || (session.rayguns = {});
+}
+
+export function raygunCount(session: TimerUserSession, login: any): number {
+    return ledgerCount(mbRayguns(session), login);
+}
+
+export function grantRaygun(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    const next = ledgerGrant(mbRayguns(session), login, displayName, n);
+    emitSync(session.userId);
     return next;
 }
 
 // merge one ledger row into another, for when fourthwall's gifter name isn't the login that spends the box
 export function renameOwner(session: TimerUserSession, from: any, to: any): { ok: boolean, message: string } {
-    const src = boxKey(from);
-    const dst = boxKey(to);
-    if (!src || !dst)
-        return { ok: false, message: "Both names are required." };
-    if (src === dst)
-        return { ok: false, message: "Those are the same name." };
-    const boxes = mbBoxes(session);
-    const row = boxes[src];
-    if (!row)
-        return { ok: false, message: `Nobody called "${from}" is holding a box.` };
-    const moved = row.count;
-    delete boxes[src];
-    grantMysteryBox(session, dst, to, moved);
+    const moved = ledgerRename(mbBoxes(session), from, to);
+    if (moved < 0)
+        return { ok: false, message: `Nobody called "${from}" is holding a box, or those are the same name.` };
+    // charges follow the boxes: it's the same person being corrected to the same login
+    ledgerRename(mbRayguns(session), from, to);
+    emitSync(session.userId);
     return { ok: true, message: `Moved ${moved} box${moved === 1 ? "" : "es"} from ${from} to ${to}.` };
 }
 
@@ -683,6 +664,19 @@ export function applyEffect(session: TimerUserSession, prize: any){
         nukeChat(session, e.percent, secs, prize.name || "Nuke");
         return;
     }
+    if (e.kind === "raygun" && e.charges > 0 && e.seconds > 0){
+        // the winner is credited, not the target — this prize hands out a weapon rather than firing one, and
+        // who it gets fired at is their decision to make later.
+        const mbState = getMysteryBox(session);
+        const who = mbState.opener;
+        if (!who || mbState.isTest)
+            return; // a rehearsal must not credit a viewer called TEST
+        const held = grantRaygun(session, who, mbState.openerName, e.charges);
+        const cfg = mbSettings(session);
+        emitTerminal(session.userId, `MYSTERYBOX — ${mbState.openerName || who} was given ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} (${held} in hand).`, true);
+        chatSay(session, `@${mbState.openerName || who} got ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to time somebody out for ${Math.round(e.seconds / 60)} minute${e.seconds >= 120 ? "s" : ""}. ${held} in hand.`);
+        return;
+    }
     if (e.kind === "playEvent" && e.eventId){
         // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
         // and the event's delayed command (if it has one) runs too
@@ -784,6 +778,10 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0 && e.percent > 0
             ? `times out ${e.percent}% of the chatters who are talking, for ${mins(e.seconds)}`
             : "times out nobody (set the share and the seconds)";
+    if (e.kind === "raygun")
+        return e.charges > 0 && e.seconds > 0
+            ? `gives the winner ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"}, ${mins(e.seconds)} each`
+            : "gives nothing (set the shots and the seconds)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")
@@ -817,7 +815,7 @@ export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: s
     if (cmd.action === "give"){
         if (!cmd.name)
             return { ok: false, message: "Usage: mb give <name> [count]" };
-        const n = Math.max(1, Math.min(MAX_HELD, Math.trunc(cmd.count) || 1));
+        const n = Math.max(1, Math.min(9999, Math.trunc(cmd.count) || 1));
         const held = grantMysteryBox(session, cmd.name, cmd.name, n);
         return { ok: true, message: `Gave ${cmd.name} ${n} mystery box${n === 1 ? "" : "es"} — they hold ${held}.` };
     }
@@ -884,8 +882,80 @@ export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok
 }
 
 // ---------------------------------------------------------------------------
+// the ray gun
+// ---------------------------------------------------------------------------
+
+// how long one shot times somebody out for. the prize that granted the charges says, but a charge doesn't
+// remember which prize it came from, so the CURRENT ray gun prize's setting is what a shot is worth — which
+// also means the operator can retune it without invalidating shots people are already holding.
+export function raygunSeconds(session: TimerUserSession): number {
+    const prize = mbSettings(session).prizes.find((p: any) => p.effect && p.effect.kind === "raygun" && p.effect.seconds > 0);
+    return prize ? Math.min(MAX_NUKE_SEC, prize.effect.seconds) : 600;
+}
+
+// fire one. the charge is spent up front and handed back if the shot doesn't land, because the alternative —
+// checking first — can't tell the difference between a name nobody has and a name twitch will refuse.
+export async function shootRaygun(session: TimerUserSession, shooter: any, shooterName: any, target: any): Promise<{ ok: boolean, message: string }> {
+    const key = boxKey(shooter);
+    const who = str(shooterName, MAX_NAME) || key;
+    const at = String(target || "").replace(/^@/, "").trim();
+    if (!key)
+        return { ok: false, message: "" };
+    if (!at || !TWITCH_LOGIN.test(at))
+        return { ok: false, message: `@${who} shoot who? Try !${mbSettings(session).raygunCommand} someone.` };
+    if (raygunCount(session, key) < 1)
+        return { ok: false, message: `@${who} you have no ray gun shots left.` };
+    const secs = raygunSeconds(session);
+
+    grantRaygun(session, key, who, -1);
+    const res = await chatTimeoutOne(session, at, secs, `ray gun — ${who}`);
+    if (!res.ok){
+        // it didn't land, so they keep the shot. a charge silently eaten by a typo'd name would be the
+        // worst possible outcome for something won from a prize.
+        grantRaygun(session, key, who, 1);
+        return { ok: false, message: `@${who} that shot missed — ${res.message}. You keep it.` };
+    }
+    const left = raygunCount(session, key);
+    const mins = Math.round(secs / 60);
+    emitTerminal(session.userId, `RAYGUN — ${who} shot ${at} (${secs}s); ${left} shot${left === 1 ? "" : "s"} left.`, true);
+    return {
+        ok: true,
+        message: `@${who} shot @${at} with the ray gun — ${mins >= 1 ? `${mins} minute${mins === 1 ? "" : "s"}` : `${secs} seconds`} in the shadow realm. ${left} shot${left === 1 ? "" : "s"} left.`,
+    };
+}
+
+// ---------------------------------------------------------------------------
 // chat
 // ---------------------------------------------------------------------------
+
+// "!raygun <name>" fires one; "!raygun" on its own says how many are left. open to every chatter, since the
+// whole point is that a viewer won them. returns true if the line was consumed.
+export function handleRaygunChat(session: TimerUserSession, login: string, displayName: string, text: string): boolean {
+    const cfg = mbSettings(session);
+    const body = String(text || "").trim();
+    if (!body.startsWith("!"))
+        return false;
+    const parts = body.slice(1).split(/\s+/);
+    if (parts[0].toLowerCase() !== cfg.raygunCommand)
+        return false;
+    const who = String(displayName || login || "");
+
+    if (!parts[1]){
+        const n = raygunCount(session, login);
+        if (tellNow(session.userId, String(login || "")))
+            chatSay(session, n > 0
+                ? `@${who} you have ${n} ray gun shot${n === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to use one.`
+                : `@${who} you have no ray gun shots.`);
+        return true;
+    }
+    shootRaygun(session, login, who, parts[1]).then((res) => {
+        // a hit is always announced — that's the whole point of shooting somebody in front of chat. a miss
+        // is rate limited like any other refusal, so a wrong name typed over and over can't flood.
+        if (res.message && (res.ok || tellNow(session.userId, String(login || ""))))
+            chatSay(session, res.message);
+    }).catch((err) => reportError(session.userId, "firing a ray gun", err));
+    return true;
+}
 
 // how often one person may be told why they can't open a box
 const TELL_COOLDOWN = 20000;

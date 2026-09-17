@@ -77,6 +77,7 @@ export function loginUser(inObj: Object){
     lvObj.firesale = undefined; // a run never survives a restart — the source comes back idle
     lvObj.mysteryBoxSettings = normalizeMysteryBox(lvObj.mysteryBoxSettings);
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
+    lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
     lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
     lvObj.timerPause = undefined;   // nor does a pause: the deadline in the db is already the paused one
     lvObj.timeBoost = undefined;    // nor a bonfire sale — it lapses with the process that was running it

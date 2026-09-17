@@ -4,7 +4,7 @@ import { emitSync, emitTerminal, reportError } from "../bus";
 import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
-import { handleMysteryBoxChat, runMysteryBoxCommand } from "../mysterybox";
+import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
@@ -108,6 +108,9 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // ahead of the mod gate too, and for the same reason it gets the ORIGINAL message: the display name
         // is what goes up on the overlay, capitals and all.
         if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+            return;
+        // "!raygun <name>" — open to everyone too, since the shots are a thing a viewer won
+        if (handleRaygunChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || "")))
             return;
         if (!isMod)
             return;

@@ -97,6 +97,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // unfired ray gun charges, same shape as the box ledger (see migration add-rayguns)
+    rayguns: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     fwProductBonuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -225,6 +231,7 @@ export async function dbCreate(inObj: Object){
         firesaleSettings: lvObj.firesaleSettings,
         mysteryBoxSettings: lvObj.mysteryBoxSettings,
         mysteryBoxes: lvObj.mysteryBoxes,
+        rayguns: lvObj.rayguns,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -269,6 +276,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 firesaleSettings: curSession.firesaleSettings,
                 mysteryBoxSettings: curSession.mysteryBoxSettings,
                 mysteryBoxes: curSession.mysteryBoxes,
+                rayguns: curSession.rayguns,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,
