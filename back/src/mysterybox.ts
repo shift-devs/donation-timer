@@ -330,7 +330,11 @@ export function boxCount(session: TimerUserSession, login: any): number {
 const minted: { [userId: number]: { key: string, at: number }[] } = {};
 const MINT_DEDUPE_MS = 30 * 60 * 1000;
 
-export function alreadyMintedFor(userId: number, key: string): boolean {
+export function alreadyMintedFor(userId: number, rawKey: string): boolean {
+    // normalised here rather than by the caller, so this can't be defeated by the same announcement coming
+    // back in a different case — everything else about the ledger is case-insensitive, and this is the one
+    // place where being case-SENSITIVE mints currency twice instead of merely failing to find a row.
+    const key = matchable(rawKey);
     const now = Date.now();
     const list = (minted[userId] || []).filter((m) => now - m.at < MINT_DEDUPE_MS);
     minted[userId] = list;
