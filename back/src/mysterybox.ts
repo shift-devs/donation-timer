@@ -590,7 +590,9 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
 
 // why a box can't be opened right now, or "" if it can. ONE thing happens at a time: the overlay is a single
 // reel with a single soundtrack, and a prize landing on top of the last one's after-effect — a second reel
-// over a bonfire sale, a nuke during a freeze — reads as the feature misfiring rather than as two prizes.
+// over a bonfire sale, a freeze inside a freeze — reads as the feature misfiring rather than as two prizes.
+// what counts is whether the last prize is still SHOWING something. a nuke isn't: its timeouts are a command
+// that has already run, and the people it hit don't stop anyone else opening a box.
 // a firesale counts too: that overlay owns the screen and the music while it runs.
 // the reason is written to be said out loud in chat, so it names the prize rather than the mechanism.
 export function openBlockedBy(session: TimerUserSession): string {
@@ -745,8 +747,10 @@ export function endMysteryBoxTimers(userId: number){
 
 // the one place a prize is allowed to reach into the rest of the app. every branch is reversible or bounded:
 // nothing here can add time without it going through the timer's own cap, and nothing can hold the overlay.
-// mark a prize's after-effect as still playing out, for the ones that keep no state of their own. the
-// freezes and the bonfire sale don't need this — they're already visible in timerPause and timeBoost.
+// mark a prize's after-effect as still playing out, so the next box can't start on top of it. only for the
+// ones that keep no state of their own AND leave something on screen — which, now the nuke is out, is the
+// text box holding its words. the freezes and the bonfire sale are already visible in timerPause and
+// timeBoost, and a nuke leaves nothing to collide with.
 function holdEffect(session: TimerUserSession, seconds: number, what: string){
     const until = Date.now() + Math.max(0, seconds) * 1000;
     if (!session.mbEffect || session.mbEffect.until < until)
@@ -787,9 +791,11 @@ export function applyEffect(session: TimerUserSession, prize: any){
         return;
     }
     if (e.kind === "nuke" && e.seconds > 0 && e.percent > 0){
-        const secs = Math.min(MAX_NUKE_SEC, e.seconds);
-        holdEffect(session, secs, prize.name || "Nuke");
-        nukeChat(session, e.percent, secs, prize.name || "Nuke");
+        // deliberately does NOT hold the lock, unlike the effects below it. the timeouts are a command that
+        // runs and is over; nothing of it is on the overlay for a second box to land on top of. holding
+        // opens for the length of a ten minute nuke would punish everyone holding a box for a prize
+        // somebody else won.
+        nukeChat(session, e.percent, Math.min(MAX_NUKE_SEC, e.seconds), prize.name || "Nuke");
         return;
     }
     if (e.kind === "raygun" && e.charges > 0 && e.seconds > 0){
