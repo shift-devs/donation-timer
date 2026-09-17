@@ -21,7 +21,7 @@
 
 import { TimerUserSession } from "./types";
 import { emitFiresale, emitTerminal, reportError } from "./bus";
-import { mbSettings, grantMysteryBox } from "./mysterybox";
+import { mbSettings, grantMysteryBox, alreadyMintedFor } from "./mysterybox";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 const MAX_PRIZE = 200;
@@ -386,8 +386,10 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
     // box is payment for GIVING the item, not for the giveaway resolving.
     // the name is fourthwall's, i.e. a display name: see the note on boxKey about when that isn't the login
     // its owner later types "!mb open" from.
+    // ...but only once per giveaway. the run dedupe above only covers a replay that lands while entries are
+    // still open; a box is currency, so it needs to survive a later replay too.
     const mb = mbSettings(session);
-    if (gifter && mb.enabled && mb.grantOnFiresale)
+    if (gifter && mb.enabled && mb.grantOnFiresale && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
         grantMysteryBox(session, gifter, gifter, 1, `put "${prize || "an item"}" up for firesale`);
 
     emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);

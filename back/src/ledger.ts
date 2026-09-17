@@ -55,10 +55,16 @@ export function ledgerGrant(map: Ledger, login: any, displayName: any, n: number
     const row = map[key];
     const next = Math.min(MAX_HELD, Math.max(0, (row ? row.count : 0) + Math.trunc(n)));
     const name = (typeof displayName === "string" ? displayName.slice(0, MAX_NAME) : "") || (row && row.name) || key;
-    if (next <= 0)
+    if (next <= 0){
         delete map[key];
-    else if (Object.keys(map).length < MAX_OWNERS || row)
-        map[key] = { name, count: next };
+        return 0;
+    }
+    // a brand new row at the ceiling can't be stored. report what they ACTUALLY hold (nothing) rather than
+    // what they would have held — the caller announces this number in chat and on the terminal, and telling
+    // somebody they now hold a box that was dropped on the floor is worse than the ceiling itself.
+    if (!row && Object.keys(map).length >= MAX_OWNERS)
+        return 0;
+    map[key] = { name, count: next };
     return next;
 }
 

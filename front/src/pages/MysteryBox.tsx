@@ -310,8 +310,11 @@ const MysteryBox: React.FC = () => {
 
 			{/* the spin music, keyed on the open so a back-to-back second box restarts it from the top rather
 			    than carrying on mid-track. deliberately NOT looped: it's a stinger the length of one open, and
-			    looping it would leave the tail of the last spin playing under the reveal. */}
-			{cfg.music && (
+			    looping it would leave the tail of the last spin playing under the reveal.
+			    gated on `active` as well as the setting: a bonfire sale or a timebomb keeps this page on
+			    screen with no box open, and without that guard a source reconnecting (or a scene switching
+			    back) during one would mount this element fresh and blast the stinger over nothing. */}
+			{cfg.music && active && (
 				<audio
 					key={`m${nonce}`}
 					src={`/media/${encodeURIComponent(cfg.music)}`}
@@ -321,7 +324,7 @@ const MysteryBox: React.FC = () => {
 			)}
 
 			{/* the prize's own sound, once, as the reel stops on it */}
-			{prize && prize.sound && landCue && (
+			{prize && prize.sound && landCue && active && (
 				<audio
 					key={`p${landCue}`}
 					src={`/media/${encodeURIComponent(prize.sound)}`}

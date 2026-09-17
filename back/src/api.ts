@@ -755,16 +755,17 @@ export function startApi(){
                 case "setTwitchBot": {
                     // the bot's own twitch app, or blank to share the sub-count connection's. changing it
                     // invalidates the authorization, since a refresh token belongs to the app that issued it.
+                    const botCfg = jData.config && typeof jData.config === "object" ? jData.config : {};
                     forgetTwitchBot(id);
                     curSession.twitchBotError = "";
                     curSession.twitchBotPending = undefined;
-                    if (jData.config && jData.config.disconnect){
+                    if (botCfg.disconnect){
                         curSession.connections.twitchBot = normalizeTwitchBot({});
                         break;
                     }
                     const prev = curSession.connections.twitchBot || {};
-                    const clientId = typeof jData.config.clientId === "string" ? jData.config.clientId.trim() : "";
-                    const clientSecret = typeof jData.config.clientSecret === "string" ? jData.config.clientSecret.trim() : "";
+                    const clientId = typeof botCfg.clientId === "string" ? botCfg.clientId.trim() : "";
+                    const clientSecret = typeof botCfg.clientSecret === "string" ? botCfg.clientSecret.trim() : "";
                     const sameApp = clientId === prev.clientId && clientSecret === prev.clientSecret;
                     curSession.connections.twitchBot = normalizeTwitchBot({
                         clientId,

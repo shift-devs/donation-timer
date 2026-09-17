@@ -261,6 +261,25 @@ export function boxCount(session: TimerUserSession, login: any): number {
     return ledgerCount(mbBoxes(session), login);
 }
 
+// the last few giveaways a box was minted for, per user. twitch can deliver the same announcement twice (a
+// chat reconnect replays it), and firesale.ts only dedupes runs that are still TAKING ENTRIES — a replay
+// arriving after the window closed opens a second run, which used to cost a duplicate on the overlay and now
+// would mint a second box. currency has to be idempotent in a way an overlay doesn't.
+const minted: { [userId: number]: { key: string, at: number }[] } = {};
+const MINT_DEDUPE_MS = 30 * 60 * 1000;
+
+export function alreadyMintedFor(userId: number, key: string): boolean {
+    const now = Date.now();
+    const list = (minted[userId] || []).filter((m) => now - m.at < MINT_DEDUPE_MS);
+    minted[userId] = list;
+    if (list.some((m) => m.key === key))
+        return true;
+    list.push({ key, at: now });
+    if (list.length > 50)
+        list.splice(0, list.length - 50);
+    return false;
+}
+
 // hand someone boxes (or take them, with a negative n). returns what they hold afterwards.
 export function grantMysteryBox(session: TimerUserSession, login: any, displayName: any, n = 1, why = ""): number {
     const next = ledgerGrant(mbBoxes(session), login, displayName, n);
@@ -303,10 +322,13 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
 // phase timers per user. deliberately off the session, for the same reason firesale's are: a Timeout is not
 // state anyone should be able to serialize or sync, and holding them here means ending an open can never
 // leave one behind. `restore` is the odd one out — it belongs to a text-box effect that outlives the reveal.
-const timers: { [userId: number]: { land?: any, done?: any, restore?: any } } = {};
+// `restore` is keyed by TEXT BOX, not by user: two text-box prizes landing close together each own their own
+// box, and a single slot meant the second one cancelled the first's restore and left that box stuck on its
+// prize text for good.
+const timers: { [userId: number]: { land?: any, done?: any, restore: { [box: string]: any } } } = {};
 
 function slots(userId: number){
-    return timers[userId] || (timers[userId] = {});
+    return timers[userId] || (timers[userId] = { restore: {} });
 }
 
 export function getMysteryBox(session: TimerUserSession): any {
@@ -462,9 +484,13 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
     const pool = winnablePrizes(session).map((p: any) => ({ id: p.id, weight: p.weight }));
     if (!pool.length)
         return { reel: [winnerId], startIndex: 0, landIndex: 0 };
-    // the strip is the run the operator asked for, the tile it lands on, and the padding either side
+    // the strip is the run the operator asked for, the tile it lands on, and the padding either side —
+    // but never shorter than the number of prizes. every prize gets at least one tile, so a strip shorter
+    // than the pool would come back LONGER than asked for, and the turn below (which is modular) would then
+    // be working against a length it doesn't have and stop on the wrong prize. it costs a little extra tail
+    // padding in the rare setup that has more prizes than tiles, which nobody can see.
     const travel = mbSettings(session).spinTiles;
-    const total = travel + 1 + REEL_PAD * 2;
+    const total = Math.max(travel + 1 + REEL_PAD * 2, pool.length + REEL_PAD);
     const reel = arrangeTiles(tileCounts(pool, total));
     const startIndex = REEL_PAD;
     const landIndex = REEL_PAD + travel;
@@ -481,8 +507,11 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
             copies.push(i);
     if (copies.length){
         const from = copies[Math.floor(Math.random() * copies.length)];
-        const shift = (((landIndex - from) % total) + total) % total;
-        const turned = reel.slice(total - shift).concat(reel.slice(0, total - shift));
+        // off the strip's OWN length, never off what was asked for: the two agree now, and this is the one
+        // place where them disagreeing would silently stop the reel on a prize nobody won
+        const len = reel.length;
+        const shift = (((landIndex - from) % len) + len) % len;
+        const turned = reel.slice(len - shift).concat(reel.slice(0, len - shift));
         return { reel: turned, startIndex, landIndex };
     }
     reel[landIndex] = winnerId; // no tile of its own to turn to; can't happen while every prize gets two
@@ -631,10 +660,12 @@ export function endMysteryBox(session: TimerUserSession){
 // tear down on logout so a phase timer can't fire against a detached session
 export function endMysteryBoxTimers(userId: number){
     delete toldAt[userId];
+    delete minted[userId];
     const t = slots(userId);
     clearTimeout(t.land);
     clearTimeout(t.done);
-    clearTimeout(t.restore);
+    for (const box of Object.keys(t.restore))
+        clearTimeout(t.restore[box]);
     delete timers[userId];
 }
 
@@ -718,10 +749,12 @@ export function applyEffect(session: TimerUserSession, prize: any){
         // before — including nothing, which is the usual case.
         if (e.seconds > 0){
             const t = slots(session.userId);
-            clearTimeout(t.restore);
-            t.restore = setTimeout(() => {
+            const box = String(e.box);
+            clearTimeout(t.restore[box]);
+            t.restore[box] = setTimeout(() => {
+                delete t.restore[box];
                 try {
-                    setTextBoxText(session, e.box, prev);
+                    setTextBoxText(session, box, prev);
                     emitSync(session.userId);
                 } catch (err) {
                     reportError(session.userId, "restoring a text box after a mystery box prize", err);
@@ -1035,8 +1068,12 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         const label = isMod && named ? (mbBoxes(session)[boxKey(named)] || {}).name || named : self.displayName;
         const n = boxCount(session, who);
         // through the chat seam, which reports to the terminal when no bot account is connected — so this
-        // answers in chat the moment one is, with no change here
-        chatSay(session, `@${label} has ${n} mystery box${n === 1 ? "" : "es"}.`);
+        // answers in chat the moment one is, with no change here.
+        // throttled per asker like every other reply: a modded account that answers every "!mb count" is one
+        // a few viewers can push past its own rate limit, at which point twitch drops the messages that
+        // matter (a prize landing, a ray gun hit) along with the spam.
+        if (tellNow(session.userId, self.login))
+            chatSay(session, `@${label} has ${n} mystery box${n === 1 ? "" : "es"}.`);
         return true;
     }
     if (!isMod)

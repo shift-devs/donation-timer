@@ -183,7 +183,9 @@ export function runTwitchBotDeviceAuth(session: TimerUserSession, onDone: () => 
     if (!pending)
         return;
     const tick = async () => {
-        if (!session.twitchBotPending || session.twitchBotPending.deviceCode !== pending.deviceCode){
+        // a second authorization started, or the session went away under us — stop rather than keep asking
+        // twitch about a code nobody is waiting for
+        if (session.loggedOut || !session.twitchBotPending || session.twitchBotPending.deviceCode !== pending.deviceCode){
             clearInterval(timer);
             return;
         }
@@ -196,6 +198,9 @@ export function runTwitchBotDeviceAuth(session: TimerUserSession, onDone: () => 
             onDone();
         } catch (err: any) {
             clearInterval(timer);
+            // the code is dead either way, so clear it: the tab hides Authorize while one is outstanding,
+            // and leaving it set would show the operator a code that can never work and no way to retry
+            session.twitchBotPending = undefined;
             session.twitchBotError = describeError(err);
             emitSync(session.userId);
         }

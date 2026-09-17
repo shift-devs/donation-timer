@@ -76,22 +76,22 @@ export function canonPrize(raw: any, i: number) {
 	const e = r.effect && typeof r.effect === "object" ? r.effect : {};
 	return {
 		id: typeof r.id === "string" && r.id ? r.id : `p${i + 1}`,
-		name: typeof r.name === "string" ? r.name : d.name,
+		name: typeof r.name === "string" ? r.name.slice(0, 60).trim() : d.name,
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		weight: numIn(r.weight, 0, 1000, d.weight),
-		image: typeof r.image === "string" ? r.image : d.image,
-		sound: typeof r.sound === "string" ? r.sound : d.sound,
+		image: typeof r.image === "string" ? r.image.slice(0, 300) : d.image,
+		sound: typeof r.sound === "string" ? r.sound.slice(0, 300) : d.sound,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
-		blurb: typeof r.blurb === "string" ? r.blurb : d.blurb,
+		blurb: typeof r.blurb === "string" ? r.blurb.slice(0, 120) : d.blurb,
 		effect: {
 			kind: EFFECT_KINDS.some((k) => k.key === e.kind) ? e.kind : "none",
 			seconds: numIn(e.seconds, 0, 24 * 3600, 0),
 			factor: Math.min(10, Math.max(1, Number.isFinite(Number(e.factor)) ? Number(e.factor) : 2)),
 			percent: numIn(e.percent, 1, 100, 50),
 			charges: numIn(e.charges, 1, 99, 5),
-			eventId: typeof e.eventId === "string" ? e.eventId : "",
-			box: typeof e.box === "string" ? e.box : "",
-			text: typeof e.text === "string" ? e.text : "",
+			eventId: typeof e.eventId === "string" ? e.eventId.slice(0, 100) : "",
+			box: typeof e.box === "string" ? e.box.slice(0, 100) : "",
+			text: typeof e.text === "string" ? e.text.slice(0, 500) : "",
 		},
 	};
 }
@@ -102,10 +102,14 @@ export function canonMysteryBox(raw: any) {
 	const d = DEFAULT_MYSTERYBOX;
 	return {
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
-		command: (typeof r.command === "string" ? r.command.replace(/^!/, "") : "") || d.command,
-		raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.replace(/^!/, "") : "") || d.raygunCommand,
+		// trimmed, lowercased and cut to length exactly as the server does — this is the comparison the tab
+		// uses to decide whether its draft has landed, so a field the server would tidy up (an uppercase
+		// command, a stray space) would otherwise never compare equal and the box would snap back a few
+		// seconds after you stopped typing
+		command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
+		raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
 		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
-		music: typeof r.music === "string" ? r.music : d.music,
+		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
 		spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
 		spinTiles: numIn(r.spinTiles, MIN_SPIN_TILES, MAX_SPIN_TILES, d.spinTiles),
