@@ -30,7 +30,7 @@ import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
-import { canonMysteryBox, prizeImageSrc, prizeOdds, countdown, EFFECT_KINDS, MAX_PRIZES, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
+import { canonMysteryBox, prizeImageSrc, prizeOdds, prizeProfiles, inActiveProfile, countdown, EFFECT_KINDS, MAX_PRIZES, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
 
 // prize art in public/prizes, audio in public/media (vite.config.ts bakes both lists in at build time)
 const PRIZE_IMAGES: string[] = typeof __PRIZES__ !== "undefined" ? __PRIZES__ : [];
@@ -159,6 +159,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
 	// what the /events and /text effects can point at
+	// the profiles that exist, and what the current one leaves in play
+	const profiles = prizeProfiles(draft.prizes, draft.activeProfile);
+	const inPlay = draft.prizes.filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(draft.activeProfile, p));
 	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
 	const textBoxes: any[] = Array.isArray(settings.textBoxes) ? settings.textBoxes : [];
 
@@ -520,6 +523,41 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				<Button size="sm" onClick={addPrize} isDisabled={draft.prizes.length >= MAX_PRIZES}>Add prize</Button>
 			</Flex>
 
+			{/* which set is in play. a prize with no profile is always in, so this only ever ADDS to the pile
+			    — switching can't leave the box with nothing to give. */}
+			<Flex align="center" gap={2} mb={3} wrap="wrap">
+				<Text fontSize="sm" color="gray.600">Playing</Text>
+				<Select
+					size="sm"
+					maxW="220px"
+					value={draft.activeProfile}
+					onChange={(e) => patch({ activeProfile: e.target.value })}
+				>
+					<option value="">(no profile — just the always-on prizes)</option>
+					{profiles.map((n) => (
+						<option key={n} value={n}>{n}</option>
+					))}
+				</Select>
+				<Badge colorScheme={inPlay.length ? "green" : "red"}>
+					{inPlay.length} prize{inPlay.length === 1 ? "" : "s"} in play
+				</Badge>
+				{draft.prizes.length > inPlay.length && (
+					<Text fontSize="xs" color="gray.500">
+						{draft.prizes.length - inPlay.length} set aside for another profile
+					</Text>
+				)}
+				{!inPlay.length && draft.prizes.length > 0 && (
+					<Text fontSize="xs" color="red.300">
+						Nothing can be won right now — every prize is disabled, zero-rarity, or in another profile.
+					</Text>
+				)}
+			</Flex>
+
+			{/* every profile that has been named on a prize, so the field below can autocomplete them */}
+			<datalist id="mb-profiles">
+				{profiles.map((n) => <option key={n} value={n} />)}
+			</datalist>
+
 			{draft.prizes.length === 0 && (
 				<Text fontSize="sm" color="gray.500" mb={3}>
 					No prizes yet. Add one, drop its art into <Code fontSize="xs">front/public/prizes</Code>, and pick
@@ -529,10 +567,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 			<VStack align="stretch" spacing={3} mb={5}>
 				{draft.prizes.map((p: any) => {
-					const odds = prizeOdds(draft.prizes, p);
+					const odds = prizeOdds(draft.prizes, p, draft.activeProfile);
+					const live = inActiveProfile(draft.activeProfile, p);
 					const img = prizeImageSrc(p.image);
 					return (
-						<Box key={p.id} borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled ? 1 : 0.55}>
+						<Box key={p.id} borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled && live ? 1 : 0.55}>
 							<Flex gap={3} wrap="wrap">
 								{/* the art, at the shape the reel draws it */}
 								<Box
@@ -556,10 +595,19 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									<HStack spacing={2} wrap="wrap">
 										<Input
 											size="sm"
-											maxW="220px"
+											maxW="200px"
 											placeholder="Prize name"
 											value={p.name}
 											onChange={(e) => patchPrize(p.id, { name: e.target.value }, `n${p.id}`)}
+										/>
+										<Input
+											size="sm"
+											maxW="150px"
+											list="mb-profiles"
+											placeholder="always on"
+											title="Leave blank and this prize is in play whatever profile is selected. Type a name to make it part of that profile only."
+											value={p.profile}
+											onChange={(e) => patchPrize(p.id, { profile: e.target.value }, `pr${p.id}`)}
 										/>
 										<HStack spacing={1}>
 											<Text fontSize="sm" color="gray.600">Rarity</Text>
@@ -574,7 +622,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 											    a 1-in-200 prize and a 1-in-2000 one, which is exactly the end of the range
 											    the weights are being tuned at */}
 											<Badge colorScheme={odds > 0 ? "blue" : "gray"}>
-												{odds > 0 ? `${odds.toFixed(2)}%` : "never"}
+												{odds > 0 ? `${odds.toFixed(2)}%` : live ? "never" : "other profile"}
 											</Badge>
 										</HStack>
 										<HStack spacing={1}>

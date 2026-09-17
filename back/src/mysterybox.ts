@@ -79,6 +79,10 @@ export const DEFAULT_MYSTERYBOX = {
     // what a ray gun charge is fired with, without the "!". "<command> <name>" shoots; on its own it says
     // how many shots the asker has left.
     raygunCommand: "raygun",
+    // which set of prizes is in play. a prize belongs to a profile (or to none, which means always), so the
+    // streamer can keep a pile of game-specific prizes set up and switch to them when they switch games
+    // without disabling anything by hand. "" = only the prizes that belong to no profile.
+    activeProfile: "",
     // credit the gifter named in fourthwall's giveaway announcement with one box per giveaway. off = boxes
     // are only handed out by hand, from the tab or the terminal.
     grantOnFiresale: true,
@@ -105,6 +109,7 @@ export const DEFAULT_MYSTERYBOX = {
 
 export const DEFAULT_PRIZE = {
     name: "",
+    profile: "",
     enabled: true,
     // relative rarity: a prize's odds are its weight over the total weight of every ENABLED prize with a
     // weight above zero. so 1 against three 10s is roughly a 3% prize, and the operator never has to make
@@ -178,6 +183,8 @@ function normalizePrize(raw: any, i: number): any | null {
     return {
         id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 100) : `p${i + 1}`,
         name: str(raw.name, MAX_PRIZE_NAME).trim(),
+        // which profile this belongs to. blank = no profile, which means it's in play whatever is selected.
+        profile: str(raw.profile, 60).trim(),
         enabled: raw.enabled === undefined ? d.enabled : !!raw.enabled,
         weight: numIn(raw.weight, 0, 1000, d.weight),
         image: str(raw.image, MAX_PATH),
@@ -214,6 +221,7 @@ export function normalizeMysteryBox(raw: any): any {
         // stored without the "!" so the ui and the chat matcher can't disagree about whether it's there
         command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
         raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
+        activeProfile: str(r.activeProfile, 60).trim(),
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
         firesaleItems: Array.isArray(r.firesaleItems)
             ? r.firesaleItems
@@ -268,10 +276,16 @@ export function mbSettings(session: TimerUserSession): any {
     return session.mysteryBoxSettings || (session.mysteryBoxSettings = normalizeMysteryBox(null));
 }
 
-// the prizes that can actually be landed on. a disabled prize, or one with no weight, still cycles past in
-// the reel if it has an image — it just can't win.
+// is this prize part of the set currently in play? a prize with no profile always is — that's the pile
+// that's true whatever is being played — and a prize with one is in only while that profile is selected.
+export function inActiveProfile(cfg: any, prize: any): boolean {
+    return !prize.profile || prize.profile === cfg.activeProfile;
+}
+
+// the prizes that can actually be landed on: enabled, worth something, and in the set that's in play.
 function winnablePrizes(session: TimerUserSession): any[] {
-    return mbSettings(session).prizes.filter((p: any) => p.enabled && p.weight > 0);
+    const cfg = mbSettings(session);
+    return cfg.prizes.filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(cfg, p));
 }
 
 export function findPrize(session: TimerUserSession, key: any): any | null {
@@ -418,7 +432,8 @@ export function mysteryBoxView(session: TimerUserSession): any {
             sound: prize.sound, volume: prize.volume,
         } : null,
         // every prize, for the reel art and the preload — ids and images only, since the source has no use
-        // for the weights or the effects
+        // for the weights or the effects. the ones out of the current profile come too: they aren't on the
+        // strip, but a rehearsal can still land on one and the art has to be there when it does.
         prizes: cfg.prizes.map((p: any) => ({ id: p.id, name: p.name, image: p.image })),
         // why "!mb open" is being turned away, if it is — the dashboard shows it so the operator isn't left
         // wondering why chat is complaining
@@ -530,6 +545,13 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
     // only what can actually be won. a disabled or zero-weight prize has no odds to represent, so it has no
     // business scrolling past — its rate IS zero.
     const pool = winnablePrizes(session).map((p: any) => ({ id: p.id, weight: p.weight }));
+    // the dashboard can rehearse a prize that isn't in the set currently in play; it still has to have tiles
+    // on the strip to be turned to, or the reel would stop on something nobody drew
+    if (!pool.some((p) => p.id === winnerId)){
+        const odd = findPrize(session, winnerId);
+        if (odd)
+            pool.push({ id: odd.id, weight: Math.max(1, odd.weight) });
+    }
     if (!pool.length)
         return { reel: [winnerId], startIndex: 0, landIndex: 0 };
     // the strip is the run the operator asked for, the tile it lands on, and the padding either side —

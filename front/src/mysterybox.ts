@@ -6,6 +6,7 @@ export const DEFAULT_MYSTERYBOX = {
 	enabled: true,
 	command: "mb",
 	raygunCommand: "raygun",
+	activeProfile: "",
 	grantOnFiresale: true,
 	firesaleItems: [] as string[],
 	music: "",
@@ -21,6 +22,7 @@ export const DEFAULT_MYSTERYBOX = {
 
 export const DEFAULT_PRIZE = {
 	name: "",
+	profile: "",
 	enabled: true,
 	weight: 10,
 	image: "",
@@ -78,6 +80,7 @@ export function canonPrize(raw: any, i: number) {
 	return {
 		id: typeof r.id === "string" && r.id ? r.id : `p${i + 1}`,
 		name: typeof r.name === "string" ? r.name.slice(0, 60).trim() : d.name,
+		profile: typeof r.profile === "string" ? r.profile.slice(0, 60).trim() : d.profile,
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		weight: numIn(r.weight, 0, 1000, d.weight),
 		image: typeof r.image === "string" ? r.image.slice(0, 300) : d.image,
@@ -113,6 +116,7 @@ export function canonMysteryBox(raw: any) {
 		// seconds after you stopped typing
 		command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
 		raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
+		activeProfile: typeof r.activeProfile === "string" ? r.activeProfile.slice(0, 60).trim() : "",
 		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
 		firesaleItems: Array.isArray(r.firesaleItems)
 			? r.firesaleItems
@@ -141,13 +145,35 @@ export function prizeImageSrc(image: string): string {
 	return /^https?:\/\//i.test(s) || s.startsWith("/") ? s : `/prizes/${encodeURIComponent(s)}`;
 }
 
-// one prize's chance of being drawn, as a percentage of the enabled pool. this is the number that tells the
-// operator what "rarity 1 against three 10s" actually means, which raw weights never do.
-export function prizeOdds(prizes: any[], prize: any): number {
-	const total = prizes.reduce((sum, p) => sum + (p.enabled && p.weight > 0 ? p.weight : 0), 0);
-	if (!total || !prize.enabled || prize.weight <= 0)
+// is this prize in the set currently in play? no profile = always; a profile = only while it's selected.
+// mirrors inActiveProfile on the server.
+export function inActiveProfile(activeProfile: string, prize: any): boolean {
+	return !prize.profile || prize.profile === activeProfile;
+}
+
+// one prize's chance of being drawn, as a percentage of the pool that's actually in play. this is the number
+// that tells the operator what "rarity 1 against three 10s" actually means, which raw weights never do —
+// and it has to be against the CURRENT profile, or switching profiles would leave every figure on the tab
+// quietly describing a draw that can't happen.
+export function prizeOdds(prizes: any[], prize: any, activeProfile = ""): number {
+	const live = (p: any) => p.enabled && p.weight > 0 && inActiveProfile(activeProfile, p);
+	const total = prizes.reduce((sum, p) => sum + (live(p) ? p.weight : 0), 0);
+	if (!total || !live(prize))
 		return 0;
 	return (prize.weight / total) * 100;
+}
+
+// every profile any prize has been put in, for the picker. derived from the prizes rather than kept as its
+// own list: a profile with nothing in it does nothing, so naming one on a prize is all it should take to
+// create it — and deleting the last prize in a profile should make it go away by itself.
+export function prizeProfiles(prizes: any[], activeProfile = ""): string[] {
+	const seen = new Set<string>();
+	for (const p of prizes)
+		if (p.profile)
+			seen.add(p.profile);
+	if (activeProfile)
+		seen.add(activeProfile); // keep a selected-but-now-empty profile visible rather than silently dropping it
+	return Array.from(seen).sort((a, b) => a.localeCompare(b));
 }
 
 // mm:ss, clamped at zero — shared with the pause countdown on the dashboard
