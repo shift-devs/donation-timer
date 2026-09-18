@@ -123,6 +123,12 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const patchEffect = (id: string, p: any, key?: string) =>
 		patch({ prizes: draft.prizes.map((z: any) => (z.id === id ? { ...z, effect: { ...z.effect, ...p } } : z)) }, key);
 
+	// one chant in a chant prize's list changed
+	const patchChant = (id: string, i: number, p: any, key?: string) =>
+		patch({ prizes: draft.prizes.map((z: any) => (z.id === id
+			? { ...z, effect: { ...z.effect, chants: z.effect.chants.map((c: any, j: number) => (j === i ? { ...c, ...p } : c)) } }
+			: z)) }, key);
+
 	// the quick revive's settings ride inside the same blob, so they go up the same way
 	const patchRevive = (p: any, key?: string) => patch({ quickRevive: { ...draft.quickRevive, ...p } }, key);
 
@@ -195,28 +201,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 			<VStack align="stretch" spacing={2} mt={2}>
 				<Text fontSize="xs" color="gray.500">{spec.hint}</Text>
 				<HStack spacing={2} wrap="wrap">
-					{spec.needs.includes("phrase") && (
-						<HStack spacing={1}>
-							<Text fontSize="sm" color="gray.600">Chat says</Text>
-							<Input
-								size="sm"
-								maxW="180px"
-								placeholder="movies"
-								value={prize.effect.phrase}
-								onChange={(e) => patchEffect(prize.id, { phrase: e.target.value }, `ph${prize.id}`)}
-							/>
-						</HStack>
-					)}
-					{spec.needs.includes("times") && (
+					{spec.needs.includes("rounds") && (
 						<HStack spacing={1}>
 							<NumberField
-								width="90px"
+								width="80px"
 								min={1}
-								max={10000}
-								value={prize.effect.times}
-								onCommit={(n) => patchEffect(prize.id, { times: n }, `tm${prize.id}`)}
+								max={50}
+								value={prize.effect.rounds}
+								onCommit={(n) => patchEffect(prize.id, { rounds: n }, `rd${prize.id}`)}
 							/>
-							<Text fontSize="sm" color="gray.600">times</Text>
+							<Text fontSize="sm" color="gray.600">round{prize.effect.rounds === 1 ? "" : "s"}, each drawn from the list below</Text>
 						</HStack>
 					)}
 					{spec.needs.includes("seconds") && (
@@ -226,7 +220,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									: prize.effect.kind === "timebomb" ? "Each contribution buys"
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
-									: prize.effect.kind === "chant" ? "within"
 									: prize.effect.kind === "nuke" ? ""
 									: prize.effect.kind === "raygun" ? ""
 									: "Seconds"}
@@ -375,6 +368,61 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							plays on the Mystery Box source for as long as it lasts
 						</Text>
 					</HStack>
+				)}
+				{spec.needs.includes("chants") && (
+					<VStack align="stretch" spacing={1}>
+						{prize.effect.chants.length === 0 && (
+							<Text fontSize="xs" color="red.300">Nothing for chat to say yet — add a chant.</Text>
+						)}
+						{prize.effect.chants.map((c: any, i: number) => (
+							<HStack key={i} spacing={2} wrap="wrap">
+								<Text fontSize="sm" color="gray.600">Say</Text>
+								<Input
+									size="sm"
+									maxW="180px"
+									placeholder="movies"
+									value={c.phrase}
+									onChange={(e) => patchChant(prize.id, i, { phrase: e.target.value }, `cp${prize.id}${i}`)}
+								/>
+								<NumberField
+									width="80px"
+									min={1}
+									max={10000}
+									value={c.times}
+									onCommit={(n) => patchChant(prize.id, i, { times: n }, `ct${prize.id}${i}`)}
+								/>
+								<Text fontSize="sm" color="gray.600">times within</Text>
+								<NumberField
+									width="80px"
+									min={5}
+									max={3600}
+									value={c.seconds}
+									onCommit={(n) => patchChant(prize.id, i, { seconds: n }, `cs${prize.id}${i}`)}
+								/>
+								<Text fontSize="sm" color="gray.600">sec</Text>
+								<Button
+									size="xs"
+									variant="ghost"
+									colorScheme="red"
+									onClick={() => patchEffect(prize.id, { chants: prize.effect.chants.filter((_: any, j: number) => j !== i) })}
+								>
+									remove
+								</Button>
+							</HStack>
+						))}
+						<HStack>
+							<Button
+								size="xs"
+								isDisabled={prize.effect.chants.length >= 20}
+								onClick={() => patchEffect(prize.id, { chants: [...prize.effect.chants, { phrase: "", times: 20, seconds: 60 }] })}
+							>
+								Add chant
+							</Button>
+							{prize.effect.chants.length > 0 && prize.effect.chants.some((c: any) => !c.phrase.trim()) && (
+								<Text fontSize="xs" color="gray.500">a chant with no words is dropped when it&apos;s saved</Text>
+							)}
+						</HStack>
+					</VStack>
 				)}
 				{spec.needs.includes("resultSounds") && (
 					<HStack spacing={2} wrap="wrap">

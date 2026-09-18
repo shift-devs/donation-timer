@@ -314,6 +314,8 @@ const MysteryBox: React.FC = () => {
 	// a streak just broke: the count flinches red for a moment as it drops, so chat sees WHY it's back at zero
 	const reviveFlinch = reviveRunning && revive.resetAt && Date.now() - revive.resetAt < 900;
 	const reviveTitle = String((revive && revive.title) || "QUICK REVIVE");
+	const reviveRound = Number((revive && revive.round) || 0);
+	const reviveRounds = Number((revive && revive.rounds) || 1);
 	const reviveTitleFs = Math.max(56, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
 	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
@@ -643,8 +645,11 @@ const MysteryBox: React.FC = () => {
 						>
 							{reviveTitle}
 						</div>
+						{/* the instruction, popped in afresh each round (keyed on the round) so a new chant announces
+						    itself rather than quietly swapping the words */}
 						{revive.subtitle && (
 							<div
+								key={`sub${reviveNonce}-${reviveRound}`}
 								style={{
 									color: cfg.nameColor,
 									fontSize: reviveSubFs,
@@ -653,8 +658,14 @@ const MysteryBox: React.FC = () => {
 									padding: "0 40px",
 									letterSpacing: "0.04em",
 									textShadow: outline,
+									animation: reviveRunning ? "mb-pop 420ms ease-out both" : undefined,
 								}}
 							>
+								{reviveRounds > 1 && (
+									<span style={{ color: cfg.titleColor, WebkitTextStrokeWidth: "2px", WebkitTextStrokeColor: "#000", paintOrder: "stroke fill", marginRight: 18 }}>
+										ROUND {Math.max(1, reviveRound)}/{reviveRounds}
+									</span>
+								)}
 								{revive.subtitle}
 							</div>
 						)}

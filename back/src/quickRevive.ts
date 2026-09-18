@@ -19,6 +19,10 @@
 // is a CHALLENGE with a spec — what's being counted, what the words on screen are, what winning pays — and
 // the quick revive is one spec (built from the tab's settings) while a chant prize is another (built from the
 // prize that landed). the source draws both the same way and the tab watches both the same way.
+//
+// a chant prize is ROUNDS of that, warioware-style: it carries a list of chants, each round draws one at
+// random, clearing it starts the next straight away with a fresh clock, and only the last one pays. failing
+// any round fails the lot.
 
 import { TimerUserSession, TimerEvent } from "./types";
 import { emitQuickRevive, emitTerminal, reportError } from "./bus";
@@ -137,14 +141,25 @@ export interface ChallengeSpec {
     failText: string
     holdSec: number
     announce: boolean
-    // chant only: what chat has to say, and what saying it enough buys (seconds on the timer)
+    // chant only: what chat has to say THIS ROUND (drawn from `chants`), and what clearing every round buys
+    // (seconds on the timer). `seconds` and `goal` above are this round's too.
     phrase: string
     rewardSeconds: number
     // chant only: the lines have to be CONSECUTIVE — any line that doesn't say the phrase puts the count
     // back to zero. off = every line that says it counts, whatever comes between.
     streak: boolean
+    // chant only: how many rounds have to be cleared, and the pool each round is drawn from
+    rounds: number
+    chants: Chant[]
     // how the reward shows up in the timer log
     label: string
+}
+
+// one thing chat can be asked to say: the phrase, how many lines have to say it, and how long they get
+export interface Chant {
+    phrase: string
+    times: number
+    seconds: number
 }
 
 // phase timers per user, off the session for the usual reason: a Timeout is not state anyone should serialize
@@ -157,7 +172,7 @@ function slots(userId: number){
 
 export function getQuickRevive(session: TimerUserSession): any {
     if (!session.quickRevive || typeof session.quickRevive !== "object")
-        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, spec: null };
+        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null };
     return session.quickRevive;
 }
 
@@ -189,6 +204,8 @@ function quickReviveSpec(session: TimerUserSession): ChallengeSpec {
         phrase: "",
         rewardSeconds: 0,
         streak: false,
+        rounds: 1,
+        chants: [],
         label: "quick revive",
     };
 }
@@ -201,11 +218,22 @@ export function sayTime(seconds: number): string {
     return `${s} second${s === 1 ? "" : "s"}`;
 }
 
+// the instruction line for a chant round, rebuilt each time because the round changes what it says
+function chantSubtitle(spec: ChallengeSpec): string {
+    return `SAY "${String(spec.phrase).toUpperCase()}" ${spec.goal} TIME${spec.goal === 1 ? "" : "S"}${spec.streak ? " IN A ROW" : ""}`
+        + (spec.rewardSeconds > 0 && spec.rounds <= 1 ? ` FOR +${sayTime(spec.rewardSeconds).toUpperCase()}` : "");
+}
+
 export function quickReviveView(session: TimerUserSession): any {
     const qr = getQuickRevive(session);
     // idle carries the quick revive's own words, so a source has sensible defaults to hand before anything runs
     const spec: ChallengeSpec = qr.spec || quickReviveSpec(session);
     return {
+        // warioware-style rounds: which one this is, of how many, and when it began (the source pops the new
+        // instruction in on that). a single-round challenge reports 1 of 1 and the source shows no counter.
+        round: qr.round || 0,
+        rounds: spec.rounds || 1,
+        roundAt: qr.roundAt || 0,
         active: qr.phase !== "idle",
         nonce: qr.nonce,
         // running -> won | lost -> idle
@@ -221,7 +249,7 @@ export function quickReviveView(session: TimerUserSession): any {
         // when a streak was last broken, so the source can flinch the count as it drops to zero
         resetAt: qr.resetAt || 0,
         title: spec.title,
-        subtitle: spec.subtitle,
+        subtitle: spec.kind === "chant" ? chantSubtitle(spec) : spec.subtitle,
         unit: spec.unit,
         music: spec.music,
         musicVolume: spec.musicVolume,
@@ -248,6 +276,8 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     const mb = session.mysterybox;
     if (!fromPrize && mb && mb.phase && mb.phase !== "idle")
         return { ok: false, message: "A mystery box is being opened — wait for it to land." };
+    if (spec.kind === "chant" && !spec.chants.length)
+        return { ok: false, message: "That chant has nothing for chat to say — add a chant to it." };
     const qr = getQuickRevive(session);
     const now = Date.now();
     qr.nonce = (qr.nonce || 0) + 1;
@@ -259,21 +289,38 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.points = 0;
     qr.resultAt = 0;
     qr.resetAt = 0;
-    const goalWords = `${spec.goal} ${spec.unit.toLowerCase()}`;
+    qr.round = 1;
+    qr.roundAt = now;
+    qr.lastChant = -1;
+    const t = slots(session.userId);
+    clearTimeout(t.done);
     if (spec.kind === "chant"){
-        emitTerminal(session.userId, `${spec.title} — chat has ${spec.seconds}s to say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"} for +${sayTime(spec.rewardSeconds)}.`, true);
+        dealChant(session, qr, spec);
+        const rounds = spec.rounds > 1 ? ` (${spec.rounds} rounds)` : "";
+        emitTerminal(session.userId, `${spec.title}${rounds} — round 1: chat has ${spec.seconds}s to say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"}${spec.rewardSeconds > 0 ? `; clear ${spec.rounds > 1 ? "them all" : "it"} for +${sayTime(spec.rewardSeconds)}` : ""}.`, true);
         if (spec.announce)
-            chatAnnounce(session, `${spec.title}! Say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"}${spec.streak ? " in a row — anything else resets it —" : ""} in chat within ${spec.seconds} seconds and ${sayTime(spec.rewardSeconds)} goes on the timer. Go!`, "blue");
-    } else {
-        emitTerminal(session.userId, `QUICK REVIVE — chat has ${spec.seconds}s to put up ${goalWords}.`, true);
-        if (spec.announce)
-            chatAnnounce(session, `${spec.title}! Chat has ${spec.seconds} seconds to hit ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6. Go!`, "blue");
+            chatAnnounce(session, `${spec.title}!${spec.rounds > 1 ? ` ${spec.rounds} rounds —` : ""} ${roundWords(spec)}${spec.rewardSeconds > 0 ? ` Clear ${spec.rounds > 1 ? "every round" : "it"} and ${sayTime(spec.rewardSeconds)} goes on the timer.` : ""} Go!`, "blue");
+        return { ok: true, message: `${spec.title} started — ${spec.rounds} round${spec.rounds === 1 ? "" : "s"}, first up "${spec.phrase}" x${spec.goal} in ${spec.seconds}s.` };
     }
+    const goalWords = `${spec.goal} ${spec.unit.toLowerCase()}`;
+    armClock(session, spec.seconds);
+    emitTerminal(session.userId, `QUICK REVIVE — chat has ${spec.seconds}s to put up ${goalWords}.`, true);
+    if (spec.announce)
+        chatAnnounce(session, `${spec.title}! Chat has ${spec.seconds} seconds to hit ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6. Go!`, "blue");
     pushQuickRevive(session);
+    return { ok: true, message: `${spec.title} started — ${spec.seconds}s for ${goalWords}.` };
+}
 
+// the instruction for the current round, as chat is told it
+function roundWords(spec: ChallengeSpec): string {
+    return `Say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"}${spec.streak ? " in a row (anything else resets it)" : ""} within ${spec.seconds} seconds.`;
+}
+
+// the round's clock: one timer per user, re-armed for every round, so a cleared round's deadline can't fire
+// into the next one
+function armClock(session: TimerUserSession, seconds: number){
     const t = slots(session.userId);
     clearTimeout(t.end);
-    clearTimeout(t.done);
     t.end = setTimeout(() => {
         try {
             decide(session, false);
@@ -281,8 +328,25 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
             reportError(session.userId, "ending a challenge", err);
             endQuickRevive(session);
         }
-    }, spec.seconds * 1000);
-    return { ok: true, message: `${spec.title} started — ${spec.seconds}s for ${goalWords}.` };
+    }, seconds * 1000);
+}
+
+// draw this round's chant and put it on the clock. at random, but never the one just cleared when there is
+// a choice — the same phrase twice running reads as the draw being stuck rather than as chance.
+function dealChant(session: TimerUserSession, qr: any, spec: ChallengeSpec){
+    const pool = spec.chants.map((c, i) => i).filter((i) => spec.chants.length < 2 || i !== qr.lastChant);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const c = spec.chants[pick];
+    qr.lastChant = pick;
+    spec.phrase = c.phrase;
+    spec.seconds = c.seconds;
+    spec.goal = c.times;
+    qr.goal = c.times;
+    qr.points = 0;
+    qr.resetAt = 0;
+    qr.endsAt = Date.now() + c.seconds * 1000;
+    armClock(session, c.seconds);
+    pushQuickRevive(session);
 }
 
 // the tab's button and "mb revive": the quick revive, with whatever the tab has set
@@ -360,12 +424,24 @@ function decide(session: TimerUserSession, won: boolean){
     t.end = undefined;
     const now = Date.now();
     const spare = Math.max(0, Math.round((qr.endsAt - now) / 1000));
+    // a round cleared with more to go: straight into the next one, new chant, fresh clock. nothing is paid
+    // yet — that's the last round's job.
+    if (won && spec.kind === "chant" && qr.round < spec.rounds){
+        const cleared = `round ${qr.round} of ${spec.rounds}`;
+        qr.round += 1;
+        qr.roundAt = now;
+        dealChant(session, qr, spec);
+        emitTerminal(session.userId, `${spec.title} — ${cleared} cleared with ${spare}s to spare. Round ${qr.round}: "${spec.phrase}" x${spec.goal} in ${spec.seconds}s.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `Round ${qr.round - 1} cleared! Round ${qr.round} of ${spec.rounds}: ${roundWords(spec)}`, "blue");
+        return;
+    }
     qr.phase = won ? "won" : "lost";
     qr.resultAt = now;
     pushQuickRevive(session);
     const tag = spec.kind === "chant" ? spec.title : "QUICK REVIVE";
     const tally = spec.kind === "chant"
-        ? `"${spec.phrase}" ${qr.points} of ${qr.goal} time${qr.goal === 1 ? "" : "s"}`
+        ? `"${spec.phrase}" ${qr.points} of ${qr.goal} time${qr.goal === 1 ? "" : "s"}${spec.rounds > 1 ? ` in round ${qr.round} of ${spec.rounds}` : ""}`
         : `${qr.points} of ${qr.goal} sub point${qr.goal === 1 ? "" : "s"}`;
     if (won){
         // the reward goes through the timer's own path — cap, stop-at-zero and the log all apply, exactly as
@@ -413,6 +489,9 @@ export function endQuickRevive(session: TimerUserSession){
     qr.points = 0;
     qr.resultAt = 0;
     qr.resetAt = 0;
+    qr.round = 0;
+    qr.roundAt = 0;
+    qr.lastChant = -1;
     if (wasRunning)
         emitTerminal(session.userId, `${tag} — called off.`, true);
     pushQuickRevive(session);

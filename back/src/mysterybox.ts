@@ -70,6 +70,17 @@ const REEL_PAD = 3;
 export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "playEvent", "textBox"];
 const MAX_PHRASE = 60;
 const MAX_CHANT_TIMES = 10000;
+const MAX_CHANTS = 20;
+const MAX_ROUNDS = 50;
+
+// one thing chat can be asked to say, inside a chant prize's list
+function normalizeChant(raw: any): { phrase: string, times: number, seconds: number } | null {
+    const c = raw && typeof raw === "object" ? raw : {};
+    const phrase = str(c.phrase, MAX_PHRASE).trim();
+    if (!phrase)
+        return null;
+    return { phrase, times: numIn(c.times, 1, MAX_CHANT_TIMES, 20), seconds: numIn(c.seconds, 5, 3600, 60) };
+}
 const MAX_CHARGES = 99;
 const MAX_EXTRA_BOXES = 99;
 const MAX_BOOST = 10;
@@ -133,7 +144,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, phrase: "", times: 20, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -176,9 +187,14 @@ function normalizeEffect(raw: any): any {
         // extraBoxes: how many more boxes the winner is handed. they can be opened straight away, so a prize
         // like this can chain — the rarity on the tab only ever describes ONE spin.
         boxes: numIn(r.boxes, 1, MAX_EXTRA_BOXES, 2),
-        // chant: what chat has to say, how many lines have to say it (inside `seconds`), and what that pays
-        phrase: str(r.phrase, MAX_PHRASE).trim(),
-        times: numIn(r.times, 1, MAX_CHANT_TIMES, 20),
+        // chant: the pool of things chat may be asked to say — each round draws one — how many rounds have
+        // to be cleared, and what clearing them all pays. a prize saved before the list existed carried one
+        // phrase/times on the effect itself; that becomes a one-chant, one-round list so it plays as it did.
+        chants: (Array.isArray(r.chants) ? r.chants : (r.phrase ? [{ phrase: r.phrase, times: r.times, seconds: r.seconds }] : []))
+            .map(normalizeChant)
+            .filter((c: any) => c)
+            .slice(0, MAX_CHANTS),
+        rounds: numIn(r.rounds, 1, MAX_ROUNDS, Array.isArray(r.chants) ? 3 : 1),
         rewardSeconds: numIn(r.rewardSeconds, 0, 24 * 3600, 300),
         // chant: the lines have to be back to back — anything else said in between resets the count
         streak: !!r.streak,
@@ -866,20 +882,22 @@ export function applyEffect(session: TimerUserSession, prize: any){
         chatSay(session, `@${mbState.openerName || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
         return;
     }
-    if (e.kind === "chant" && e.phrase && e.seconds > 0 && e.times > 0){
-        // "say movies 20 times in 60 seconds for +5 minutes": a challenge, run by the same machinery as the
-        // quick revive and drawn over the reveal on the same source. the reward is paid there, on a win. a
-        // rehearsal runs it for real too — the operator has to be able to see it — and the time it pays is
-        // no different from an "add time" prize's test.
+    if (e.kind === "chant" && Array.isArray(e.chants) && e.chants.length && e.rounds > 0){
+        // "say movies 20 times in 60 seconds for +5 minutes", in rounds: a challenge, run by the same
+        // machinery as the quick revive and drawn over the reveal on the same source. each round draws one
+        // chant from the list; the reward is paid there, once the last round is cleared. a rehearsal runs it
+        // for real too — the operator has to be able to see it — and the time it pays is no different from
+        // an "add time" prize's test.
         const cfg = mbSettings(session);
-        const phrase = String(e.phrase);
+        const first = e.chants[0];
         const res = startChallenge(session, {
             kind: "chant",
             title: prize.name || "SAY IT!",
-            subtitle: `SAY "${phrase.toUpperCase()}" ${e.times} TIMES${e.streak ? " IN A ROW" : ""}${e.rewardSeconds > 0 ? ` FOR +${sayTime(e.rewardSeconds).toUpperCase()}` : ""}`,
+            subtitle: "", // built per round from the chant drawn — see quickRevive.ts
             unit: e.streak ? "IN A ROW" : "TIMES SAID",
-            seconds: e.seconds,
-            goal: e.times,
+            // placeholders: the first round's draw overwrites these before anything is shown
+            seconds: first.seconds,
+            goal: first.times,
             music: e.loopSound,
             musicVolume: e.loopVolume,
             winSound: e.winSound,
@@ -890,9 +908,11 @@ export function applyEffect(session: TimerUserSession, prize: any){
             failText: "TOO SLOW!",
             holdSec: cfg.revealHoldSec,
             announce: true,
-            phrase,
+            phrase: first.phrase,
             rewardSeconds: e.rewardSeconds,
             streak: !!e.streak,
+            rounds: e.rounds,
+            chants: e.chants.map((c: any) => ({ phrase: String(c.phrase), times: c.times, seconds: c.seconds })),
             label,
         }, true);
         if (!res.ok)
@@ -1008,10 +1028,13 @@ export function describeEffect(effect: any): string {
             : "gives nothing (set the shots and the seconds)";
     if (e.kind === "extraBoxes")
         return e.boxes > 0 ? `gives the winner ${e.boxes} more box${e.boxes === 1 ? "" : "es"}` : "gives nothing (set the boxes)";
-    if (e.kind === "chant")
-        return e.phrase && e.seconds > 0 && e.times > 0
-            ? `chat has to say "${e.phrase}" ${e.times} times${e.streak ? " in a row" : ""} in ${mins(e.seconds)}${e.rewardSeconds > 0 ? ` for +${mins(e.rewardSeconds)}` : ""}`
-            : "asks nothing (set the phrase, the times and the seconds)";
+    if (e.kind === "chant"){
+        const chants: any[] = Array.isArray(e.chants) ? e.chants : [];
+        if (!chants.length)
+            return "asks nothing (add a chant)";
+        const list = chants.map((c) => `"${c.phrase}" x${c.times} in ${mins(c.seconds)}`).join(", ");
+        return `${e.rounds > 1 ? `${e.rounds} rounds, each drawn from` : "chat has to say"} ${list}${e.streak ? ", in a row" : ""}${e.rewardSeconds > 0 ? ` — for +${mins(e.rewardSeconds)}` : ""}`;
+    }
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")

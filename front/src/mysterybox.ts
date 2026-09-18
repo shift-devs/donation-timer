@@ -69,7 +69,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, phrase: "", times: 20, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -90,7 +90,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "nuke", label: "Nuke chat", needs: ["percent", "seconds"], hint: "Times out a random share of the people who have actually typed in the last 10 minutes. Mods and the broadcaster are left out — Twitch refuses a timeout on them, so counting them would make the share a lie. Needs a bot account with mod powers in chat; until then it reports who it would have hit." },
 	{ key: "raygun", label: "Ray gun (shots to spend later)", needs: ["charges", "seconds"], hint: "Credits the winner with shots they keep and fire whenever they like, with \"!raygun <name>\", timing that person out. A shot that doesn't land — a name nobody has, a mod Twitch refuses — is handed back. Needs a bot account with mod powers." },
 	{ key: "extraBoxes", label: "More mystery boxes", needs: ["boxes"], hint: "Hands the winner more boxes, which they can open straight away — so this one can chain into itself. The odds shown are for a single spin; set the rarity with that in mind. A test spin credits nobody." },
-	{ key: "chant", label: "Chant (say a phrase X times for time)", needs: ["phrase", "times", "seconds", "reward", "streak", "loopSound", "resultSounds"], hint: "\"Say movies 20 times in 60 seconds for +5 minutes.\" The clock and the count go up on the Mystery Box source; every chat line that contains the phrase counts once, whoever typed it. With \"in a row\" on, any line that doesn't say it puts the count back to zero (the bot's own lines don't). Make it and the time goes on the timer through the usual cap. A test spin runs it for real." },
+	{ key: "chant", label: "Chant rounds (say a phrase X times for time)", needs: ["chants", "rounds", "reward", "streak", "loopSound", "resultSounds"], hint: "WarioWare-style: each round draws one chant from the list at random — \"say movies 20 times in 60 seconds\" — and clearing it starts the next with a fresh clock. Clear every round and the time goes on the timer through the usual cap; run out of time in any round and it's over. Every chat line that contains the phrase counts once, whoever typed it. With \"in a row\" on, any line that doesn't say it puts the count back to zero (the bot's own lines don't). A test spin runs it for real." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
 	{ key: "textBox", label: "Set a text box", needs: ["box", "text", "seconds"], hint: "Puts words on a /text source. Seconds = how long before whatever was there goes back; 0 keeps them up." },
 ];
@@ -136,8 +136,15 @@ export function canonPrize(raw: any, i: number) {
 			percent: numIn(e.percent, 1, 100, 50),
 			charges: numIn(e.charges, 1, 99, 5),
 			boxes: numIn(e.boxes, 1, 99, 2),
-			phrase: typeof e.phrase === "string" ? e.phrase.slice(0, 60).trim() : "",
-			times: numIn(e.times, 1, 10000, 20),
+			chants: (Array.isArray(e.chants) ? e.chants : (typeof e.phrase === "string" && e.phrase ? [{ phrase: e.phrase, times: e.times, seconds: e.seconds }] : []))
+				.map((c: any) => ({
+					phrase: typeof (c && c.phrase) === "string" ? c.phrase.slice(0, 60).trim() : "",
+					times: numIn(c && c.times, 1, 10000, 20),
+					seconds: numIn(c && c.seconds, 5, 3600, 60),
+				}))
+				.filter((c: any) => c.phrase)
+				.slice(0, 20),
+			rounds: numIn(e.rounds, 1, 50, Array.isArray(e.chants) ? 3 : 1),
 			rewardSeconds: numIn(e.rewardSeconds, 0, 24 * 3600, 300),
 			streak: !!e.streak,
 			winSound: typeof e.winSound === "string" ? e.winSound.slice(0, 300) : "",
