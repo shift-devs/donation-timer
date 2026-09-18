@@ -14,7 +14,7 @@
 
 import { TimerUserSession } from "./types";
 import { emitTerminal } from "./bus";
-import { twitchBotReady, botSay, botTimeout, resolveUserIds, reportBotError, describeError } from "./platforms/twitchBot";
+import { twitchBotReady, botSay, botAnnounce, botTimeout, resolveUserIds, reportBotError, describeError } from "./platforms/twitchBot";
 
 const MAX_CHATTERS = 2000;       // roster ceiling; the oldest are dropped past it
 const MAX_TIMEOUT_SEC = 3600;    // twitch's own ceiling for a timeout is 2 weeks; this is ours, and plenty
@@ -36,6 +36,20 @@ export function chatSay(session: TimerUserSession, message: string){
     // nothing awaits this: a chat line is not worth holding up the prize, the sub handler or the reel that
     // triggered it, and a failure has somewhere to go on its own
     botSay(session, text).catch((err) => reportBotError(session, "saying something in chat", err));
+}
+
+// say something as an announcement — twitch's highlighted /announce line — so it stands out from the chatter
+// around it. same contract as chatSay: to the terminal without a bot, fired and not awaited with one. if
+// twitch won't take it as an announcement (see botAnnounce) it still goes out as a plain message.
+export function chatAnnounce(session: TimerUserSession, message: string, color = "primary"){
+    const text = String(message || "").slice(0, 450);
+    if (!text)
+        return;
+    if (!twitchBotReady(session)){
+        emitTerminal(session.userId, `CHAT (would announce): ${text}`);
+        return;
+    }
+    botAnnounce(session, text, color).catch((err) => reportBotError(session, "announcing in chat", err));
 }
 
 // time a batch of people out. taken as a batch rather than one at a time because helix works in user IDS,

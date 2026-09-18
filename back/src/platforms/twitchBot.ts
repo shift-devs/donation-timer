@@ -25,10 +25,18 @@ const HELIX = "https://api.twitch.tv/helix";
 const OAUTH = "https://id.twitch.tv/oauth2";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
-// user:write:chat lets it talk; moderator:manage:banned_users is the timeout. the second one only WORKS if
-// the account is also a mod in the channel — the scope is permission to ask, being a mod is permission to be
-// obeyed, and twitch checks both.
-export const TWITCH_BOT_SCOPES = "user:write:chat moderator:manage:banned_users";
+// user:write:chat lets it talk; moderator:manage:banned_users is the timeout; moderator:manage:announcements
+// is the highlighted /announce line a prize landing is called out with. the last two only WORK if the account
+// is also a mod in the channel — the scope is permission to ask, being a mod is permission to be obeyed, and
+// twitch checks both.
+// a bot authorized before announcements were added here carries a token WITHOUT that scope, and it keeps
+// working: botAnnounce falls back to a plain message and says once, on the terminal, to re-authorize.
+export const TWITCH_BOT_SCOPES = "user:write:chat moderator:manage:banned_users moderator:manage:announcements";
+
+// per user: twitch has refused an announcement from this token (missing scope, or the bot isn't a mod), so
+// don't keep asking — every prize would otherwise cost two refused requests before the plain line goes out.
+// cleared by a fresh authorization or a logout.
+const announceRefused: { [userId: number]: boolean } = {};
 
 // a user access token lasts about four hours, so it's minted from the refresh token and reused until it
 // stops working. kept in memory only: there's no point persisting something with that lifetime.
@@ -173,6 +181,7 @@ export async function pollTwitchBotDeviceAuth(session: TimerUserSession): Promis
     const b = (session.connections && session.connections.twitchBot) || {};
     session.connections.twitchBot = normalizeTwitchBot({ ...b, refreshToken, botId, botLogin });
     delete tokens[session.userId];
+    delete announceRefused[session.userId]; // a new token may well be the one that carries the scope
     return true;
 }
 
@@ -310,6 +319,42 @@ export async function botSay(session: TimerUserSession, message: string){
     }));
 }
 
+// say something as an ANNOUNCEMENT: the highlighted, banner-style line twitch draws for /announce, which is
+// what makes a prize landing stand out from the chatter around it instead of scrolling past in it.
+// helix's endpoint wants the bot to be a mod and the token to carry moderator:manage:announcements. when
+// twitch refuses for either reason the line is SAID instead, plainly — the point is that chat hears it, and
+// a bot that predates the scope must not go quiet the day this shipped. the refusal is remembered so the
+// fallback is taken straight away from then on, and explained once on the terminal.
+export async function botAnnounce(session: TimerUserSession, message: string, color = "primary"){
+    if (announceRefused[session.userId]){
+        await botSay(session, message);
+        return;
+    }
+    const b = session.connections.twitchBot;
+    const broadcaster = await broadcasterId(session);
+    if (!broadcaster)
+        throw new Error("Couldn't work out which channel to talk in.");
+    try {
+        await asBot(session, (token, clientId) => axios.post(`${HELIX}/chat/announcements`, {
+            message: String(message || "").slice(0, 500),
+            color,
+        }, {
+            headers: { Authorization: `Bearer ${token}`, "Client-Id": clientId, "Content-Type": "application/json" },
+            // moderator_id is the account announcing and must match the token; broadcaster_id is the channel
+            params: { broadcaster_id: broadcaster, moderator_id: b.botId },
+            timeout: FW_HTTP_TIMEOUT,
+            paramsSerializer: (p: any) => new URLSearchParams(p).toString(),
+        }));
+    } catch (err: any) {
+        const status = err && err.response && err.response.status;
+        if (status !== 401 && status !== 403)
+            throw err; // a network blip or a rate limit: the caller reports it like any other failure
+        announceRefused[session.userId] = true;
+        emitTerminal(session.userId, `BOT — Twitch refused an announcement (${status}: ${describeError(err)}) Saying it as a plain message instead. To get the highlighted line, make sure ${b.botLogin || "the bot"} is a mod and hit Re-authorize on the Connections tab so its token carries moderator:manage:announcements.`);
+        await botSay(session, message);
+    }
+}
+
 // time somebody out. a timeout is a ban with a duration, on the same endpoint — no duration would be a
 // permanent ban, so it is always sent.
 export async function botTimeout(session: TimerUserSession, targetUserId: string, seconds: number, reason: string){
@@ -355,6 +400,7 @@ export async function testTwitchBot(session: TimerUserSession): Promise<string> 
 export function forgetTwitchBot(userId: number){
     delete tokens[userId];
     delete idCache[userId];
+    delete announceRefused[userId];
 }
 
 // surface a failure without letting it escape into whatever chat handler triggered it

@@ -432,7 +432,10 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 								The account this app <b>speaks and moderates as</b>. Reading chat needs nobody, but saying
 								anything — or the Mystery Box&apos;s <b>Nuke</b> prize timing people out — needs an account,
 								and timeouts need that account to be a <b>moderator</b> in the channel. Without this, those
-								prizes report what they would have done and change nothing.
+								prizes report what they would have done and change nothing. A prize landing is called out
+								as a highlighted Twitch <b>announcement</b>, which also needs the bot to be a mod; a bot
+								authorized before this was added needs a <b>Re-authorize</b> to pick up that permission,
+								and says it as a plain message until then.
 							</Text>
 							<ErrorBox show={!!tbError} text={tbError} />
 							<Box fontSize="sm" color="gray.600">
