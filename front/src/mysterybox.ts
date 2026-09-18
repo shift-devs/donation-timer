@@ -4,6 +4,7 @@
 
 export const DEFAULT_MYSTERYBOX = {
 	enabled: true,
+	allowOpening: true,
 	command: "mb",
 	raygunCommand: "raygun",
 	activeProfile: "",
@@ -110,6 +111,7 @@ export function canonMysteryBox(raw: any) {
 	const d = DEFAULT_MYSTERYBOX;
 	return {
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
+		allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
 		// trimmed, lowercased and cut to length exactly as the server does — this is the comparison the tab
 		// uses to decide whether its draft has landed, so a field the server would tidy up (an uppercase
 		// command, a stray space) would otherwise never compare equal and the box would snap back a few

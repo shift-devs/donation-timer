@@ -380,6 +380,12 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				{/* one thing at a time: while anything is playing out, "!mb open" is answered with a reason
 				    rather than queued, so it's worth showing the operator what chat is being told */}
+				{!draft.allowOpening && draft.enabled && (
+					<Text fontSize="sm" color="orange.300" mb={2}>
+						Chat can&apos;t open boxes at the moment — they&apos;re still earning them, and you can still
+						open one from here.
+					</Text>
+				)}
 				{run && run.blocked && (
 					<Text fontSize="sm" color="orange.300" mb={2}>
 						Chat can&apos;t open a box right now — {run.blocked}.
@@ -721,6 +727,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="sm">Mystery boxes on</Text>
 					</HStack>
 					<HStack spacing={2}>
+						<Switch
+							isChecked={draft.allowOpening}
+							isDisabled={!draft.enabled}
+							onChange={(e) => patch({ allowOpening: e.target.checked })}
+						/>
+						<Text fontSize="sm">Chat can open them</Text>
+					</HStack>
+					<HStack spacing={2}>
 						<Switch isChecked={draft.grantOnFiresale} onChange={(e) => patch({ grantOnFiresale: e.target.checked })} />
 						<Text fontSize="sm">A firesale earns the gifter a box</Text>
 					</HStack>
@@ -809,8 +823,10 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				<Text fontSize="xs" color="gray.500">
 					Chat types <Code fontSize="xs">!{draft.command} open</Code> to open one and{" "}
-					<Code fontSize="xs">!{draft.command} count</Code> to ask how many they have. Counts land in the
-					Terminal for now — replying in chat needs the bot account.
+					<Code fontSize="xs">!{draft.command} count</Code> to ask how many they have.
+					{" "}Turning <b>Chat can open them</b> off holds the spins back without stopping anyone earning —
+					boxes still bank up and you can still open and test them from here. Turning <b>Mystery boxes</b>{" "}
+					off stops the earning too.
 				</Text>
 
 				<HStack spacing={3} wrap="wrap">

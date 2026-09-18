@@ -72,8 +72,13 @@ const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 
 export const DEFAULT_MYSTERYBOX = {
-    // off = "!mb open" does nothing and firesales credit nobody. the boxes people already hold are kept.
+    // the whole feature. off = nothing is earned and nothing can be opened; the boxes people already hold
+    // are kept, waiting for it to come back on.
     enabled: true,
+    // whether CHAT may spend what it has. off = boxes are still earned and still banked, they just can't be
+    // opened yet — for holding the spins back until the streamer is ready to react to one, without stopping
+    // anybody earning in the meantime. the dashboard can still open and rehearse while this is off.
+    allowOpening: true,
     // what chatters type, without the "!". the actions after it (open / count) are fixed.
     command: "mb",
     // what a ray gun charge is fired with, without the "!". "<command> <name>" shoots; on its own it says
@@ -218,6 +223,7 @@ export function normalizeMysteryBox(raw: any): any {
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     return {
         enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
+        allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
         // stored without the "!" so the ui and the chat matcher can't disagree about whether it's there
         command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
         raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
@@ -1139,6 +1145,15 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
     const self = { login: String(login || ""), displayName: String(displayName || login || "") };
 
     if (action === "open" || action === ""){
+        // chat's half of the feature can be held back on its own. checked HERE rather than in
+        // openMysteryBox, so the dashboard can still open one on somebody's behalf and still rehearse a
+        // prize while chat is held off — turning this off is about timing, not about breaking the operator's
+        // own controls.
+        if (!cfg.allowOpening){
+            if (boxCount(session, self.login) > 0 && tellNow(session.userId, self.login))
+                chatSay(session, `@${self.displayName} mystery boxes can't be opened right now — hang on to it, yours is safe.`);
+            return true;
+        }
         const res = openMysteryBox(session, self.login, self.displayName);
         if (res.ok || !res.message){
             // a blank message is the deliberate silence: the feature is off, or there was nothing to say
