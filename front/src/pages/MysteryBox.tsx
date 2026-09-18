@@ -47,6 +47,14 @@ const CSS = `
 	0%, 100% { box-shadow: 0 0 30px 6px rgba(255,212,0,0.55); }
 	50%      { box-shadow: 0 0 60px 18px rgba(255,212,0,0.95); }
 }
+@keyframes mb-beat {
+	0%, 100% { transform: scale(1); }
+	50%      { transform: scale(1.06); }
+}
+@keyframes mb-panic {
+	0%, 100% { transform: scale(1);    opacity: 1; }
+	50%      { transform: scale(1.22); opacity: 0.75; }
+}
 @keyframes mb-rock {
 	0%   { transform: rotate(-4deg) scale(1); }
 	50%  { transform: rotate(4deg) scale(1.06); }
@@ -250,6 +258,14 @@ const MysteryBox: React.FC = () => {
 		? Math.max(40, Math.min(116, Math.floor((STAGE_W - 150) / (Math.max(4, saleName.length) * 0.55))))
 		: Math.max(28, Math.min(56, Math.floor((STAGE_W - 150) / (Math.max(4, saleName.length) * 0.55))));
 	const saleSubFs = saleBig ? 46 : 32;
+	// the freeze gets the middle of the frame whenever it isn't sharing it with a reveal
+	const bombBig = showBomb && !active;
+	const bombName = String((bomb && bomb.reason) || "");
+	const bombFs = bombBig
+		? Math.max(44, Math.min(104, Math.floor((STAGE_W - 150) / (Math.max(4, bombName.length) * 0.55))))
+		: Math.max(28, Math.min(52, Math.floor((STAGE_W - 150) / (Math.max(4, bombName.length) * 0.55))));
+	// whole seconds, rounded UP so a freeze with any time left never reads as 0
+	const bombSecs = Math.max(0, Math.ceil(bombLeft / 1000));
 	// how much room the whole banner takes, so the timebomb's can sit under it rather than through it.
 	// a name too long to fit on one line even at the smallest size WRAPS rather than running off the frame,
 	// so the line count is part of the height — otherwise a wordy prize name would push the timebomb's
@@ -389,10 +405,20 @@ const MysteryBox: React.FC = () => {
 			<div style={stage}>
 				{showBomb && (
 					<div
-						style={{
+						style={bombBig ? {
+							// the middle of the frame, which it can have to itself: an open is refused while a
+							// freeze is running, so the only time a reel shares the screen with this is the few
+							// seconds of the reveal that started it — and that's what the other branch is for.
 							position: "absolute",
-							// clear of the sale's banner when both are up, measured from its actual type sizes
-							// rather than guessed — the sale's name is operator-set and so is its height
+							inset: 0,
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+							justifyContent: "center",
+							zIndex: 5,
+						} : {
+							// the prize is still being revealed underneath, so stay out of its way
+							position: "absolute",
 							top: showBoost ? saleH : 0,
 							left: 0,
 							right: 0,
@@ -401,30 +427,51 @@ const MysteryBox: React.FC = () => {
 							zIndex: 5,
 						}}
 					>
+						<div style={{ animation: "mb-rock 700ms ease-in-out infinite" }}>
+							<div
+								style={{
+									animation: "mb-flash 420ms steps(1, end) infinite",
+									color: cfg.titleColor,
+									fontSize: bombFs,
+									lineHeight: 0.95,
+									letterSpacing: "0.03em",
+									WebkitTextStrokeWidth: bombBig ? "6px" : "4px",
+									WebkitTextStrokeColor: "#000",
+									paintOrder: "stroke fill",
+									textShadow: "0 0 44px rgba(120,220,255,0.95), 0 8px 0 rgba(0,0,0,0.55)",
+								}}
+							>
+								{bomb.reason}
+							</div>
+						</div>
 						<div
 							style={{
-								color: cfg.titleColor,
-								fontSize: 52,
-								lineHeight: 1,
-								letterSpacing: "0.03em",
-								WebkitTextStrokeWidth: "4px",
-								WebkitTextStrokeColor: "#000",
-								paintOrder: "stroke fill",
+								color: cfg.nameColor,
+								fontSize: bombBig ? 44 : 30,
+								letterSpacing: "0.12em",
+								marginTop: bombBig ? 4 : 0,
+								textShadow: outline,
 							}}
 						>
-							{bomb.reason}
+							TIMER FROZEN
 						</div>
-						{/* to a tenth, and pulsing under five seconds: the point of the number is that chat can
-						    see how long they have to land the next one, and whole seconds hide the last of it */}
+						{/* whole seconds. the tenths were a number nobody could read off a moving screen anyway,
+						    and they made the one thing chat is watching look busy rather than urgent. */}
 						<div
 							style={{
 								color: bombLeft <= 5000 ? cfg.titleColor : cfg.nameColor,
-								fontSize: 44,
-								textShadow: outline,
-								animation: bombLeft <= 5000 ? "mb-pulse 450ms ease-in-out infinite" : undefined,
+								fontSize: bombBig ? 190 : 56,
+								lineHeight: 0.9,
+								WebkitTextStrokeWidth: bombBig ? "7px" : "4px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+								textShadow: "0 0 50px rgba(120,220,255,0.9), 0 10px 0 rgba(0,0,0,0.5)",
+								animation: bombLeft <= 5000
+									? "mb-panic 380ms ease-in-out infinite"
+									: "mb-beat 1000ms ease-in-out infinite",
 							}}
 						>
-							TIMER FROZEN — {(bombLeft / 1000).toFixed(1)}s
+							{bombSecs}
 						</div>
 					</div>
 				)}
