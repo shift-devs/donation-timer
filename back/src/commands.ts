@@ -25,7 +25,8 @@ const FIRESALE_ACTIONS = ["start", "stop", "draw", "winner"];
 
 // the mystery box. "open" and "count" are what chat uses on itself; the rest are the operator's handles —
 // handing out a box the firesale hook missed, taking back one given by mistake, or rehearsing a prize.
-const MB_ACTIONS = ["open", "count", "give", "take", "stop", "test"];
+// "revive" starts the quick revive challenge with the settings on the tab; "revive stop" calls it off.
+const MB_ACTIONS = ["open", "count", "give", "take", "stop", "test", "revive"];
 
 // twitch chat lowercases and strips non-ascii before parsing, which is right for "<platform> <action> <qty>" and
 // wrong for prose a mod typed — the adapter asks this first so it knows to take a text command off the raw line.
@@ -59,9 +60,10 @@ export function commandHelp(): string {
     for (const p of Object.keys(SPEC))
         lines.push(`  ${p}: ${Object.keys(SPEC[p]).join(", ")}`);
     lines.push("  qty = dollars for money, count for subs/bits/members (subs & members default to 1)");
-    lines.push("  changetext puts words on a /text browser source, e.g. changetext topic \"speedruns all night\"");
+    lines.push("  changetext puts words on a /text browser source, e.g. changetext topic \"speedruns all night\" — type \\n for a line break");
     lines.push("  firesale: start [seconds], stop, draw, winner <name> — the giveaway overlay, normally started by Fourthwall");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
+    lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
     return lines.join("\n");
 }
 

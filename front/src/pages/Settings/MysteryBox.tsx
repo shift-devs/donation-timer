@@ -23,6 +23,8 @@ import {
 	renameMysteryBoxOwner,
 	testMysteryBox,
 	stopMysteryBox,
+	startQuickRevive,
+	stopQuickRevive,
 	resumeTimer,
 	endTimeBoost,
 } from "../../Api";
@@ -44,7 +46,7 @@ const SEND_DEBOUNCE = 300; // colour pickers and typing fire continuously; the s
 // gifter is credited one box, and they spend it with "!mb open" in chat — which takes over the /mysterybox
 // browser source and lands on a prize whose effect then fires for real. Everything here applies immediately —
 // no Save.
-const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any; products: any[] | null }> = ({ ws, token, settings, run, products }) => {
+const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any; revive: any; products: any[] | null }> = ({ ws, token, settings, run, revive, products }) => {
 	const toast = useToast();
 
 	const server = canonMysteryBox(settings.mysteryBoxSettings || {});
@@ -85,7 +87,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const phase: string = (run && run.phase) || "idle";
 	const pause = settings.timerPause || null;
 	const boost = settings.timeBoost || null;
-	const ticking = phase !== "idle" || !!pause || !!boost;
+	// the quick revive challenge: running, decided (won/lost, result still up), or idle
+	const revivePhase: string = (revive && revive.phase) || "idle";
+	const ticking = phase !== "idle" || !!pause || !!boost || revivePhase !== "idle";
 
 	useEffect(() => {
 		if (!ticking)
@@ -118,6 +122,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 	const patchEffect = (id: string, p: any, key?: string) =>
 		patch({ prizes: draft.prizes.map((z: any) => (z.id === id ? { ...z, effect: { ...z.effect, ...p } } : z)) }, key);
+
+	// the quick revive's settings ride inside the same blob, so they go up the same way
+	const patchRevive = (p: any, key?: string) => patch({ quickRevive: { ...draft.quickRevive, ...p } }, key);
 
 	const addPrize = () => {
 		if (draft.prizes.length >= MAX_PRIZES)
@@ -170,6 +177,15 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 		: phase === "reveal"
 			? <Badge colorScheme="green">PRIZE UP</Badge>
 			: <Badge>IDLE</Badge>;
+
+	const qr = draft.quickRevive;
+	const reviveBadge = revivePhase === "running"
+		? <Badge colorScheme="purple">RUNNING</Badge>
+		: revivePhase === "won"
+			? <Badge colorScheme="green">REVIVED</Badge>
+			: revivePhase === "lost"
+				? <Badge colorScheme="red">FAILED</Badge>
+				: <Badge>IDLE</Badge>;
 
 	// the inputs one effect kind needs, rendered from its `needs` list so the editor can't offer a field the
 	// server would ignore
@@ -430,6 +446,157 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						Spends nobody's box — but the prize's effect fires for real, exactly as it would in front of chat.
 					</Text>
 				</HStack>
+			</Box>
+
+			{/* ---- quick revive: the hand-started challenge that runs on the same source ---- */}
+			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+				<Flex align="center" gap={3} mb={2} wrap="wrap">
+					<Text fontWeight="bold">Quick revive</Text>
+					{reviveBadge}
+					{revivePhase === "running" && (
+						<Text fontSize="sm" color="gray.600">
+							<b>{revive.points} / {revive.goal}</b> sub points — {countdown(revive.endsAt - Date.now())} left
+						</Text>
+					)}
+					{(revivePhase === "won" || revivePhase === "lost") && (
+						<Text fontSize="sm" color="gray.600">
+							{revivePhase === "won" ? qr.winText : qr.failText} — chat got <b>{revive.points} / {revive.goal}</b> sub points
+						</Text>
+					)}
+					<Box flex="1" />
+					<Button
+						size="sm"
+						colorScheme="green"
+						isDisabled={revivePhase !== "idle" || phase !== "idle"}
+						title={phase !== "idle" ? "Wait for the box on screen to finish" : ""}
+						onClick={() => startQuickRevive(ws)}
+					>
+						Start quick revive
+					</Button>
+					{revivePhase !== "idle" && (
+						<Button size="xs" variant="ghost" onClick={() => stopQuickRevive(ws)}>
+							{revivePhase === "running" ? "Call off" : "Clear"}
+						</Button>
+					)}
+				</Flex>
+				<Text fontSize="xs" color="gray.500" mb={3}>
+					Chat gets <b>{qr.seconds}s</b> to put up <b>{qr.points}</b> sub points, on the Mystery Box source. Points
+					are weighted the way Twitch weights them: Tier 1 and Prime count 1, Tier 2 counts 2, Tier 3 counts 6,
+					and a gift bomb counts every sub in it. A YouTube or Kick membership counts 1. Subs a mod adds by hand
+					count too, so <Code fontSize="xs">twitch sub_t3</Code> in the Terminal is how you rehearse it — or
+					start and stop it from there with <Code fontSize="xs">mb revive</Code> and <Code fontSize="xs">mb revive stop</Code>.
+					Boxes can&apos;t be opened while it runs.
+				</Text>
+
+				<VStack align="stretch" spacing={2}>
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="gray.600">Chat gets</Text>
+						<NumberField width="90px" min={5} max={3600} value={qr.seconds} onCommit={(n) => patchRevive({ seconds: n }, "qrsec")} />
+						<Text fontSize="sm" color="gray.600">seconds to reach</Text>
+						<NumberField width="90px" min={1} max={100000} value={qr.points} onCommit={(n) => patchRevive({ points: n }, "qrpts")} />
+						<Text fontSize="sm" color="gray.600">sub points. Result stays up</Text>
+						<NumberField width="80px" min={1} max={60} value={qr.holdSec} onCommit={(n) => patchRevive({ holdSec: n }, "qrhold")} />
+						<Text fontSize="sm" color="gray.600">s</Text>
+						<HStack spacing={1} ml={2}>
+							<Switch size="sm" isChecked={qr.announce} onChange={(e) => patchRevive({ announce: e.target.checked })} />
+							<Text fontSize="sm" color="gray.600">Announce in chat</Text>
+						</HStack>
+					</HStack>
+
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="gray.600">Title</Text>
+						<Input
+							size="sm"
+							maxW="220px"
+							value={qr.title}
+							onChange={(e) => patchRevive({ title: e.target.value }, "qrtitle")}
+						/>
+						<Text fontSize="sm" color="gray.600" ml={2}>Music loop</Text>
+						<Select
+							size="sm"
+							maxW="240px"
+							value={qr.music}
+							onChange={(e) => patchRevive({ music: e.target.value })}
+						>
+							<option value="">(no music)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={qr.musicVolume}
+							onChange={(e) => patchRevive({ musicVolume: Number(e.target.value) }, "qrmv")}
+						/>
+						<Text fontSize="xs" color="gray.500">loops while the clock runs, stops the moment it&apos;s decided</Text>
+					</HStack>
+
+					<HStack spacing={2} wrap="wrap">
+						<Badge colorScheme="green">WIN</Badge>
+						<Select
+							size="sm"
+							maxW="240px"
+							value={qr.winSound}
+							onChange={(e) => patchRevive({ winSound: e.target.value })}
+						>
+							<option value="">(sound: none)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={qr.winVolume}
+							onChange={(e) => patchRevive({ winVolume: Number(e.target.value) }, "qrwv")}
+						/>
+						<Input
+							size="sm"
+							maxW="260px"
+							placeholder="What goes up on stream"
+							value={qr.winText}
+							onChange={(e) => patchRevive({ winText: e.target.value }, "qrwt")}
+						/>
+					</HStack>
+
+					<HStack spacing={2} wrap="wrap">
+						<Badge colorScheme="red">FAIL</Badge>
+						<Select
+							size="sm"
+							maxW="240px"
+							value={qr.failSound}
+							onChange={(e) => patchRevive({ failSound: e.target.value })}
+						>
+							<option value="">(sound: none)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={qr.failVolume}
+							onChange={(e) => patchRevive({ failVolume: Number(e.target.value) }, "qrfv")}
+						/>
+						<Input
+							size="sm"
+							maxW="260px"
+							placeholder="What goes up on stream"
+							value={qr.failText}
+							onChange={(e) => patchRevive({ failText: e.target.value }, "qrft")}
+						/>
+					</HStack>
+				</VStack>
 			</Box>
 
 			{/* ---- who is holding boxes ---- */}

@@ -86,6 +86,12 @@ const MysteryBox: React.FC = () => {
 	// they have left. a plain pause gets no banner: nothing they do changes it, and the frozen timer on the
 	// widget already says it's frozen.
 	const [bomb, setBomb] = useState<any>(null);
+	// the quick revive challenge: the operator starts it by hand and chat races the clock for sub points. it
+	// has the frame to itself — a box can't be opened while it runs, and it can't start while one is open.
+	const [revive, setRevive] = useState<any>(null);
+	// which run's result sound has played, keyed on the run's nonce for the same reason landCue is
+	const [reviveCue, setReviveCue] = useState("");
+	const decided = useRef<{ [nonce: string]: boolean }>({});
 	// which open's prize sound has already been played, keyed on the open's nonce. NOT a bare "have i played
 	// one" flag: that stays truthy after the overlay goes idle, so the element would remount — and replay —
 	// the moment the next box was opened. (the firesale source learned this the hard way.)
@@ -118,6 +124,9 @@ const MysteryBox: React.FC = () => {
 				setBoost(response.timeBoost);
 			if ("timerPause" in response)
 				setBomb(response.timerPause && response.timerPause.rollMs ? response.timerPause : null);
+			// pushed the moment the clock starts, a sub lands or it's decided, and carried on the sync as well
+			if ("quickRevive" in response && response.quickRevive)
+				setRevive(response.quickRevive);
 			if (!("mysterybox" in response) && "error" in response)
 				console.log(`error: ${response.error}`);
 		};
@@ -225,14 +234,37 @@ const MysteryBox: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [phase, nonce]);
 
+	const reviveActive = !!(revive && revive.active);
+	const revivePhase: string = (revive && revive.phase) || "idle";
+	const reviveRunning = revivePhase === "running";
+	const reviveNonce = String((revive && revive.nonce) || "");
+
 	// re-render once a second purely to move the banner's countdown on
 	const [, setTick] = useState(0);
 	useEffect(() => {
-		if (!boost && !bomb)
+		if (!boost && !bomb && !reviveRunning)
 			return;
 		const id = setInterval(() => setTick((n) => n + 1), 250);
 		return () => clearInterval(id);
-	}, [!!boost, !!bomb]);
+	}, [!!boost, !!bomb, reviveRunning]);
+
+	// the result sound, once per run: keyed on the run, and gated on the decision being recent so a source
+	// that loads while the result is already up stays quiet — the same two guards as the prize sound
+	useEffect(() => {
+		if ((revivePhase !== "won" && revivePhase !== "lost") || !reviveNonce || decided.current[reviveNonce])
+			return;
+		decided.current[reviveNonce] = true;
+		if (revive && revive.resultAt && Date.now() - revive.resultAt < LAND_WINDOW)
+			setReviveCue(reviveNonce);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [revivePhase, reviveNonce]);
+
+	useEffect(() => {
+		if (revivePhase === "idle"){
+			setReviveCue("");
+			decided.current = {};
+		}
+	}, [revivePhase]);
 
 	useEffect(() => {
 		if (phase === "idle"){
@@ -273,7 +305,21 @@ const MysteryBox: React.FC = () => {
 	const salePad = saleBig ? 56 : 24;
 	const saleLines = Math.max(1, Math.ceil((saleName.length * saleFs * 0.55) / (STAGE_W - 80)));
 	const saleH = Math.round(salePad + saleFs * 0.95 * saleLines + 8 + saleSubFs * 1.5 * 1.1);
-	if (!token || (!active && !showBoost && !showBomb))
+	// the challenge's own numbers. whole seconds, rounded up, so a clock with any time left never reads 0.
+	const reviveLeft = reviveRunning ? Math.max(0, (revive.endsAt || 0) - Date.now()) : 0;
+	const reviveSecs = Math.max(0, Math.ceil(reviveLeft / 1000));
+	const reviveGoal = Math.max(1, Number((revive && revive.goal) || 1));
+	const revivePts = Math.max(0, Number((revive && revive.points) || 0));
+	const reviveFill = Math.min(1, revivePts / reviveGoal);
+	const reviveTitle = String((revive && revive.title) || "QUICK REVIVE");
+	const reviveTitleFs = Math.max(56, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
+	const reviveResult = revivePhase === "won" ? String(revive.winText || "") : revivePhase === "lost" ? String(revive.failText || "") : "";
+	const reviveResultFs = Math.max(56, Math.min(130, Math.floor((STAGE_W - 120) / (Math.max(4, reviveResult.length) * 0.55))));
+	const reviveResultSound = revivePhase === "won" ? revive.winSound : revivePhase === "lost" ? revive.failSound : "";
+	const reviveResultVolume = revivePhase === "won" ? Number(revive.winVolume) : revive ? Number(revive.failVolume) : 1;
+	const lost = revivePhase === "lost";
+
+	if (!token || (!active && !showBoost && !showBomb && !reviveActive))
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
 
 	const transparent = cfg.bgColor === "transparent";
@@ -389,6 +435,29 @@ const MysteryBox: React.FC = () => {
 					autoPlay
 					loop
 					ref={(el) => { if (el) el.volume = bomb.volume; }}
+				/>
+			)}
+
+			{/* the challenge's music, looped for exactly as long as the clock runs and keyed on the run so a second
+			    start begins it from the top. it stops the moment the run is decided — the result has its own sound
+			    and the two would fight. */}
+			{reviveRunning && revive.music && (
+				<audio
+					key={`qr${reviveNonce}`}
+					src={`/media/${encodeURIComponent(revive.music)}`}
+					autoPlay
+					loop
+					ref={(el) => { if (el) el.volume = Number(revive.musicVolume); }}
+				/>
+			)}
+
+			{/* the win or the fail sound, once, as it's decided */}
+			{reviveCue && reviveResultSound && (
+				<audio
+					key={`qrr${reviveCue}`}
+					src={`/media/${encodeURIComponent(reviveResultSound)}`}
+					autoPlay
+					ref={(el) => { if (el) el.volume = Number(reviveResultVolume); }}
 				/>
 			)}
 
@@ -532,6 +601,114 @@ const MysteryBox: React.FC = () => {
 							</span>{" "}
 							— {countdown(boostLeft)}
 						</div>
+					</div>
+				)}
+
+				{reviveActive && !active && (
+					<div
+						style={{
+							position: "absolute",
+							inset: 0,
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+							justifyContent: "center",
+							zIndex: 4,
+						}}
+					>
+						<div
+							style={{
+								color: cfg.titleColor,
+								fontSize: reviveTitleFs,
+								lineHeight: 1,
+								letterSpacing: "0.04em",
+								WebkitTextStrokeWidth: "5px",
+								WebkitTextStrokeColor: "#000",
+								paintOrder: "stroke fill",
+								textShadow: "0 0 40px rgba(255,212,0,0.8), 0 6px 0 rgba(0,0,0,0.55)",
+								animation: reviveRunning ? "mb-bob 1200ms ease-in-out infinite" : undefined,
+							}}
+						>
+							{reviveTitle}
+						</div>
+
+						{reviveRunning ? (<>
+							{/* the clock is the whole game, so it gets the middle of the frame and the panic beat
+							    under five seconds, exactly as the timebomb's does */}
+							<div
+								style={{
+									color: reviveLeft <= 5000 ? "#ff4b4b" : cfg.nameColor,
+									fontSize: 200,
+									lineHeight: 0.9,
+									marginTop: 10,
+									WebkitTextStrokeWidth: "7px",
+									WebkitTextStrokeColor: "#000",
+									paintOrder: "stroke fill",
+									textShadow: "0 0 50px rgba(255,212,0,0.7), 0 10px 0 rgba(0,0,0,0.5)",
+									animation: reviveLeft <= 5000
+										? "mb-panic 380ms ease-in-out infinite"
+										: "mb-beat 1000ms ease-in-out infinite",
+								}}
+							>
+								{reviveSecs}
+							</div>
+							<div style={{ color: cfg.nameColor, fontSize: 64, lineHeight: 1, marginTop: 18, textShadow: outline }}>
+								<span style={{ color: cfg.titleColor, WebkitTextStrokeWidth: "3px", WebkitTextStrokeColor: "#000", paintOrder: "stroke fill" }}>
+									{revivePts}
+								</span>
+								{" / "}{reviveGoal}
+							</div>
+							<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", marginTop: 2, textShadow: outline }}>
+								SUB POINTS
+							</div>
+							{/* how far along they are, at a glance — what chat reads from across the room */}
+							<div
+								style={{
+									width: 700,
+									height: 34,
+									marginTop: 18,
+									borderRadius: 17,
+									border: "4px solid #000",
+									background: "rgba(0,0,0,0.6)",
+									overflow: "hidden",
+									boxSizing: "border-box",
+								}}
+							>
+								<div
+									style={{
+										width: `${Math.round(reviveFill * 100)}%`,
+										height: "100%",
+										background: cfg.titleColor,
+										boxShadow: "0 0 24px rgba(255,212,0,0.9)",
+										transition: "width 300ms ease-out",
+									}}
+								/>
+							</div>
+						</>) : (<>
+							<div style={{ animation: "mb-pop 420ms ease-out both", marginTop: 20 }}>
+								<div
+									style={{
+										color: lost ? "#ff4b4b" : cfg.titleColor,
+										fontSize: reviveResultFs,
+										lineHeight: 1,
+										WebkitTextStrokeWidth: "5px",
+										WebkitTextStrokeColor: "#000",
+										paintOrder: "stroke fill",
+										textShadow: lost
+											? "0 0 50px rgba(255,60,60,0.9), 0 8px 0 rgba(0,0,0,0.55)"
+											: "0 0 50px rgba(255,212,0,0.9), 0 8px 0 rgba(0,0,0,0.55)",
+										animation: lost ? "mb-pulse 900ms ease-in-out infinite" : "mb-glow 900ms ease-in-out infinite",
+										borderRadius: 24,
+										padding: "6px 30px",
+									}}
+								>
+									{reviveResult || (lost ? "FAILED" : "REVIVED!")}
+								</div>
+							</div>
+							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
+								{revivePts} / {reviveGoal} SUB POINTS
+							</div>
+						</>)}
 					</div>
 				)}
 

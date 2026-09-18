@@ -39,6 +39,12 @@ export function emitMysteryBox(userId: number, payload: any) {
     bus.emit("mysterybox", userId, payload);
 }
 
+// quick revive state for this user's /mysterybox browser source(s) and the dashboard's Mystery Box tab —
+// the challenge runs on that same source, so it goes wherever the reel goes.
+export function emitQuickRevive(userId: number, payload: any) {
+    bus.emit("quickRevive", userId, payload);
+}
+
 // a line for this user's dashboard terminal. api.ts routes it to page=settings clients only. ok=true prints it
 // green, for the things that go right and still deserve to be visible (a mod's chat command landing).
 export function emitTerminal(userId: number, message: string, ok = false) {

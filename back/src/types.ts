@@ -69,6 +69,9 @@ export interface TimerUserSession {
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
     // the firesale run above — a spin that was interrupted by a restart must not come back with it.
     mysterybox?: any
+    // the quick revive challenge running right now: the clock, the goal, the points so far. transient for the
+    // same reason — see quickRevive.ts
+    quickRevive?: any
     // a prize's after-effect that is still on screen but keeps no state of its own (a text box holding its
     // words). the freezes and the bonfire sale are visible in timerPause/timeBoost instead.
     // what it's for: knowing whether the last box is still playing out, so the next one can't start on top.

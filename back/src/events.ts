@@ -4,6 +4,7 @@ import { toSeconds } from "./rates";
 import { addToEndTime, boostFactor, refreshTimebomb } from "./timer";
 import { emitSync, reportError } from "./bus";
 import { firePlatformTriggers } from "./scheduler";
+import { creditQuickRevive } from "./quickRevive";
 
 // tally a genuine (non-command) sub/membership for the /subcount browser sources. counts each gifted
 // recipient (gift bombs carry count = N) and is independent of the anon/rate/cap logic below — those
@@ -51,6 +52,9 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         // gifter, or a sub whose rate is set to zero, still bought chat another few seconds.
         if (isContribution(event))
             refreshTimebomb(session);
+        // a running quick revive counts every sub's points, typed ones included, and before the anon and
+        // rate short-circuits: an anonymous gift bomb is still sub points chat put up
+        creditQuickRevive(session, event);
         if (event.kind === "sub" && session.ignoreAnon && event.anonymous)
             return;
         const rated = toSeconds(session.rates, event);

@@ -169,6 +169,19 @@ export function stopMysteryBox(ws: WebSocket) {
 	return 1;
 }
 
+// start the quick revive challenge on the /mysterybox source: chat races the clock for sub points, with the
+// length, goal and sounds taken from the mystery box settings
+export function startQuickRevive(ws: WebSocket) {
+	send(ws, { event: "startQuickRevive" });
+	return 1;
+}
+
+// call a running quick revive off (or clear its result off the source early)
+export function stopQuickRevive(ws: WebSocket) {
+	send(ws, { event: "stopQuickRevive" });
+	return 1;
+}
+
 // cut a prize's timer pause short
 export function resumeTimer(ws: WebSocket) {
 	send(ws, { event: "resumeTimer" });

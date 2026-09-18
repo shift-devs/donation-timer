@@ -8,6 +8,7 @@ import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
 import { forgetTwitchBot } from "./platforms/twitchBot";
 import { endPauseTimer, endBoostTimer } from "./timer";
+import { endQuickReviveTimers } from "./quickRevive";
 import { normalizeWidgetSettings } from "./widgetSettings";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
@@ -79,6 +80,7 @@ export function loginUser(inObj: Object){
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
     lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
     lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
+    lvObj.quickRevive = undefined;  // nor a quick revive: the clock dies with the process that was running it
     lvObj.timerPause = undefined;   // nor does a pause: the deadline in the db is already the paused one
     lvObj.timeBoost = undefined;    // nor a bonfire sale — it lapses with the process that was running it
     lvObj.chatters = {};            // who's talking is rebuilt from chat itself within a few minutes
@@ -159,6 +161,7 @@ export function logoutUser(id: number){
     curSession.loggedOut = true;
     endFiresaleTimers(id); // a pending phase timer must not fire against a detached session
     endMysteryBoxTimers(id);
+    endQuickReviveTimers(id);
     endPauseTimer(id);     // otherwise the pause tick keeps dragging a detached session's deadline forward
     endBoostTimer(id);
     forgetTwitchBot(id);   // a cached access token must not outlive the session it belongs to

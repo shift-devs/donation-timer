@@ -21,10 +21,11 @@
 import { TimerUserSession } from "./types";
 import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
-import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, ACTIVE_WINDOW_MS } from "./chat";
+import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, ACTIVE_WINDOW_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
+import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive } from "./quickRevive";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 // what a twitch login may actually contain. used to gate the places a chat-supplied name is acted on or
@@ -110,6 +111,8 @@ export const DEFAULT_MYSTERYBOX = {
     nameColor: "#ffffff",
     // the prize list itself — see normalizePrize
     prizes: [] as any[],
+    // the hand-started challenge that runs on the same source — see quickRevive.ts
+    quickRevive: DEFAULT_QUICK_REVIVE,
 };
 
 export const DEFAULT_PRIZE = {
@@ -244,6 +247,7 @@ export function normalizeMysteryBox(raw: any): any {
         titleColor: hexOr(r.titleColor, d.titleColor),
         nameColor: hexOr(r.nameColor, d.nameColor),
         prizes: normalizePrizes(r.prizes),
+        quickRevive: normalizeQuickRevive(r.quickRevive),
     };
 }
 
@@ -616,6 +620,8 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
 export function openBlockedBy(session: TimerUserSession): string {
     if (isOpening(session))
         return "a box is already being opened";
+    if (isReviving(session))
+        return "a quick revive is running";
     const f = session.firesale;
     if (f && Array.isArray(f.runs) && f.runs.length)
         return "a firesale is running";
@@ -704,8 +710,10 @@ function landMysteryBox(session: TimerUserSession){
     // half the fun of a rare prize is the people who missed it seeing that somebody got it.
     // just the name: what it DOES is playing out on screen a second later anyway, and spelling it out made
     // every line read like a rules footnote.
+    // as an ANNOUNCEMENT, not a plain line: a prize landing is the one thing in the chat log worth the
+    // highlighted banner twitch draws for /announce, and in a busy chat a plain line is gone in a second.
     if (prize && !mb.isTest)
-        chatSay(session, `@${mb.openerName || mb.opener} opened a mystery box and got ${prize.name || "???"}!`);
+        chatAnnounce(session, `@${mb.openerName || mb.opener} opened a mystery box and got ${prize.name || "???"}!`, "purple");
     // the effect comes after the push, so the overlay is already showing the prize when the timer jumps
     if (prize){
         try {
@@ -989,6 +997,17 @@ export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: s
         endMysteryBox(session);
         return { ok: true, message: "Mystery box cleared off the overlay." };
     }
+    if (cmd.action === "revive"){
+        // "mb revive" starts it with whatever the tab has set; "mb revive stop" (or cancel) calls it off
+        const sub = String(cmd.name || "").toLowerCase();
+        if (sub === "stop" || sub === "cancel"){
+            if (!isReviving(session))
+                return { ok: false, message: "No quick revive is running." };
+            endQuickRevive(session);
+            return { ok: true, message: "Quick revive called off." };
+        }
+        return startQuickRevive(session);
+    }
     // test: run the whole sequence on a named prize without spending anybody's box, so the operator can see
     // what a prize looks and sounds like — the effect fires for real, exactly as it would in front of chat
     const prize = cmd.name ? findPrize(session, cmd.name) : null;
@@ -1002,6 +1021,8 @@ export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: s
 export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok: boolean, message: string } {
     if (isOpening(session))
         return { ok: false, message: "A box is already being opened." };
+    if (isReviving(session))
+        return { ok: false, message: "A quick revive is running — wait for it to finish." };
     const prize = prizeId ? findPrize(session, prizeId) : drawPrize(session);
     if (!prize)
         return { ok: false, message: "No prize is set up to be won yet." };
@@ -1188,7 +1209,7 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
     if (!isMod)
         return true; // consumed: a non-mod typing "!mb give" gets silence, not a passthrough to the parser
     const res = runMysteryBoxCommand(session, {
-        action: ["give", "take", "stop", "test"].includes(action) ? action : "count",
+        action: ["give", "take", "stop", "test", "revive"].includes(action) ? action : "count",
         name: (parts[2] || "").replace(/^@/, ""),
         count: Number(parts[3]) || 1,
     }, self);

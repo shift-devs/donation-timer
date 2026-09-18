@@ -17,6 +17,7 @@ import { normalizeWidgetSettings } from "./widgetSettings";
 import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwitchSubsDeviceAuth, describeError as describeTwitchSubsError } from "./platforms/twitchSubs";
 import { normalizeTwitchBot, twitchBotReady, appFor, startTwitchBotDeviceAuth, runTwitchBotDeviceAuth, testTwitchBot, forgetTwitchBot, describeError as describeTwitchBotError } from "./platforms/twitchBot";
 import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer, timeBoostView, endTimeBoost } from "./timer";
+import { quickReviveView, startQuickRevive, endQuickRevive } from "./quickRevive";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
 import { parseCommand } from "./commands";
@@ -68,7 +69,8 @@ export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     firesale: ["firesale"],
     // the reel, who is opening it and the prize art, in one field — same arrangement as the firesale above,
     // and kept live between syncs by targeted mysterybox pushes
-    mysterybox: ["mysterybox"],
+    // …plus the quick revive challenge, which runs on that same source and is kept live the same way
+    mysterybox: ["mysterybox", "quickRevive"],
 };
 
 export function projectSync(page: string | undefined, full: any): any {
@@ -115,6 +117,8 @@ function wsSync(ws: TimerWebSocket) {
             // picks the reel straight back up
             mysterybox: mysteryBoxView(curSession),
             mysteryBoxSettings: curSession.mysteryBoxSettings || {},
+            // the quick revive challenge on that source (idle when there isn't one)
+            quickRevive: quickReviveView(curSession),
             // the ledgers, for the dashboard tab's lists of who is holding what
             mysteryBoxes: curSession.mysteryBoxes || {},
             rayguns: curSession.rayguns || {},
@@ -406,6 +410,23 @@ export function startApi(){
                 ws.send(JSON.stringify({ mysterybox: payload }));
             } catch (err) {
                 console.log("Failed to send mystery box state to a client:", err);
+            }
+        }
+    });
+
+    // the quick revive runs on the same source, so it goes to the same clients
+    bus.on("quickRevive", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.readyState !== WebSocket.OPEN)
+                continue;
+            if (ws.page !== "mysterybox" && ws.page !== "settings")
+                continue;
+            try {
+                ws.send(JSON.stringify({ quickRevive: payload }));
+            } catch (err) {
+                console.log("Failed to send quick revive state to a client:", err);
             }
         }
     });
@@ -716,6 +737,13 @@ export function startApi(){
                     break;
                 case "stopMysteryBox":
                     endMysteryBox(curSession);
+                    break;
+                case "startQuickRevive":
+                    // the tab's "Start quick revive": chat races the clock for sub points on the /mysterybox source
+                    ws.send(JSON.stringify({ commandResult: startQuickRevive(curSession) }));
+                    break;
+                case "stopQuickRevive":
+                    endQuickRevive(curSession);
                     break;
                 case "resumeTimer":
                     // cut a prize's timer pause short

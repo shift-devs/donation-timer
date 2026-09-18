@@ -40,6 +40,7 @@ const Settings: React.FC = () => {
 	const [tabIndex, setTabIndex] = useState(0);
 	const [firesale, setFiresale] = useState<any>(null);
 	const [mysterybox, setMysterybox] = useState<any>(null);
+	const [quickRevive, setQuickRevive] = useState<any>(null);
 	const [fwProducts, setFwProducts] = useState<any[] | null>(null);
 	const [fwProductsError, setFwProductsError] = useState("");
 	const logLoadingRef = useRef(false);
@@ -99,6 +100,13 @@ const Settings: React.FC = () => {
 			// here for the same reason, so a targeted push can't replace the whole settings object with it
 			if ("mysterybox" in response) {
 				setMysterybox(response.mysterybox);
+				if (!("endTime" in response))
+					return;
+			}
+
+			// the quick revive challenge, same two routes again
+			if ("quickRevive" in response) {
+				setQuickRevive(response.quickRevive);
 				if (!("endTime" in response))
 					return;
 			}
@@ -256,7 +264,7 @@ const Settings: React.FC = () => {
 							<Firesale ws={ws} token={token} settings={settings} run={firesale} />
 						</TabPanel>
 						<TabPanel>
-							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} products={fwProducts} />
+							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} products={fwProducts} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />

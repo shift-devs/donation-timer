@@ -19,7 +19,46 @@ export const DEFAULT_MYSTERYBOX = {
 	titleColor: "#ffd400",
 	nameColor: "#ffffff",
 	prizes: [] as any[],
+	quickRevive: {
+		seconds: 60,
+		points: 10,
+		title: "QUICK REVIVE",
+		music: "",
+		musicVolume: 0.6,
+		winSound: "",
+		winVolume: 1,
+		winText: "REVIVED!",
+		failSound: "",
+		failVolume: 1,
+		failText: "YOU DIED",
+		holdSec: 8,
+		announce: true,
+	},
 };
+
+// the quick revive's own settings, tidied exactly as back/src/quickRevive.ts does — same reason as
+// canonMysteryBox: this is what the tab compares against to know its draft has landed
+export function canonQuickRevive(raw: any) {
+	const r = raw && typeof raw === "object" ? raw : {};
+	const d = DEFAULT_MYSTERYBOX.quickRevive;
+	const vol = (v: any, fallback: number) => Math.min(1, Math.max(0, Number.isFinite(Number(v)) ? Number(v) : fallback));
+	const text = (v: any, fallback: string) => (typeof v === "string" ? v.slice(0, 80).trim() : "") || fallback;
+	return {
+		seconds: numIn(r.seconds, 5, 3600, d.seconds),
+		points: numIn(r.points, 1, 100000, d.points),
+		title: text(r.title, d.title),
+		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
+		musicVolume: vol(r.musicVolume, d.musicVolume),
+		winSound: typeof r.winSound === "string" ? r.winSound.slice(0, 300) : d.winSound,
+		winVolume: vol(r.winVolume, d.winVolume),
+		winText: text(r.winText, d.winText),
+		failSound: typeof r.failSound === "string" ? r.failSound.slice(0, 300) : d.failSound,
+		failVolume: vol(r.failVolume, d.failVolume),
+		failText: text(r.failText, d.failText),
+		holdSec: numIn(r.holdSec, 1, 60, d.holdSec),
+		announce: r.announce === undefined ? d.announce : !!r.announce,
+	};
+}
 
 export const DEFAULT_PRIZE = {
 	name: "",
@@ -135,6 +174,7 @@ export function canonMysteryBox(raw: any) {
 		titleColor: hexOr(r.titleColor, d.titleColor),
 		nameColor: hexOr(r.nameColor, d.nameColor),
 		prizes: (Array.isArray(r.prizes) ? r.prizes : []).map(canonPrize),
+		quickRevive: canonQuickRevive(r.quickRevive),
 	};
 }
 
