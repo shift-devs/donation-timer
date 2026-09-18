@@ -141,7 +141,10 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				Only mods and the broadcaster are obeyed, the quotes are optional (everything after the name is the
 				text), and <Code fontSize="xs">!changetext {draft.length ? draft[0].name || "boxname" : "boxname"}</Code>{" "}
 				with nothing after it clears the box. The same command works in the Terminal tab, and every change a
-				mod makes shows up there. Everything on this tab applies immediately — no Save.
+				mod makes shows up there. For more than one line, type <Code fontSize="xs">\n</Code> where the break
+				goes — Twitch chat can&apos;t send a real one — e.g.{" "}
+				<Code fontSize="xs">!changetext {draft.length ? draft[0].name || "boxname" : "boxname"} BRB\nback in 5</Code>.
+				The box below takes real line breaks. Everything on this tab applies immediately — no Save.
 			</Text>
 
 			{draft.length === 0 && (

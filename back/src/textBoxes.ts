@@ -9,7 +9,7 @@ import { TimerUserSession } from "./types";
 
 const MAX_BOXES = 50;         // bound the array so a bad client can't blow up the json column
 const MAX_NAME = 100;
-export const MAX_TEXT = 500;  // one line of on-stream text, not an essay
+export const MAX_TEXT = 500;  // a few lines of on-stream text, not an essay
 const MAX_FONT_SIZE = 400;
 const MAX_EFFECT_WIDTH = 20;  // px; past this the outline swallows the glyphs (mirrors textEffect.ts)
 
@@ -127,7 +127,11 @@ export function setTextBoxText(session: TimerUserSession, key: any, text: any): 
     const box = findTextBox(session, want);
     if (!box)
         return { ok: false, message: `No text box called "${want}". Try: ${boxes.map((b: any) => b.name || b.id).join(", ")}.` };
-    box.text = String(text == null ? "" : text).slice(0, MAX_TEXT);
+    // "\n" typed as two characters becomes a line break. twitch chat is one line — a message can't carry a
+    // real newline — so this is the only way a mod can put a second line on stream from chat. the dashboard's
+    // textarea can type a real one, and those come through as they are.
+    box.text = String(text == null ? "" : text).replace(/\\n/g, "\n").slice(0, MAX_TEXT);
     const label = box.name || box.id;
-    return { ok: true, message: box.text ? `${label} = "${box.text}"` : `${label} cleared` };
+    // the reply is one terminal line, so the breaks are shown rather than taken
+    return { ok: true, message: box.text ? `${label} = "${box.text.replace(/\n/g, " ⏎ ")}"` : `${label} cleared` };
 }
