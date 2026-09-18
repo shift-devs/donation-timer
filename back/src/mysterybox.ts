@@ -67,8 +67,9 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "playEvent", "textBox"];
 const MAX_CHARGES = 99;
+const MAX_EXTRA_BOXES = 99;
 const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 
@@ -130,7 +131,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -170,6 +171,9 @@ function normalizeEffect(raw: any): any {
         percent: numIn(r.percent, 1, 100, 50),
         // raygun: how many shots the winner is credited with. each one is `seconds` long.
         charges: numIn(r.charges, 1, MAX_CHARGES, 5),
+        // extraBoxes: how many more boxes the winner is handed. they can be opened straight away, so a prize
+        // like this can chain — the rarity on the tab only ever describes ONE spin.
+        boxes: numIn(r.boxes, 1, MAX_EXTRA_BOXES, 2),
         // timeBoost: a track looped for as long as the sale runs, as opposed to the prize's own `sound`,
         // which is the one-shot that plays as the reel stops on it
         loopSound: str(r.loopSound, MAX_PATH),
@@ -837,6 +841,18 @@ export function applyEffect(session: TimerUserSession, prize: any){
         chatSay(session, `@${mbState.openerName || who} got ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to time somebody out for ${Math.round(e.seconds / 60)} minute${e.seconds >= 120 ? "s" : ""}. ${held} in hand.`);
         return;
     }
+    if (e.kind === "extraBoxes" && e.boxes > 0){
+        // the box that pays out in boxes. credited to the opener like the ray gun's shots are — and like
+        // those, never to a rehearsal, which would mint currency for a viewer called TEST.
+        const mbState = getMysteryBox(session);
+        const who = mbState.opener;
+        if (!who || mbState.isTest)
+            return;
+        const held = grantMysteryBox(session, who, mbState.openerName, e.boxes, prize.name || "a prize");
+        const cfg = mbSettings(session);
+        chatSay(session, `@${mbState.openerName || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
+        return;
+    }
     if (e.kind === "playEvent" && e.eventId){
         // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
         // and the event's delayed command (if it has one) runs too
@@ -944,6 +960,8 @@ export function describeEffect(effect: any): string {
         return e.charges > 0 && e.seconds > 0
             ? `gives the winner ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"}, ${mins(e.seconds)} each`
             : "gives nothing (set the shots and the seconds)";
+    if (e.kind === "extraBoxes")
+        return e.boxes > 0 ? `gives the winner ${e.boxes} more box${e.boxes === 1 ? "" : "es"}` : "gives nothing (set the boxes)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")

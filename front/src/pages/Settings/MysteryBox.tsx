@@ -244,6 +244,19 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							<Text fontSize="sm" color="gray.500">shots, each</Text>
 						</HStack>
 					)}
+					{spec.needs.includes("boxes") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Gives</Text>
+							<NumberField
+								width="80px"
+								min={1}
+								max={99}
+								value={prize.effect.boxes}
+								onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bx${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">more boxes</Text>
+						</HStack>
+					)}
 					{spec.needs.includes("percent") && (
 						<HStack spacing={1}>
 							<Text fontSize="sm" color="gray.600">Hits</Text>
