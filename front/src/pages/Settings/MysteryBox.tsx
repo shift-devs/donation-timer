@@ -37,7 +37,11 @@ import { canonMysteryBox, prizeImageSrc, prizeOdds, prizeProfiles, inActiveProfi
 // prize art in public/prizes, audio in public/media (vite.config.ts bakes both lists in at build time)
 const PRIZE_IMAGES: string[] = typeof __PRIZES__ !== "undefined" ? __PRIZES__ : [];
 const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
-const AUDIO_RE = /\.(mp3|wav|ogg|oga|m4a|aac|flac)$/i;
+// anything an <audio> element will play, VIDEO CONTAINERS INCLUDED: a "sound effect" pulled off youtube
+// arrives as an .mp4 with nothing but a soundtrack in it, and the browser plays that through <audio>
+// exactly as it would an .mp3. leaving those out made every such upload vanish from these pickers while
+// the Events tab — which lists the whole folder — showed them fine.
+const AUDIO_RE = /\.(mp3|wav|ogg|oga|m4a|aac|flac|mp4|m4v|webm)$/i;
 const SOUNDS = MEDIA_FILES.filter((f) => AUDIO_RE.test(f));
 
 const SEND_DEBOUNCE = 300; // colour pickers and typing fire continuously; the socket rate-limits per connection
