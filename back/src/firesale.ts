@@ -154,11 +154,15 @@ export function decodeEntities(text: string): string {
 //  Type !ENTER in the next 180 seconds for a chance to win. quickster.gg/products/foils"
 //
 // several of the same item at once read "gifted 6 Collector's Editions to the chat" — no article, a count in
-// its place. TELLING THE TWO APART IS THE WHOLE PROBLEM HERE, because the product above is itself NAMED
-// "3 Foil Packs — 10 Years Running": a leading number is not a quantity on its own.
-// the ARTICLE is what settles it. fourthwall writes "a" when it means one, so a number standing where that
-// "a" would have been is a count, and a number after it belongs to the name. that also handles the nasty
-// case cleanly — "gifted 6 3 Foil Packs — 10 Years Running" is six of the three-pack.
+// its place. the ARTICLE is what tells a count from a name, because the product above is itself NAMED
+// "3 Foil Packs — 10 Years Running" and a leading number means nothing on its own: fourthwall writes "a"
+// when it means one, so a number standing where that "a" would have been is a count.
+//
+// THE COUNT IS NOT TAKEN OUT OF THE ITEM. `prize` is the whole thing fourthwall said, count and all, and
+// `qty` is read off it separately. that matters because `prize` is what goes on the overlay, what the
+// "which items earn a box" list is matched against, and what a winner announcement is joined back to — so
+// if this heuristic ever reads an announcement wrong, it gets the box COUNT wrong and nothing else. taking
+// the number out made a misread silently rename the item, which broke the display and the matching with it.
 export function parseGiveawayStart(text: string): { seconds: number, prize: string, gifter: string, qty: number, url: string } | null {
     const s = decodeEntities(text);
     // both halves are required: "new giveaway" alone would also match a streamer talking about one
@@ -168,15 +172,17 @@ export function parseGiveawayStart(text: string): { seconds: number, prize: stri
     const dur = s.match(/in\s+the\s+next\s+(\d+)\s*second/i);
     // the gifter/prize sentence. [^.!] can't cross the sentence boundary before it, so the gifter is just the
     // name and not everything back to "NEW GIVEAWAY"
-    const gift = s.match(/([^.!]+?)\s+gifted\s+(?:an?\s+|(\d{1,3})\s+)?(.+?)\s+to\s+the\s+chat/i);
-    const counted = gift && gift[2] ? parseInt(gift[2], 10) : 1;
+    const gift = s.match(/([^.!]+?)\s+gifted\s+(an?\s+)?(.+?)\s+to\s+the\s+chat/i);
+    const prize = gift ? gift[3].trim().slice(0, MAX_PRIZE) : "";
+    // only where the article isn't — "a 3 Foil Packs" is one of a product called that
+    const counted = gift && !gift[2] ? prize.match(/^(\d{1,3})\s+\S/) : null;
+    const qty = counted ? parseInt(counted[1], 10) : 1;
     return {
         seconds: dur ? Math.min(3600, Math.max(5, parseInt(dur[1], 10))) : 0, // 0 = caller's fallback
         gifter: gift ? gift[1].trim().slice(0, MAX_NAME) : "",
-        prize: gift ? gift[3].trim().slice(0, MAX_PRIZE) : "",
-        // bounded the same way the winner list is: a malformed announcement shouldn't be able to mint
-        // currency without limit
-        qty: Number.isFinite(counted) ? Math.min(MAX_WINNERS, Math.max(1, counted)) : 1,
+        prize,
+        // bounded the same way the winner list is: a malformed announcement shouldn't mint without limit
+        qty: Number.isFinite(qty) ? Math.min(MAX_WINNERS, Math.max(1, qty)) : 1,
         url: lastUrl(s),
     };
 }
@@ -409,7 +415,7 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
         && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
         grantMysteryBox(session, gifter, gifter, boxes, `put ${boxes > 1 ? `${boxes}x ` : ""}"${prize || "an item"}" up for firesale`);
 
-    emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);
+    emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${boxes > 1 ? ` (read as ${boxes} items)` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);
     pushFiresale(session);
     return run;
 }

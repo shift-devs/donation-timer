@@ -323,12 +323,20 @@ export function boxCount(session: TimerUserSession, login: any): number {
     return ledgerCount(mbBoxes(session), login);
 }
 
-// the last few giveaways a box was minted for, per user. twitch can deliver the same announcement twice (a
-// chat reconnect replays it), and firesale.ts only dedupes runs that are still TAKING ENTRIES — a replay
-// arriving after the window closed opens a second run, which used to cost a duplicate on the overlay and now
-// would mint a second box. currency has to be idempotent in a way an overlay doesn't.
+// the last few giveaways a box was minted for, per user. twitch can deliver the same announcement twice, and
+// firesale.ts only dedupes runs that are still TAKING ENTRIES — a duplicate arriving after the window closed
+// opens a second run, which costs a duplicate on the overlay and would mint a second box.
+//
+// THE WINDOW IS DELIBERATELY TINY. nothing here can tell a duplicate delivery from somebody genuinely
+// putting the same item up again, so the only line that can be drawn is time — and twitch delivers a
+// duplicate within a second or two of the original, never minutes later (IRC sends no history on reconnect).
+//
+// it started at thirty minutes and that was badly wrong: it quietly ate every repeat giveaway a regular
+// gifter ran all session. the two failures are not equally bad. minting twice inflates a fun currency by one
+// box; failing to mint silently robs the most generous person in the channel of something they earned, and
+// nobody notices until they complain. so this errs toward minting.
 const minted: { [userId: number]: { key: string, at: number }[] } = {};
-const MINT_DEDUPE_MS = 30 * 60 * 1000;
+const MINT_DEDUPE_MS = 15 * 1000;
 
 export function alreadyMintedFor(userId: number, rawKey: string): boolean {
     // normalised here rather than by the caller, so this can't be defeated by the same announcement coming
