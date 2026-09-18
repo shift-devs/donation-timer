@@ -25,7 +25,7 @@ import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, cha
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
-import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive } from "./quickRevive";
+import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime } from "./quickRevive";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 // what a twitch login may actually contain. used to gate the places a chat-supplied name is acted on or
@@ -67,7 +67,9 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "playEvent", "textBox"];
+const MAX_PHRASE = 60;
+const MAX_CHANT_TIMES = 10000;
 const MAX_CHARGES = 99;
 const MAX_EXTRA_BOXES = 99;
 const MAX_BOOST = 10;
@@ -131,7 +133,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, phrase: "", times: 20, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -174,6 +176,17 @@ function normalizeEffect(raw: any): any {
         // extraBoxes: how many more boxes the winner is handed. they can be opened straight away, so a prize
         // like this can chain — the rarity on the tab only ever describes ONE spin.
         boxes: numIn(r.boxes, 1, MAX_EXTRA_BOXES, 2),
+        // chant: what chat has to say, how many lines have to say it (inside `seconds`), and what that pays
+        phrase: str(r.phrase, MAX_PHRASE).trim(),
+        times: numIn(r.times, 1, MAX_CHANT_TIMES, 20),
+        rewardSeconds: numIn(r.rewardSeconds, 0, 24 * 3600, 300),
+        // chant: the lines have to be back to back — anything else said in between resets the count
+        streak: !!r.streak,
+        // chant: the one-shots for making it and for running out of time. `loopSound` is the music under it.
+        winSound: str(r.winSound, MAX_PATH),
+        winVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.winVolume)) ? Number(r.winVolume) : 1)),
+        failSound: str(r.failSound, MAX_PATH),
+        failVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.failVolume)) ? Number(r.failVolume) : 1)),
         // timeBoost: a track looped for as long as the sale runs, as opposed to the prize's own `sound`,
         // which is the one-shot that plays as the reel stops on it
         loopSound: str(r.loopSound, MAX_PATH),
@@ -853,6 +866,39 @@ export function applyEffect(session: TimerUserSession, prize: any){
         chatSay(session, `@${mbState.openerName || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
         return;
     }
+    if (e.kind === "chant" && e.phrase && e.seconds > 0 && e.times > 0){
+        // "say movies 20 times in 60 seconds for +5 minutes": a challenge, run by the same machinery as the
+        // quick revive and drawn over the reveal on the same source. the reward is paid there, on a win. a
+        // rehearsal runs it for real too — the operator has to be able to see it — and the time it pays is
+        // no different from an "add time" prize's test.
+        const cfg = mbSettings(session);
+        const phrase = String(e.phrase);
+        const res = startChallenge(session, {
+            kind: "chant",
+            title: prize.name || "SAY IT!",
+            subtitle: `SAY "${phrase.toUpperCase()}" ${e.times} TIMES${e.streak ? " IN A ROW" : ""}${e.rewardSeconds > 0 ? ` FOR +${sayTime(e.rewardSeconds).toUpperCase()}` : ""}`,
+            unit: e.streak ? "IN A ROW" : "TIMES SAID",
+            seconds: e.seconds,
+            goal: e.times,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: e.rewardSeconds > 0 ? `+${sayTime(e.rewardSeconds).toUpperCase()}` : "YOU DID IT!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "TOO SLOW!",
+            holdSec: cfg.revealHoldSec,
+            announce: true,
+            phrase,
+            rewardSeconds: e.rewardSeconds,
+            streak: !!e.streak,
+            label,
+        }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
     if (e.kind === "playEvent" && e.eventId){
         // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
         // and the event's delayed command (if it has one) runs too
@@ -962,6 +1008,10 @@ export function describeEffect(effect: any): string {
             : "gives nothing (set the shots and the seconds)";
     if (e.kind === "extraBoxes")
         return e.boxes > 0 ? `gives the winner ${e.boxes} more box${e.boxes === 1 ? "" : "es"}` : "gives nothing (set the boxes)";
+    if (e.kind === "chant")
+        return e.phrase && e.seconds > 0 && e.times > 0
+            ? `chat has to say "${e.phrase}" ${e.times} times${e.streak ? " in a row" : ""} in ${mins(e.seconds)}${e.rewardSeconds > 0 ? ` for +${mins(e.rewardSeconds)}` : ""}`
+            : "asks nothing (set the phrase, the times and the seconds)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")

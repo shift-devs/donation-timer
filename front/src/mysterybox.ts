@@ -69,7 +69,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, phrase: "", times: 20, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -90,6 +90,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "nuke", label: "Nuke chat", needs: ["percent", "seconds"], hint: "Times out a random share of the people who have actually typed in the last 10 minutes. Mods and the broadcaster are left out — Twitch refuses a timeout on them, so counting them would make the share a lie. Needs a bot account with mod powers in chat; until then it reports who it would have hit." },
 	{ key: "raygun", label: "Ray gun (shots to spend later)", needs: ["charges", "seconds"], hint: "Credits the winner with shots they keep and fire whenever they like, with \"!raygun <name>\", timing that person out. A shot that doesn't land — a name nobody has, a mod Twitch refuses — is handed back. Needs a bot account with mod powers." },
 	{ key: "extraBoxes", label: "More mystery boxes", needs: ["boxes"], hint: "Hands the winner more boxes, which they can open straight away — so this one can chain into itself. The odds shown are for a single spin; set the rarity with that in mind. A test spin credits nobody." },
+	{ key: "chant", label: "Chant (say a phrase X times for time)", needs: ["phrase", "times", "seconds", "reward", "streak", "loopSound", "resultSounds"], hint: "\"Say movies 20 times in 60 seconds for +5 minutes.\" The clock and the count go up on the Mystery Box source; every chat line that contains the phrase counts once, whoever typed it. With \"in a row\" on, any line that doesn't say it puts the count back to zero (the bot's own lines don't). Make it and the time goes on the timer through the usual cap. A test spin runs it for real." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
 	{ key: "textBox", label: "Set a text box", needs: ["box", "text", "seconds"], hint: "Puts words on a /text source. Seconds = how long before whatever was there goes back; 0 keeps them up." },
 ];
@@ -135,6 +136,14 @@ export function canonPrize(raw: any, i: number) {
 			percent: numIn(e.percent, 1, 100, 50),
 			charges: numIn(e.charges, 1, 99, 5),
 			boxes: numIn(e.boxes, 1, 99, 2),
+			phrase: typeof e.phrase === "string" ? e.phrase.slice(0, 60).trim() : "",
+			times: numIn(e.times, 1, 10000, 20),
+			rewardSeconds: numIn(e.rewardSeconds, 0, 24 * 3600, 300),
+			streak: !!e.streak,
+			winSound: typeof e.winSound === "string" ? e.winSound.slice(0, 300) : "",
+			winVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.winVolume)) ? Number(e.winVolume) : 1)),
+			failSound: typeof e.failSound === "string" ? e.failSound.slice(0, 300) : "",
+			failVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.failVolume)) ? Number(e.failVolume) : 1)),
 			loopSound: typeof e.loopSound === "string" ? e.loopSound.slice(0, 300) : "",
 			loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.loopVolume)) ? Number(e.loopVolume) : 0.6)),
 			freezeColor: HEX.test(String(e.freezeColor || "").trim()) ? String(e.freezeColor).trim() : "",

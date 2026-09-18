@@ -6,6 +6,7 @@ import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
+import { creditChant } from "../quickRevive";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -98,6 +99,9 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // so somebody typing "!mb open" still counts as being in chat.
         recordChatter(session, tags.username, String(tags["display-name"] || tags.username), isMod);
         pruneChatters(session);
+        // a chant prize counts every line that says its phrase, whoever typed it. the original message, so a
+        // phrase with punctuation or capitals in it matches what was actually said.
+        creditChant(session, String(message || ""), tags.username);
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)

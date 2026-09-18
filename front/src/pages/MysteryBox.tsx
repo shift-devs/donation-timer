@@ -311,8 +311,16 @@ const MysteryBox: React.FC = () => {
 	const reviveGoal = Math.max(1, Number((revive && revive.goal) || 1));
 	const revivePts = Math.max(0, Number((revive && revive.points) || 0));
 	const reviveFill = Math.min(1, revivePts / reviveGoal);
+	// a streak just broke: the count flinches red for a moment as it drops, so chat sees WHY it's back at zero
+	const reviveFlinch = reviveRunning && revive.resetAt && Date.now() - revive.resetAt < 900;
 	const reviveTitle = String((revive && revive.title) || "QUICK REVIVE");
 	const reviveTitleFs = Math.max(56, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
+	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
+	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
+	const reviveSub = String((revive && revive.subtitle) || "");
+	const reviveSubFs = Math.max(30, Math.min(46, Math.floor((STAGE_W - 120) / (Math.max(8, reviveSub.length) * 0.55))));
+	// the clock is smaller when it shares the frame with an instruction line, so the two fit
+	const reviveClockFs = reviveSub ? 150 : 200;
 	const reviveResult = revivePhase === "won" ? String(revive.winText || "") : revivePhase === "lost" ? String(revive.failText || "") : "";
 	const reviveResultFs = Math.max(56, Math.min(130, Math.floor((STAGE_W - 120) / (Math.max(4, reviveResult.length) * 0.55))));
 	const reviveResultSound = revivePhase === "won" ? revive.winSound : revivePhase === "lost" ? revive.failSound : "";
@@ -604,7 +612,10 @@ const MysteryBox: React.FC = () => {
 					</div>
 				)}
 
-				{reviveActive && !active && (
+				{/* over the reel, not instead of it: a chant prize starts its clock the moment the reel lands, so
+				    for the few seconds of the reveal this sits on top of the prize that started it — with a
+				    backdrop, so the strip underneath doesn't fight the numbers */}
+				{reviveActive && (
 					<div
 						style={{
 							position: "absolute",
@@ -613,7 +624,8 @@ const MysteryBox: React.FC = () => {
 							flexDirection: "column",
 							alignItems: "center",
 							justifyContent: "center",
-							zIndex: 4,
+							background: active ? "rgba(0,0,0,0.72)" : undefined,
+							zIndex: 6,
 						}}
 					>
 						<div
@@ -631,6 +643,21 @@ const MysteryBox: React.FC = () => {
 						>
 							{reviveTitle}
 						</div>
+						{revive.subtitle && (
+							<div
+								style={{
+									color: cfg.nameColor,
+									fontSize: reviveSubFs,
+									lineHeight: 1.1,
+									marginTop: 8,
+									padding: "0 40px",
+									letterSpacing: "0.04em",
+									textShadow: outline,
+								}}
+							>
+								{revive.subtitle}
+							</div>
+						)}
 
 						{reviveRunning ? (<>
 							{/* the clock is the whole game, so it gets the middle of the frame and the panic beat
@@ -638,7 +665,7 @@ const MysteryBox: React.FC = () => {
 							<div
 								style={{
 									color: reviveLeft <= 5000 ? "#ff4b4b" : cfg.nameColor,
-									fontSize: 200,
+									fontSize: reviveClockFs,
 									lineHeight: 0.9,
 									marginTop: 10,
 									WebkitTextStrokeWidth: "7px",
@@ -653,13 +680,22 @@ const MysteryBox: React.FC = () => {
 								{reviveSecs}
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 64, lineHeight: 1, marginTop: 18, textShadow: outline }}>
-								<span style={{ color: cfg.titleColor, WebkitTextStrokeWidth: "3px", WebkitTextStrokeColor: "#000", paintOrder: "stroke fill" }}>
+								<span
+									style={{
+										display: "inline-block",
+										color: reviveFlinch ? "#ff4b4b" : cfg.titleColor,
+										WebkitTextStrokeWidth: "3px",
+										WebkitTextStrokeColor: "#000",
+										paintOrder: "stroke fill",
+										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : undefined,
+									}}
+								>
 									{revivePts}
 								</span>
 								{" / "}{reviveGoal}
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", marginTop: 2, textShadow: outline }}>
-								SUB POINTS
+								{reviveUnit}
 							</div>
 							{/* how far along they are, at a glance — what chat reads from across the room */}
 							<div
@@ -706,7 +742,7 @@ const MysteryBox: React.FC = () => {
 								</div>
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
-								{revivePts} / {reviveGoal} SUB POINTS
+								{revivePts} / {reviveGoal} {reviveUnit}
 							</div>
 						</>)}
 					</div>

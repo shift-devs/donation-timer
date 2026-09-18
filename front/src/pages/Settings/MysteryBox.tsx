@@ -195,6 +195,30 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 			<VStack align="stretch" spacing={2} mt={2}>
 				<Text fontSize="xs" color="gray.500">{spec.hint}</Text>
 				<HStack spacing={2} wrap="wrap">
+					{spec.needs.includes("phrase") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">Chat says</Text>
+							<Input
+								size="sm"
+								maxW="180px"
+								placeholder="movies"
+								value={prize.effect.phrase}
+								onChange={(e) => patchEffect(prize.id, { phrase: e.target.value }, `ph${prize.id}`)}
+							/>
+						</HStack>
+					)}
+					{spec.needs.includes("times") && (
+						<HStack spacing={1}>
+							<NumberField
+								width="90px"
+								min={1}
+								max={10000}
+								value={prize.effect.times}
+								onCommit={(n) => patchEffect(prize.id, { times: n }, `tm${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.600">times</Text>
+						</HStack>
+					)}
 					{spec.needs.includes("seconds") && (
 						<HStack spacing={1}>
 							<Text fontSize="sm" color="gray.600">
@@ -202,6 +226,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									: prize.effect.kind === "timebomb" ? "Each contribution buys"
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
+									: prize.effect.kind === "chant" ? "within"
 									: prize.effect.kind === "nuke" ? ""
 									: prize.effect.kind === "raygun" ? ""
 									: "Seconds"}
@@ -216,6 +241,32 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							<Text fontSize="sm" color="gray.500">
 								{prize.effect.seconds >= 60 ? `= ${countdown(prize.effect.seconds * 1000)}` : "sec"}
 							</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("reward") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">for</Text>
+							<NumberField
+								width="110px"
+								min={0}
+								max={86400}
+								value={prize.effect.rewardSeconds}
+								onCommit={(n) => patchEffect(prize.id, { rewardSeconds: n }, `rw${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">
+								{prize.effect.rewardSeconds >= 60 ? `sec = +${countdown(prize.effect.rewardSeconds * 1000)}` : "sec on the timer"}
+							</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("streak") && (
+						<HStack spacing={1}>
+							<Switch
+								size="sm"
+								isChecked={prize.effect.streak}
+								onChange={(e) => patchEffect(prize.id, { streak: e.target.checked })}
+							/>
+							<Text fontSize="sm" color="gray.600">in a row</Text>
+							<Text fontSize="xs" color="gray.500">(any other line resets the count)</Text>
 						</HStack>
 					)}
 					{spec.needs.includes("factor") && (
@@ -321,8 +372,52 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							onChange={(e) => patchEffect(prize.id, { loopVolume: Number(e.target.value) }, `lv${prize.id}`)}
 						/>
 						<Text fontSize="xs" color="gray.500">
-							plays on the Mystery Box source for as long as the sale lasts
+							plays on the Mystery Box source for as long as it lasts
 						</Text>
+					</HStack>
+				)}
+				{spec.needs.includes("resultSounds") && (
+					<HStack spacing={2} wrap="wrap">
+						<Badge colorScheme="green">MADE IT</Badge>
+						<Select
+							size="sm"
+							maxW="220px"
+							value={prize.effect.winSound}
+							onChange={(e) => patchEffect(prize.id, { winSound: e.target.value })}
+						>
+							<option value="">(sound: none)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={prize.effect.winVolume}
+							onChange={(e) => patchEffect(prize.id, { winVolume: Number(e.target.value) }, `wv${prize.id}`)}
+						/>
+						<Badge colorScheme="red">TOO SLOW</Badge>
+						<Select
+							size="sm"
+							maxW="220px"
+							value={prize.effect.failSound}
+							onChange={(e) => patchEffect(prize.id, { failSound: e.target.value })}
+						>
+							<option value="">(sound: none)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={prize.effect.failVolume}
+							onChange={(e) => patchEffect(prize.id, { failVolume: Number(e.target.value) }, `fv${prize.id}`)}
+						/>
 					</HStack>
 				)}
 				{spec.needs.includes("freezeColor") && (
@@ -468,12 +563,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{reviveBadge}
 					{revivePhase === "running" && (
 						<Text fontSize="sm" color="gray.600">
-							<b>{revive.points} / {revive.goal}</b> sub points — {countdown(revive.endsAt - Date.now())} left
+							{revive.kind === "chant" ? <><b>{revive.title}</b> — </> : null}
+							<b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()} — {countdown(revive.endsAt - Date.now())} left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
 						<Text fontSize="sm" color="gray.600">
-							{revivePhase === "won" ? qr.winText : qr.failText} — chat got <b>{revive.points} / {revive.goal}</b> sub points
+							{revivePhase === "won" ? revive.winText : revive.failText} — chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}
 						</Text>
 					)}
 					<Box flex="1" />
