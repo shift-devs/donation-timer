@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand, stopJukebox } from "./mysterybox";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -414,6 +414,24 @@ export function startApi(){
         }
     });
 
+    // chat lines for the schizo prize go to the /mysterybox source(s) alone: they're spoken there, and the
+    // dashboard already has the chat itself
+    bus.on("schizoLine", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.readyState !== WebSocket.OPEN)
+                continue;
+            if (ws.page !== "mysterybox")
+                continue;
+            try {
+                ws.send(JSON.stringify({ schizoLine: payload }));
+            } catch (err) {
+                console.log("Failed to send a schizo line to a client:", err);
+            }
+        }
+    });
+
     // the quick revive runs on the same source, so it goes to the same clients
     bus.on("quickRevive", (id: number, payload: any) => {
         const clientsArr = Array.from(wss.clients);
@@ -746,6 +764,10 @@ export function startApi(){
                 case "stopJukebox":
                     // the operator cutting the background track off early
                     stopJukebox(curSession);
+                    break;
+                case "stopSchizo":
+                    // the operator shutting the schizo prize's voice up early
+                    stopSchizo(curSession);
                     break;
                 case "startQuickRevive":
                     // the tab's "Start quick revive": chat races the clock for sub points on the /mysterybox source

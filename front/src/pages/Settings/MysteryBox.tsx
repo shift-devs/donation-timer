@@ -24,6 +24,7 @@ import {
 	testMysteryBox,
 	stopMysteryBox,
 	stopJukebox,
+	stopSchizo,
 	startQuickRevive,
 	stopQuickRevive,
 	resumeTimer,
@@ -96,7 +97,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const revivePhase: string = (revive && revive.phase) || "idle";
 	// the jukebox prize's background track, while the source is playing one
 	const juke = (run && run.jukebox) || null;
-	const ticking = phase !== "idle" || !!pause || !!boost || revivePhase !== "idle" || !!juke;
+	// the schizo prize, while the source is reading chat aloud
+	const schizo = (run && run.schizo) || null;
+	const ticking = phase !== "idle" || !!pause || !!boost || revivePhase !== "idle" || !!juke || !!schizo;
 
 	useEffect(() => {
 		if (!ticking)
@@ -228,6 +231,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
 									: prize.effect.kind === "infection" ? "Spreads for"
+									: prize.effect.kind === "schizo" ? "Reads chat for"
 									: prize.effect.kind === "nuke" ? ""
 									: prize.effect.kind === "raygun" ? ""
 									: "Seconds"}
@@ -473,6 +477,46 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="xs" color="gray.500">plays once, start to finish, under whatever else happens</Text>
 					</HStack>
 				)}
+				{spec.needs.includes("tts") && (
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="gray.600">Speed</Text>
+						<input
+							type="range"
+							min={0.5}
+							max={2}
+							step={0.1}
+							value={prize.effect.ttsRate}
+							onChange={(e) => patchEffect(prize.id, { ttsRate: Number(e.target.value) }, `tr${prize.id}`)}
+						/>
+						<Text fontSize="xs" color="gray.500">{Number(prize.effect.ttsRate).toFixed(1)}x</Text>
+						<Text fontSize="sm" color="gray.600">Pitch</Text>
+						<input
+							type="range"
+							min={0}
+							max={2}
+							step={0.1}
+							value={prize.effect.ttsPitch}
+							onChange={(e) => patchEffect(prize.id, { ttsPitch: Number(e.target.value) }, `tp${prize.id}`)}
+						/>
+						<Text fontSize="xs" color="gray.500">{Number(prize.effect.ttsPitch).toFixed(1)}</Text>
+						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={prize.effect.ttsVolume}
+							onChange={(e) => patchEffect(prize.id, { ttsVolume: Number(e.target.value) }, `tvol${prize.id}`)}
+						/>
+						<Checkbox
+							size="sm"
+							isChecked={!!prize.effect.sayNames}
+							onChange={(e) => patchEffect(prize.id, { sayNames: e.target.checked })}
+						>
+							say who said it
+						</Checkbox>
+					</HStack>
+				)}
 				{spec.needs.includes("endSound") && (
 					<HStack spacing={2} wrap="wrap">
 						<Badge colorScheme="orange">WHEN IT ENDS</Badge>
@@ -657,6 +701,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							{juke.track} — {countdown(Date.now() - juke.startedAt)} in ({juke.name}); boxes still open over it
 						</Text>
 						<Button size="xs" onClick={() => stopJukebox(ws)}>Stop</Button>
+					</Flex>
+				)}
+
+				{schizo && (
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Badge colorScheme="pink">SCHIZO</Badge>
+						<Text fontSize="sm" color="gray.600">
+							{countdown(schizo.until - Date.now())} left — the source is reading chat aloud ({schizo.name}); boxes still open over it
+						</Text>
+						<Button size="xs" onClick={() => stopSchizo(ws)}>Stop</Button>
 					</Flex>
 				)}
 

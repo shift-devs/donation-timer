@@ -69,7 +69,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -93,6 +93,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "chant", label: "Chant rounds (say a phrase X times for time)", needs: ["chants", "rounds", "reward", "streak", "loopSound", "resultSounds"], hint: "WarioWare-style: each round draws one chant from the list at random — \"say movies 20 times in 60 seconds\" — and clearing it starts the next with a fresh clock. Clear every round and the time goes on the timer through the usual cap; run out of time in any round and it's over. Every chat line that contains the phrase counts once, whoever typed it. With \"in a row\" on, any line that doesn't say it puts the count back to zero (the bot's own lines don't). A test spin runs it for real." },
 	{ key: "infection", label: "Infection (@ to spread, then timeouts)", needs: ["seconds", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is patient zero, announced in chat. Anyone infected can @ someone to infect them, and the clock and the infected count show on the Mystery Box source. When the time runs out, everyone infected is timed out. Mods and the broadcaster can't catch it — the only way a mod is in it is by opening the box — and are never timed out. Needs a bot account with mod powers; a test spin picks a random recent chatter as patient zero." },
 	{ key: "jukebox", label: "Jukebox (a long track in the background)", needs: ["track"], hint: "Plays one clip through on the Mystery Box source — minutes long is fine — and gets out of the way: boxes keep opening over it, and it ends when the clip does. A second jukebox landing while one plays replaces it." },
+	{ key: "schizo", label: "Schizo (chat read aloud)", needs: ["seconds", "tts"], hint: "For this long, every chat line is read out loud on the Mystery Box source in the browser's own built-in voice — no service, no AI, just the machine's text-to-speech. Commands and the bot's own lines are skipped, long lines are cut short, and if chat outruns the voice the oldest lines are dropped so it stays live. Boxes keep opening over it; a second one landing extends the time. In OBS the voice comes out of the system's speech engine, so it lands on the desktop audio device rather than the browser source's own audio track. Testing in an ordinary browser tab? Click the page once first — browsers refuse to speak until they've been clicked; OBS's source has no such rule." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
 	{ key: "textBox", label: "Set a text box", needs: ["box", "text", "seconds"], hint: "Puts words on a /text source. Seconds = how long before whatever was there goes back; 0 keeps them up." },
 ];
@@ -156,6 +157,10 @@ export function canonPrize(raw: any, i: number) {
 			timeoutSeconds: numIn(e.timeoutSeconds, 1, 3600, 600),
 			track: typeof e.track === "string" ? e.track.slice(0, 300) : "",
 			trackVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.trackVolume)) ? Number(e.trackVolume) : 0.8)),
+			ttsRate: Math.min(2, Math.max(0.5, Number.isFinite(Number(e.ttsRate)) ? Number(e.ttsRate) : 1)),
+			ttsPitch: Math.min(2, Math.max(0, Number.isFinite(Number(e.ttsPitch)) ? Number(e.ttsPitch) : 1)),
+			ttsVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.ttsVolume)) ? Number(e.ttsVolume) : 1)),
+			sayNames: !!e.sayNames,
 			loopSound: typeof e.loopSound === "string" ? e.loopSound.slice(0, 300) : "",
 			loopVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.loopVolume)) ? Number(e.loopVolume) : 0.6)),
 			freezeColor: HEX.test(String(e.freezeColor || "").trim()) ? String(e.freezeColor).trim() : "",

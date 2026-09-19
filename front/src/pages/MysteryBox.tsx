@@ -26,6 +26,14 @@ let reconnectTimer: any;
 // look exactly like a fresh landing to it.
 const LAND_WINDOW = 4000;
 
+// the schizo prize's voice. chat is read one line at a time and a line the voice can't get through in this
+// long is cut off, because chromium's speech synthesis has been known to swallow a long utterance and then
+// never fire its end event — which would leave the queue waiting on it for ever.
+const SPEAK_MAX_MS = 20000;
+// how many lines may wait their turn. chat moves faster than a voice, so past this the OLDEST is dropped:
+// what's said should be what chat is saying now, not what it said a minute ago.
+const SPEAK_QUEUE = 6;
+
 const CARD = 240;   // one prize tile, logical px
 const GAP = 24;
 const STEP = CARD + GAP;
@@ -98,6 +106,108 @@ const MysteryBox: React.FC = () => {
 	const [landCue, setLandCue] = useState("");
 	const landed = useRef<{ [nonce: string]: boolean }>({});
 
+	// the schizo prize: chat read aloud in the browser's own voice (speechSynthesis — the machine's built-in
+	// text-to-speech, nothing fetched). the lines arrive as targeted pushes while it runs; the state that says
+	// it IS running rides the mysterybox payload. refs, not state, because the socket handler below is set up
+	// once and has to see the current run and the current queue rather than the ones from its first render.
+	const schizoRef = useRef<any>(null);
+	const speakQueue = useRef<{ name: string; text: string }[]>([]);
+	const speakingNow = useRef(false);
+	// chromium garbage-collects an utterance it no longer sees a reference to — mid-speech — and its onend
+	// never fires. holding on to them until they're done is the documented way round it.
+	const utterances = useRef<SpeechSynthesisUtterance[]>([]);
+	// chromium won't speak until the page has been clicked or typed in, the same rule it applies to autoplay
+	// — the utterance comes straight back with "not-allowed". obs launches its browser with that rule turned
+	// off, so the source is fine; a tab opened by hand to test with is not, until it's clicked once. rather
+	// than burn the queue against a closed door, the line goes back and the voice waits for the click.
+	const needGesture = useRef(false);
+	const toldGesture = useRef(false);
+	const toldVoiceless = useRef(false);
+
+	const speakNext = () => {
+		const synth: SpeechSynthesis | undefined = (window as any).speechSynthesis;
+		if (!synth || speakingNow.current || needGesture.current)
+			return;
+		const cur = schizoRef.current;
+		if (!cur || Date.now() >= Number(cur.until || 0)){
+			speakQueue.current = [];
+			return;
+		}
+		const line = speakQueue.current.shift();
+		if (!line)
+			return;
+		// the server already cuts a line to 200 characters, about 13 seconds at normal speed. slowed down it
+		// would run past the ~15 seconds that chromium's windows voice is known to give up at mid-sentence
+		// (and then stay silent), so the cut shrinks with the speed. sped up, the server's cut is the cut.
+		const rate = Number(cur.rate) || 1;
+		const maxChars = Math.max(60, Math.round(200 * Math.min(1, rate)));
+		const text = line.text.length > maxChars ? line.text.slice(0, maxChars) : line.text;
+		const u = new SpeechSynthesisUtterance(cur.sayNames ? `${line.name} says ${text}` : text);
+		// which voice is left to the browser, but the language is pinned: a machine with thousands of voices
+		// (espeak ships one per language) otherwise picks whichever the page's lang happens to match — or none
+		u.lang = document.documentElement.lang || navigator.language || "en-US";
+		u.rate = rate;
+		u.pitch = Number.isFinite(Number(cur.pitch)) ? Number(cur.pitch) : 1;
+		u.volume = Number.isFinite(Number(cur.volume)) ? Number(cur.volume) : 1;
+		speakingNow.current = true;
+		utterances.current.push(u);
+		let finished = false;
+		let watchdog: any;
+		const finish = () => {
+			if (finished)
+				return false;
+			finished = true;
+			clearTimeout(watchdog);
+			speakingNow.current = false;
+			utterances.current = utterances.current.filter((x) => x !== u);
+			return true;
+		};
+		const done = () => {
+			if (finish())
+				speakNext();
+		};
+		u.onend = done;
+		u.onerror = (ev: any) => {
+			if (ev && ev.error === "not-allowed"){
+				if (finish()){
+					speakQueue.current.unshift(line);
+					needGesture.current = true;
+					if (!toldGesture.current){
+						toldGesture.current = true;
+						console.log("speechSynthesis refused to speak without a user gesture — click anywhere on this page once. (obs's browser source has this rule turned off.)");
+					}
+				}
+				return;
+			}
+			// a browser with no voices installed fails every utterance this way. on linux, chromium and obs's
+			// cef alike only load the system voices when launched with --enable-speech-dispatcher.
+			if (ev && ev.error === "synthesis-failed" && !toldVoiceless.current && synth.getVoices().length === 0){
+				toldVoiceless.current = true;
+				console.log("speechSynthesis failed and this browser has no voices. on linux, launch obs (or the browser) with --enable-speech-dispatcher; on windows the system voices are used as they are.");
+			}
+			done();
+		};
+		watchdog = setTimeout(() => {
+			try { synth.cancel(); } catch {}
+			done();
+		}, SPEAK_MAX_MS);
+		try {
+			synth.speak(u);
+		} catch {
+			done();
+		}
+	};
+
+	const hushSchizo = () => {
+		speakQueue.current = [];
+		try {
+			const synth: SpeechSynthesis | undefined = (window as any).speechSynthesis;
+			if (synth)
+				synth.cancel(); // fires onend/onerror on whatever was mid-sentence, which clears speakingNow
+		} catch {}
+		speakingNow.current = false;
+	};
+
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const [scale, setScale] = useState(1);
 	// the strip is moved by the rAF loop below, never by react — a re-render mid-spin must not yank it back
@@ -116,8 +226,22 @@ const MysteryBox: React.FC = () => {
 			const response = JSON.parse(event.data);
 			// the same payload arrives two ways: pushed the moment the phase turns over, and carried on the
 			// periodic sync, which is what recovers a source that reconnected mid-spin
-			if ("mysterybox" in response && response.mysterybox)
+			if ("mysterybox" in response && response.mysterybox){
 				setState(response.mysterybox);
+				schizoRef.current = response.mysterybox.schizo || null;
+			}
+			// a chat line to read out, while a schizo prize runs. queued rather than spoken on the spot: the
+			// voice takes one line at a time, and chat doesn't wait for it
+			if ("schizoLine" in response && response.schizoLine && schizoRef.current){
+				const l = response.schizoLine;
+				const text = String(l.text || "").trim();
+				if (text){
+					speakQueue.current.push({ name: String(l.name || ""), text });
+					while (speakQueue.current.length > SPEAK_QUEUE)
+						speakQueue.current.shift();
+					speakNext();
+				}
+			}
 			// only the sync carries this, and it carries it every time (null included) — a targeted mysterybox
 			// push has no opinion on it, so the key's absence must not read as "the sale ended"
 			if ("timeBoost" in response)
@@ -142,6 +266,24 @@ const MysteryBox: React.FC = () => {
 			ws.close();
 		};
 	};
+
+	// the click that unlocks the voice — see needGesture. listened for the whole time the page is up, since
+	// the refusal can only be found out by trying.
+	useEffect(() => {
+		const onGesture = () => {
+			if (!needGesture.current)
+				return;
+			needGesture.current = false;
+			speakNext();
+		};
+		document.addEventListener("pointerdown", onGesture);
+		document.addEventListener("keydown", onGesture);
+		return () => {
+			document.removeEventListener("pointerdown", onGesture);
+			document.removeEventListener("keydown", onGesture);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	useEffect(() => {
 		connectWs();
@@ -240,6 +382,11 @@ const MysteryBox: React.FC = () => {
 	const showJuke = !!(juke && juke.track);
 	const jukeNonce = Number((juke && juke.nonce) || 0);
 
+	// the schizo prize, while it runs. on until the server clears it or its clock passes, whichever the source
+	// sees first — the tick below keeps this re-evaluated so the voice stops on time even if the push is late
+	const schizo = (state && state.schizo) || null;
+	const schizoOn = !!(schizo && Number(schizo.until || 0) > Date.now());
+
 	const reviveActive = !!(revive && revive.active);
 	const revivePhase: string = (revive && revive.phase) || "idle";
 	const reviveRunning = revivePhase === "running";
@@ -248,11 +395,21 @@ const MysteryBox: React.FC = () => {
 	// re-render once a second purely to move the banner's countdown on
 	const [, setTick] = useState(0);
 	useEffect(() => {
-		if (!boost && !bomb && !reviveRunning)
+		if (!boost && !bomb && !reviveRunning && !schizoOn)
 			return;
 		const id = setInterval(() => setTick((n) => n + 1), 250);
 		return () => clearInterval(id);
-	}, [!!boost, !!bomb, reviveRunning]);
+	}, [!!boost, !!bomb, reviveRunning, schizoOn]);
+
+	// the voice stops the moment the schizo prize is over — mid-sentence if need be. the server stops
+	// forwarding lines at the same instant, so this only has to deal with what's already queued or in the
+	// air. a source with no speech synthesis at all (an old cef) simply stays quiet: nothing here throws.
+	useEffect(() => {
+		if (schizoOn)
+			return;
+		hushSchizo();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [schizoOn]);
 
 	// the result sound, once per run: keyed on the run, and gated on the decision being recent so a source
 	// that loads while the result is already up stays quiet — the same two guards as the prize sound

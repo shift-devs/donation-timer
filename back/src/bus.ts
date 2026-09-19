@@ -39,6 +39,12 @@ export function emitMysteryBox(userId: number, payload: any) {
     bus.emit("mysterybox", userId, payload);
 }
 
+// one chat line for this user's /mysterybox browser source(s) to read aloud, while a schizo prize runs.
+// api.ts routes it to page=mysterybox clients only — the voice is in the source, the tab has no use for it.
+export function emitSchizoLine(userId: number, payload: any) {
+    bus.emit("schizoLine", userId, payload);
+}
+
 // quick revive state for this user's /mysterybox browser source(s) and the dashboard's Mystery Box tab —
 // the challenge runs on that same source, so it goes wherever the reel goes.
 export function emitQuickRevive(userId: number, payload: any) {

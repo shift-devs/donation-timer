@@ -86,6 +86,7 @@ export function loginUser(inObj: Object){
     lvObj.chatters = {};            // who's talking is rebuilt from chat itself within a few minutes
     lvObj.mbEffect = undefined;     // a prize's after-effect doesn't survive the process either
     lvObj.jukebox = undefined;      // nor the note of what the jukebox was playing
+    lvObj.schizo = undefined;       // nor a schizo prize — the voice stops with the process that was feeding it
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);

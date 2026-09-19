@@ -79,6 +79,9 @@ export interface TimerUserSession {
     // the jukebox prize's long clip, while it plays in the background on the /mysterybox source. transient:
     // the source is what's playing it, and a restart leaves the source to finish on its own.
     jukebox?: { nonce: number, track: string, volume: number, startedAt: number, name: string }
+    // the schizo prize, while the /mysterybox source is reading chat aloud: when it stops, and how the
+    // voice is set. transient for the same reason — the source is the one talking.
+    schizo?: { nonce: number, startedAt: number, until: number, name: string, rate: number, pitch: number, volume: number, sayNames: boolean }
     // who has spoken in twitch chat lately, for the prizes that act on chat (see chat.ts). transient:
     // a restart empties it and the next few minutes of chat fill it back in.
     chatters?: { [login: string]: { name: string, t: number, mod: boolean } }

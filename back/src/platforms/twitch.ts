@@ -4,7 +4,7 @@ import { emitSync, emitTerminal, reportError } from "../bus";
 import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
-import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand } from "../mysterybox";
+import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, spreadInfection } from "../quickRevive";
 
@@ -104,6 +104,9 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         creditChant(session, String(message || ""), tags.username);
         // an infected chatter @-ing somebody passes it on
         spreadInfection(session, tags.username, String(message || ""));
+        // while a schizo prize runs, the source reads this out. the original message, capitals and all,
+        // since it's about to be said
+        speakChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)

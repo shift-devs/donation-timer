@@ -19,7 +19,7 @@
 // boxes), so they all go through applyEffect() — one place that knows what a prize is allowed to do.
 
 import { TimerUserSession } from "./types";
-import { emitMysteryBox, emitTerminal, emitSync, reportError } from "./bus";
+import { emitMysteryBox, emitSchizoLine, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
 import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, ACTIVE_WINDOW_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
@@ -67,11 +67,16 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
 // "now playing" that never clears would be a lie on the tab.
 const JUKEBOX_MAX_MS = 30 * 60 * 1000;
+// the longest a schizo prize may keep chat being read aloud, and the most of one line that gets read. the
+// source speaks with the browser's own voice, one line at a time, so a wall of text would put it minutes
+// behind chat before the first sentence was out.
+const SCHIZO_MAX_SEC = 3600;
+const SCHIZO_MAX_LINE = 200;
 const MAX_PHRASE = 60;
 const MAX_CHANT_TIMES = 10000;
 const MAX_CHANTS = 20;
@@ -212,6 +217,12 @@ function normalizeEffect(raw: any): any {
         // jukebox: the long clip that plays through in the background, once, and its volume
         track: str(r.track, MAX_PATH),
         trackVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.trackVolume)) ? Number(r.trackVolume) : 0.8)),
+        // schizo: how the browser's voice reads chat out — speed, pitch, how loud — and whether it names who
+        // said each line first
+        ttsRate: Math.min(2, Math.max(0.5, Number.isFinite(Number(r.ttsRate)) ? Number(r.ttsRate) : 1)),
+        ttsPitch: Math.min(2, Math.max(0, Number.isFinite(Number(r.ttsPitch)) ? Number(r.ttsPitch) : 1)),
+        ttsVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.ttsVolume)) ? Number(r.ttsVolume) : 1)),
+        sayNames: !!r.sayNames,
         // timeBoost: a track looped for as long as the sale runs, as opposed to the prize's own `sound`,
         // which is the one-shot that plays as the reel stops on it
         loopSound: str(r.loopSound, MAX_PATH),
@@ -451,7 +462,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
 // `restore` is keyed by TEXT BOX, not by user: two text-box prizes landing close together each own their own
 // box, and a single slot meant the second one cancelled the first's restore and left that box stuck on its
 // prize text for good.
-const timers: { [userId: number]: { land?: any, done?: any, juke?: any, restore: { [box: string]: any } } } = {};
+const timers: { [userId: number]: { land?: any, done?: any, juke?: any, schizo?: any, restore: { [box: string]: any } } } = {};
 
 function slots(userId: number){
     return timers[userId] || (timers[userId] = { restore: {} });
@@ -504,6 +515,8 @@ export function mysteryBoxView(session: TimerUserSession): any {
         blocked: openBlockedBy(session),
         // the jukebox track playing in the background, if one is — the source plays it, the tab names it
         jukebox: session.jukebox || null,
+        // the schizo prize, while chat is being read aloud — the source speaks, the tab shows how long is left
+        schizo: session.schizo || null,
         command: cfg.command,
         music: cfg.music,
         volume: cfg.volume,
@@ -846,6 +859,84 @@ export function stopJukebox(session: TimerUserSession, nonce?: number, timedOut 
     pushMysteryBox(session);
 }
 
+// ---------------------------------------------------------------------------
+// schizo
+// ---------------------------------------------------------------------------
+//
+// a prize that has the /mysterybox source read chat out loud for a while, in the browser's own voice
+// (speechSynthesis — the machine's built-in text-to-speech, nothing fetched, nothing generated). the server
+// keeps the clock and forwards each chat line to the source while it runs; the source does the talking,
+// since the voice lives in the browser. like the jukebox it holds no lock: boxes open over it, and the
+// reel's own sounds play over the voice. a second one landing while one runs extends the clock rather than
+// starting over — chat doesn't notice, it just goes on longer.
+// the source cuts the voice off the moment the state goes away, so stopping early is just clearing it.
+
+export function startSchizo(session: TimerUserSession, effect: any, name: string){
+    const seconds = Math.min(SCHIZO_MAX_SEC, Math.max(0, Math.trunc(Number(effect.seconds) || 0)));
+    if (seconds <= 0)
+        return;
+    const now = Date.now();
+    const cur = session.schizo;
+    const until = Math.max(now + seconds * 1000, (cur && cur.until) || 0);
+    session.schizo = {
+        nonce: ((cur && cur.nonce) || 0) + 1,
+        startedAt: (cur && cur.startedAt) || now,
+        until,
+        name: str(name, MAX_PRIZE_NAME) || "Schizo",
+        rate: Math.min(2, Math.max(0.5, Number(effect.ttsRate) || 1)),
+        pitch: Math.min(2, Math.max(0, Number.isFinite(Number(effect.ttsPitch)) ? Number(effect.ttsPitch) : 1)),
+        volume: Math.min(1, Math.max(0, Number.isFinite(Number(effect.ttsVolume)) ? Number(effect.ttsVolume) : 1)),
+        sayNames: !!effect.sayNames,
+    };
+    emitTerminal(session.userId, `SCHIZO — chat is being read aloud for ${sayTime(Math.round((until - now) / 1000))} (${session.schizo.name}).`, true);
+    pushMysteryBox(session);
+    const t = slots(session.userId);
+    clearTimeout(t.schizo);
+    t.schizo = setTimeout(() => {
+        try {
+            stopSchizo(session);
+        } catch (err) {
+            reportError(session.userId, "ending a schizo prize", err);
+        }
+    }, until - now);
+}
+
+export function stopSchizo(session: TimerUserSession){
+    if (!session.schizo)
+        return;
+    const t = slots(session.userId);
+    clearTimeout(t.schizo);
+    t.schizo = undefined;
+    session.schizo = undefined;
+    emitTerminal(session.userId, "SCHIZO — chat is no longer being read aloud.");
+    pushMysteryBox(session);
+}
+
+// a chat line, while a schizo prize runs: sent on to the source to be spoken. commands and the bot's own
+// lines are left out — "!mb open" read in a robot voice is nobody's idea of the prize — and a line is cut to
+// a length the voice can get through before the next one is due.
+export function speakChat(session: TimerUserSession, login: string, displayName: string, text: string){
+    const cur = session.schizo;
+    if (!cur)
+        return;
+    if (Date.now() >= cur.until){
+        stopSchizo(session);
+        return;
+    }
+    const bot = String((session.connections && session.connections.twitchBot && session.connections.twitchBot.botLogin) || "").toLowerCase();
+    if (bot && String(login || "").toLowerCase() === bot)
+        return;
+    const line = String(text || "").replace(/\s+/g, " ").trim();
+    if (!line || line.charAt(0) === "!")
+        return;
+    emitSchizoLine(session.userId, {
+        nonce: cur.nonce,
+        name: str(displayName || login, MAX_NAME),
+        text: line.slice(0, SCHIZO_MAX_LINE),
+        t: Date.now(),
+    });
+}
+
 // tear down on logout so a phase timer can't fire against a detached session
 export function endMysteryBoxTimers(userId: number){
     delete toldAt[userId];
@@ -854,6 +945,7 @@ export function endMysteryBoxTimers(userId: number){
     clearTimeout(t.land);
     clearTimeout(t.done);
     clearTimeout(t.juke);
+    clearTimeout(t.schizo);
     for (const box of Object.keys(t.restore))
         clearTimeout(t.restore[box]);
     delete timers[userId];
@@ -1025,6 +1117,11 @@ export function applyEffect(session: TimerUserSession, prize: any){
         startJukebox(session, e.track, e.trackVolume, prize.name || "Jukebox");
         return;
     }
+    if (e.kind === "schizo" && e.seconds > 0){
+        // chat read aloud by the source's own voice. no lock either — see startSchizo.
+        startSchizo(session, e, prize.name || "Schizo");
+        return;
+    }
     if (e.kind === "playEvent" && e.eventId){
         // the same path the dashboard's Test button takes: the clip plays on the event's own /events layer,
         // and the event's delayed command (if it has one) runs too
@@ -1147,6 +1244,8 @@ export function describeEffect(effect: any): string {
             : "infects nobody (set the spread time and the timeout)";
     if (e.kind === "jukebox")
         return e.track ? `plays "${e.track}" through in the background` : "plays nothing (pick a track)";
+    if (e.kind === "schizo")
+        return e.seconds > 0 ? `reads chat aloud for ${mins(e.seconds)}${e.sayNames ? ", naming who said what" : ""}` : "reads nothing (set the seconds)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")
