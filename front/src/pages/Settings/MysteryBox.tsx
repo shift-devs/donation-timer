@@ -23,6 +23,7 @@ import {
 	renameMysteryBoxOwner,
 	testMysteryBox,
 	stopMysteryBox,
+	stopJukebox,
 	startQuickRevive,
 	stopQuickRevive,
 	resumeTimer,
@@ -93,7 +94,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const boost = settings.timeBoost || null;
 	// the quick revive challenge: running, decided (won/lost, result still up), or idle
 	const revivePhase: string = (revive && revive.phase) || "idle";
-	const ticking = phase !== "idle" || !!pause || !!boost || revivePhase !== "idle";
+	// the jukebox prize's background track, while the source is playing one
+	const juke = (run && run.jukebox) || null;
+	const ticking = phase !== "idle" || !!pause || !!boost || revivePhase !== "idle" || !!juke;
 
 	useEffect(() => {
 		if (!ticking)
@@ -224,6 +227,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									: prize.effect.kind === "timebomb" ? "Each contribution buys"
 									: prize.effect.kind === "textBox" ? "Hold for"
 									: prize.effect.kind === "timeBoost" ? "for"
+									: prize.effect.kind === "infection" ? "Spreads for"
 									: prize.effect.kind === "nuke" ? ""
 									: prize.effect.kind === "raygun" ? ""
 									: "Seconds"}
@@ -237,6 +241,21 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							/>
 							<Text fontSize="sm" color="gray.500">
 								{prize.effect.seconds >= 60 ? `= ${countdown(prize.effect.seconds * 1000)}` : "sec"}
+							</Text>
+						</HStack>
+					)}
+					{spec.needs.includes("timeoutSeconds") && (
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="gray.600">then the infected are timed out</Text>
+							<NumberField
+								width="100px"
+								min={1}
+								max={3600}
+								value={prize.effect.timeoutSeconds}
+								onCommit={(n) => patchEffect(prize.id, { timeoutSeconds: n }, `to${prize.id}`)}
+							/>
+							<Text fontSize="sm" color="gray.500">
+								{prize.effect.timeoutSeconds >= 60 ? `sec = ${countdown(prize.effect.timeoutSeconds * 1000)}` : "sec"}
 							</Text>
 						</HStack>
 					)}
@@ -428,6 +447,56 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						</HStack>
 					</VStack>
 				)}
+				{spec.needs.includes("track") && (
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="gray.600">Track</Text>
+						<Select
+							size="sm"
+							maxW="280px"
+							value={prize.effect.track}
+							onChange={(e) => patchEffect(prize.id, { track: e.target.value })}
+						>
+							<option value="">(pick a track)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={prize.effect.trackVolume}
+							onChange={(e) => patchEffect(prize.id, { trackVolume: Number(e.target.value) }, `tv${prize.id}`)}
+						/>
+						<Text fontSize="xs" color="gray.500">plays once, start to finish, under whatever else happens</Text>
+					</HStack>
+				)}
+				{spec.needs.includes("endSound") && (
+					<HStack spacing={2} wrap="wrap">
+						<Badge colorScheme="orange">WHEN IT ENDS</Badge>
+						<Select
+							size="sm"
+							maxW="220px"
+							value={prize.effect.failSound}
+							onChange={(e) => patchEffect(prize.id, { failSound: e.target.value })}
+						>
+							<option value="">(sound: none)</option>
+							{SOUNDS.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<input
+							type="range"
+							min={0}
+							max={1}
+							step={0.05}
+							value={prize.effect.failVolume}
+							onChange={(e) => patchEffect(prize.id, { failVolume: Number(e.target.value) }, `fv${prize.id}`)}
+						/>
+					</HStack>
+				)}
 				{spec.needs.includes("resultSounds") && (
 					<HStack spacing={2} wrap="wrap">
 						<Badge colorScheme="green">MADE IT</Badge>
@@ -581,6 +650,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					</Flex>
 				)}
 
+				{juke && (
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Badge colorScheme="blue">JUKEBOX</Badge>
+						<Text fontSize="sm" color="gray.600">
+							{juke.track} — {countdown(Date.now() - juke.startedAt)} in ({juke.name}); boxes still open over it
+						</Text>
+						<Button size="xs" onClick={() => stopJukebox(ws)}>Stop</Button>
+					</Flex>
+				)}
+
 				{boost && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="red">x{boost.factor} ON EVERYTHING</Badge>
@@ -615,13 +694,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{reviveBadge}
 					{revivePhase === "running" && (
 						<Text fontSize="sm" color="gray.600">
-							{revive.kind === "chant" ? <><b>{revive.title}</b> — </> : null}
-							<b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()} — {countdown(revive.endsAt - Date.now())} left
+							{revive.kind !== "subpoints" ? <><b>{revive.title}</b> — </> : null}
+							<b>{revive.points}{revive.kind === "infection" ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()} — {countdown(revive.endsAt - Date.now())} left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
 						<Text fontSize="sm" color="gray.600">
-							{revivePhase === "won" ? revive.winText : revive.failText} — chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}
+							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : <>chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}</>}
 						</Text>
 					)}
 					<Box flex="1" />

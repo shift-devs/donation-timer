@@ -76,6 +76,9 @@ export interface TimerUserSession {
     // words). the freezes and the bonfire sale are visible in timerPause/timeBoost instead.
     // what it's for: knowing whether the last box is still playing out, so the next one can't start on top.
     mbEffect?: { until: number, what: string }
+    // the jukebox prize's long clip, while it plays in the background on the /mysterybox source. transient:
+    // the source is what's playing it, and a restart leaves the source to finish on its own.
+    jukebox?: { nonce: number, track: string, volume: number, startedAt: number, name: string }
     // who has spoken in twitch chat lately, for the prizes that act on chat (see chat.ts). transient:
     // a restart empties it and the next few minutes of chat fill it back in.
     chatters?: { [login: string]: { name: string, t: number, mod: boolean } }

@@ -234,6 +234,12 @@ const MysteryBox: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [phase, nonce]);
 
+	// the jukebox prize's long clip. it rides the mysterybox payload and holds nothing: the reel, a sale, a
+	// challenge all draw over it while it plays on.
+	const juke = (state && state.jukebox) || null;
+	const showJuke = !!(juke && juke.track);
+	const jukeNonce = Number((juke && juke.nonce) || 0);
+
 	const reviveActive = !!(revive && revive.active);
 	const revivePhase: string = (revive && revive.phase) || "idle";
 	const reviveRunning = revivePhase === "running";
@@ -315,6 +321,9 @@ const MysteryBox: React.FC = () => {
 	const reviveFlinch = reviveRunning && revive.resetAt && Date.now() - revive.resetAt < 900;
 	const reviveTitle = String((revive && revive.title) || "QUICK REVIVE");
 	const reviveRound = Number((revive && revive.round) || 0);
+	// an infection has no goal: the count is the whole story, and the names it's spreading through
+	const reviveInfection = !!(revive && revive.kind === "infection");
+	const reviveNames: string[] = revive && Array.isArray(revive.names) ? revive.names : [];
 	const reviveRounds = Number((revive && revive.rounds) || 1);
 	const reviveTitleFs = Math.max(56, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
@@ -329,11 +338,20 @@ const MysteryBox: React.FC = () => {
 	const reviveResultVolume = revivePhase === "won" ? Number(revive.winVolume) : revive ? Number(revive.failVolume) : 1;
 	const lost = revivePhase === "lost";
 
-	if (!token || (!active && !showBoost && !showBomb && !reviveActive))
+	if (!token || (!active && !showBoost && !showBomb && !reviveActive && !showJuke))
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
 
 	const transparent = cfg.bgColor === "transparent";
 	const revealed = phase === "reveal";
+
+	// how big the landed prize's name and blurb draw. one line when it fits at a legible size, otherwise
+	// wrapped at the floor — the same 0.55em-per-glyph estimate the sale banner uses for its name.
+	const revealName = String((prize && prize.name) || "???");
+	const revealBlurb = String((prize && prize.blurb) || "");
+	const fitOneLine = (text: string, max: number, floor: number, width: number) =>
+		Math.max(floor, Math.min(max, Math.floor(width / (Math.max(4, text.length) * 0.55))));
+	const revealNameFs = fitOneLine(revealName, 72, 44, STAGE_W - 100);
+	const revealBlurbFs = fitOneLine(revealBlurb, 40, 28, STAGE_W - 100);
 
 	const wrap: React.CSSProperties = {
 		position: "fixed",
@@ -394,7 +412,18 @@ const MysteryBox: React.FC = () => {
 					<img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
 				) : (
 					// a prize with no art still has to be something to look at, so it shows its own name
-					<div style={{ color: cfg.nameColor, fontSize: 34, lineHeight: 1.1, padding: 10, textShadow: outline }}>
+					<div
+						style={{
+							color: cfg.nameColor,
+							// room for about two lines of it across the tile; longer names shrink toward the floor
+							fontSize: Math.max(20, Math.min(34, Math.floor((CARD - 20) * 2 / (Math.max(4, String((p && p.name) || "?").length) * 0.55)))),
+							lineHeight: 1.1,
+							padding: 10,
+							overflowWrap: "anywhere",
+							wordBreak: "break-word",
+							textShadow: outline,
+						}}
+					>
 						{(p && p.name) || "?"}
 					</div>
 				)}
@@ -468,6 +497,31 @@ const MysteryBox: React.FC = () => {
 					src={`/media/${encodeURIComponent(reviveResultSound)}`}
 					autoPlay
 					ref={(el) => { if (el) el.volume = Number(reviveResultVolume); }}
+				/>
+			)}
+
+			{/* the jukebox: one long clip, once, keyed on its run so a replacement starts fresh. a source that
+			    joins partway through (a reload, a scene switch) seeks to where the track is, off the server's
+			    start time, rather than starting the seven-minute clip over. when it ends, the server is told
+			    which run finished so the tab stops saying it's playing. */}
+			{showJuke && (
+				<audio
+					key={`jk${jukeNonce}`}
+					src={`/media/${encodeURIComponent(juke.track)}`}
+					autoPlay
+					ref={(el) => { if (el) el.volume = Number(juke.volume); }}
+					onLoadedMetadata={(e) => {
+						const el = e.currentTarget;
+						const offset = (Date.now() - Number(juke.startedAt || 0)) / 1000;
+						if (offset > 2 && Number.isFinite(el.duration) && offset < el.duration)
+							el.currentTime = offset;
+					}}
+					onEnded={() => {
+						try {
+							if (ws && ws.readyState === WebSocket.OPEN)
+								ws.send(JSON.stringify({ event: "jukeboxEnded", nonce: jukeNonce }));
+						} catch {}
+					}}
 				/>
 			)}
 
@@ -692,24 +746,47 @@ const MysteryBox: React.FC = () => {
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 64, lineHeight: 1, marginTop: 18, textShadow: outline }}>
 								<span
+									key={reviveInfection ? `inf${revivePts}` : undefined}
 									style={{
 										display: "inline-block",
 										color: reviveFlinch ? "#ff4b4b" : cfg.titleColor,
 										WebkitTextStrokeWidth: "3px",
 										WebkitTextStrokeColor: "#000",
 										paintOrder: "stroke fill",
-										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : undefined,
+										// a chant flinches when a streak breaks; an infection pops each time it spreads
+										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : reviveInfection ? "mb-pop 300ms ease-out both" : undefined,
 									}}
 								>
 									{revivePts}
 								</span>
-								{" / "}{reviveGoal}
+								{!reviveInfection && <>{" / "}{reviveGoal}</>}
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", marginTop: 2, textShadow: outline }}>
 								{reviveUnit}
 							</div>
+							{/* who's caught it, newest last — the names are what make it spread, since seeing yours
+							    go up is the moment you go looking for somebody to @ */}
+							{reviveInfection && reviveNames.length > 0 && (
+								<div
+									style={{
+										color: cfg.nameColor,
+										fontSize: 30,
+										lineHeight: 1.2,
+										marginTop: 16,
+										padding: "0 60px",
+										textShadow: outline,
+										opacity: 0.9,
+									}}
+								>
+									{reviveNames.slice(-6).map((n, i, arr) => (
+										<span key={`${n}${i}`} style={{ color: i === arr.length - 1 ? "#ff4b4b" : cfg.nameColor, marginRight: 14 }}>
+											@{n}
+										</span>
+									))}
+								</div>
+							)}
 							{/* how far along they are, at a glance — what chat reads from across the room */}
-							<div
+							{!reviveInfection && <div
 								style={{
 									width: 700,
 									height: 34,
@@ -730,7 +807,7 @@ const MysteryBox: React.FC = () => {
 										transition: "width 300ms ease-out",
 									}}
 								/>
-							</div>
+							</div>}
 						</>) : (<>
 							<div style={{ animation: "mb-pop 420ms ease-out both", marginTop: 20 }}>
 								<div
@@ -753,7 +830,7 @@ const MysteryBox: React.FC = () => {
 								</div>
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
-								{revivePts} / {reviveGoal} {reviveUnit}
+								{reviveInfection ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
 						</>)}
 					</div>
@@ -835,15 +912,32 @@ const MysteryBox: React.FC = () => {
 
 				{/* the prize, once it's landed. the reel stays on screen underneath it — seeing what it stopped
 				    on is the whole payoff, so nothing covers it. */}
-				<div style={{ height: 150, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+				{/* sized to the words, and allowed to WRAP: the name and the line under it are whatever the
+				    operator typed, and at a fixed size a long one ran straight off both sides of the 4:3 frame.
+				    the name shrinks to fit one line down to a floor, then wraps rather than shrinking into
+				    illegibility; the blurb does the same at its own sizes. the box grows to hold the lines, up
+				    to the room the frame has left under the reel, and clips only past that. */}
+				<div
+					style={{
+						minHeight: 150,
+						maxHeight: 250,
+						width: STAGE_W - 80,
+						display: "flex",
+						flexDirection: "column",
+						justifyContent: "center",
+						overflow: "hidden",
+					}}
+				>
 					{revealed && prize && (
 						<div style={{ animation: "mb-pop 420ms ease-out both" }}>
 							<div
 								style={{
 									color: cfg.titleColor,
-									fontSize: 72,
+									fontSize: revealNameFs,
 									lineHeight: 1,
-									WebkitTextStrokeWidth: "4px",
+									overflowWrap: "anywhere",
+									wordBreak: "break-word",
+									WebkitTextStrokeWidth: revealNameFs >= 56 ? "4px" : "3px",
 									WebkitTextStrokeColor: "#000",
 									paintOrder: "stroke fill",
 								}}
@@ -851,7 +945,17 @@ const MysteryBox: React.FC = () => {
 								{prize.name || "???"}
 							</div>
 							{prize.blurb && (
-								<div style={{ color: cfg.nameColor, fontSize: 40, marginTop: 6, textShadow: outline }}>
+								<div
+									style={{
+										color: cfg.nameColor,
+										fontSize: revealBlurbFs,
+										lineHeight: 1.15,
+										marginTop: 6,
+										overflowWrap: "anywhere",
+										wordBreak: "break-word",
+										textShadow: outline,
+									}}
+								>
 									{prize.blurb}
 								</div>
 							)}

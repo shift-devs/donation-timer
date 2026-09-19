@@ -169,6 +169,12 @@ export function stopMysteryBox(ws: WebSocket) {
 	return 1;
 }
 
+// cut the jukebox prize's background track off early
+export function stopJukebox(ws: WebSocket) {
+	send(ws, { event: "stopJukebox" });
+	return 1;
+}
+
 // start the quick revive challenge on the /mysterybox source: chat races the clock for sub points, with the
 // length, goal and sounds taken from the mystery box settings
 export function startQuickRevive(ws: WebSocket) {

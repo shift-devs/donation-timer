@@ -9,7 +9,7 @@ import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand } from "./mysterybox";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand, stopJukebox } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -737,6 +737,15 @@ export function startApi(){
                     break;
                 case "stopMysteryBox":
                     endMysteryBox(curSession);
+                    break;
+                case "jukeboxEnded":
+                    // the /mysterybox source finished the jukebox clip. it names which one, so a report about a
+                    // track that has since been replaced changes nothing.
+                    stopJukebox(curSession, Math.trunc(Number(jData.nonce)) || undefined);
+                    break;
+                case "stopJukebox":
+                    // the operator cutting the background track off early
+                    stopJukebox(curSession);
                     break;
                 case "startQuickRevive":
                     // the tab's "Start quick revive": chat races the clock for sub points on the /mysterybox source

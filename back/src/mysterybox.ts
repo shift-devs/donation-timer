@@ -25,7 +25,7 @@ import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, cha
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
-import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime } from "./quickRevive";
+import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime, randomChatter } from "./quickRevive";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 // what a twitch login may actually contain. used to gate the places a chat-supplied name is acted on or
@@ -67,7 +67,11 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "playEvent", "textBox"];
+// how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
+// when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
+// "now playing" that never clears would be a lie on the tab.
+const JUKEBOX_MAX_MS = 30 * 60 * 1000;
 const MAX_PHRASE = 60;
 const MAX_CHANT_TIMES = 10000;
 const MAX_CHANTS = 20;
@@ -144,7 +148,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -203,6 +207,11 @@ function normalizeEffect(raw: any): any {
         winVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.winVolume)) ? Number(r.winVolume) : 1)),
         failSound: str(r.failSound, MAX_PATH),
         failVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.failVolume)) ? Number(r.failVolume) : 1)),
+        // infection: how long everyone still infected when the clock runs out is timed out for
+        timeoutSeconds: numIn(r.timeoutSeconds, 1, MAX_NUKE_SEC, 600),
+        // jukebox: the long clip that plays through in the background, once, and its volume
+        track: str(r.track, MAX_PATH),
+        trackVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.trackVolume)) ? Number(r.trackVolume) : 0.8)),
         // timeBoost: a track looped for as long as the sale runs, as opposed to the prize's own `sound`,
         // which is the one-shot that plays as the reel stops on it
         loopSound: str(r.loopSound, MAX_PATH),
@@ -442,7 +451,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
 // `restore` is keyed by TEXT BOX, not by user: two text-box prizes landing close together each own their own
 // box, and a single slot meant the second one cancelled the first's restore and left that box stuck on its
 // prize text for good.
-const timers: { [userId: number]: { land?: any, done?: any, restore: { [box: string]: any } } } = {};
+const timers: { [userId: number]: { land?: any, done?: any, juke?: any, restore: { [box: string]: any } } } = {};
 
 function slots(userId: number){
     return timers[userId] || (timers[userId] = { restore: {} });
@@ -493,6 +502,8 @@ export function mysteryBoxView(session: TimerUserSession): any {
         // why "!mb open" is being turned away, if it is — the dashboard shows it so the operator isn't left
         // wondering why chat is complaining
         blocked: openBlockedBy(session),
+        // the jukebox track playing in the background, if one is — the source plays it, the tab names it
+        jukebox: session.jukebox || null,
         command: cfg.command,
         music: cfg.music,
         volume: cfg.volume,
@@ -788,6 +799,53 @@ export function endMysteryBox(session: TimerUserSession){
     pushMysteryBox(session);
 }
 
+// ---------------------------------------------------------------------------
+// the jukebox
+// ---------------------------------------------------------------------------
+//
+// a prize that plays a LONG clip — minutes, not seconds — on the /mysterybox source, in the background.
+// it holds no lock: boxes open over it, reels spin over it, and the spin stinger plays over it, because the
+// whole point is that it's ambience rather than an event. the server keeps a note of what's playing so a
+// source that reconnects mid-track can pick it up where it is and the tab can show (and stop) it; the
+// source reports when the clip ends, since only the thing playing it knows how long it runs.
+// a second jukebox prize landing while one plays REPLACES it. queueing seven-minute clips behind each other
+// would have the last one playing long after anyone remembered why.
+
+export function startJukebox(session: TimerUserSession, track: string, volume: number, name: string){
+    if (!track)
+        return;
+    const nonce = ((session.jukebox && session.jukebox.nonce) || 0) + 1;
+    session.jukebox = { nonce, track, volume: Math.min(1, Math.max(0, volume)), startedAt: Date.now(), name: str(name, MAX_PRIZE_NAME) || "Jukebox" };
+    emitTerminal(session.userId, `JUKEBOX — playing "${track}" (${session.jukebox.name}).`, true);
+    pushMysteryBox(session);
+    const t = slots(session.userId);
+    clearTimeout(t.juke);
+    t.juke = setTimeout(() => {
+        try {
+            stopJukebox(session, nonce, true);
+        } catch (err) {
+            reportError(session.userId, "clearing a jukebox track", err);
+        }
+    }, JUKEBOX_MAX_MS);
+}
+
+// the clip finished (the source says so, naming which one), or the operator stopped it. a report about a
+// track that has since been replaced is ignored — that one's already gone.
+export function stopJukebox(session: TimerUserSession, nonce?: number, timedOut = false){
+    const cur = session.jukebox;
+    if (!cur)
+        return;
+    if (nonce !== undefined && nonce !== cur.nonce)
+        return;
+    const t = slots(session.userId);
+    clearTimeout(t.juke);
+    t.juke = undefined;
+    session.jukebox = undefined;
+    if (timedOut)
+        emitTerminal(session.userId, `JUKEBOX — no source reported "${cur.track}" finishing after ${Math.round(JUKEBOX_MAX_MS / 60000)} minutes; cleared.`);
+    pushMysteryBox(session);
+}
+
 // tear down on logout so a phase timer can't fire against a detached session
 export function endMysteryBoxTimers(userId: number){
     delete toldAt[userId];
@@ -795,6 +853,7 @@ export function endMysteryBoxTimers(userId: number){
     const t = slots(userId);
     clearTimeout(t.land);
     clearTimeout(t.done);
+    clearTimeout(t.juke);
     for (const box of Object.keys(t.restore))
         clearTimeout(t.restore[box]);
     delete timers[userId];
@@ -913,10 +972,57 @@ export function applyEffect(session: TimerUserSession, prize: any){
             streak: !!e.streak,
             rounds: e.rounds,
             chants: e.chants.map((c: any) => ({ phrase: String(c.phrase), times: c.times, seconds: c.seconds })),
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: 0,
             label,
         }, true);
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "infection" && e.seconds > 0 && e.timeoutSeconds > 0){
+        // the opener is patient zero — it's their prize, and it lands on them. a rehearsal has no opener, so
+        // it picks somebody who has spoken lately (and says so if nobody has).
+        const cfg = mbSettings(session);
+        const mbState = getMysteryBox(session);
+        const real = !!mbState.opener && !mbState.isTest;
+        const zero = real ? String(mbState.opener).toLowerCase() : randomChatter(session);
+        const zeroName = real ? (mbState.openerName || zero) : (zero ? chatterName(session, zero) : "");
+        const res = startChallenge(session, {
+            kind: "infection",
+            title: prize.name || "INFECTION",
+            subtitle: "@ SOMEONE TO INFECT THEM",
+            unit: "INFECTED",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: "",
+            winVolume: 1,
+            winText: "",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "OUTBREAK OVER!",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: "",
+            rewardSeconds: 0,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: zero,
+            patientZeroName: zeroName,
+            timeoutSeconds: Math.min(MAX_NUKE_SEC, e.timeoutSeconds),
+            label,
+        }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "jukebox" && e.track){
+        // background music, minutes long. deliberately holds no lock — see startJukebox.
+        startJukebox(session, e.track, e.trackVolume, prize.name || "Jukebox");
         return;
     }
     if (e.kind === "playEvent" && e.eventId){
@@ -1035,6 +1141,12 @@ export function describeEffect(effect: any): string {
         const list = chants.map((c) => `"${c.phrase}" x${c.times} in ${mins(c.seconds)}`).join(", ");
         return `${e.rounds > 1 ? `${e.rounds} rounds, each drawn from` : "chat has to say"} ${list}${e.streak ? ", in a row" : ""}${e.rewardSeconds > 0 ? ` — for +${mins(e.rewardSeconds)}` : ""}`;
     }
+    if (e.kind === "infection")
+        return e.seconds > 0 && e.timeoutSeconds > 0
+            ? `the opener is patient zero; @-ing spreads it for ${mins(e.seconds)}, then everyone infected is timed out ${mins(e.timeoutSeconds)}`
+            : "infects nobody (set the spread time and the timeout)";
+    if (e.kind === "jukebox")
+        return e.track ? `plays "${e.track}" through in the background` : "plays nothing (pick a track)";
     if (e.kind === "playEvent")
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")

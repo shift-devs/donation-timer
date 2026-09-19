@@ -20,13 +20,17 @@
 // the quick revive is one spec (built from the tab's settings) while a chant prize is another (built from the
 // prize that landed). the source draws both the same way and the tab watches both the same way.
 //
+// INFECTION is the third kind: one person is patient zero, anyone infected spreads it by @-ing somebody, and
+// when the clock runs out everyone carrying it is timed out. no goal, no win or lose — the counter is how
+// many are infected, and the end is the end.
+//
 // a chant prize is ROUNDS of that, warioware-style: it carries a list of chants, each round draws one at
 // random, clearing it starts the next straight away with a fresh clock, and only the last one pays. failing
 // any round fails the lot.
 
 import { TimerUserSession, TimerEvent } from "./types";
 import { emitQuickRevive, emitTerminal, reportError } from "./bus";
-import { chatAnnounce } from "./chat";
+import { chatAnnounce, chatSay, chatTimeoutMany, canTimeout, activeChatters, chatterName, chatters } from "./chat";
 import { addToEndTime } from "./timer";
 
 const MAX_PATH = 300;
@@ -123,7 +127,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant"
+    kind: "subpoints" | "chant" | "infection"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -151,6 +155,10 @@ export interface ChallengeSpec {
     // chant only: how many rounds have to be cleared, and the pool each round is drawn from
     rounds: number
     chants: Chant[]
+    // infection only: who starts it, and how long everyone carrying it is timed out for at the end
+    patientZero: string
+    patientZeroName: string
+    timeoutSeconds: number
     // how the reward shows up in the timer log
     label: string
 }
@@ -164,7 +172,7 @@ export interface Chant {
 
 // phase timers per user, off the session for the usual reason: a Timeout is not state anyone should serialize
 // or sync, and ending a run must never leave one behind.
-const timers: { [userId: number]: { end?: any, done?: any } } = {};
+const timers: { [userId: number]: { end?: any, done?: any, spread?: any } } = {};
 
 function slots(userId: number){
     return timers[userId] || (timers[userId] = {});
@@ -172,7 +180,7 @@ function slots(userId: number){
 
 export function getQuickRevive(session: TimerUserSession): any {
     if (!session.quickRevive || typeof session.quickRevive !== "object")
-        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null };
+        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [] };
     return session.quickRevive;
 }
 
@@ -206,6 +214,9 @@ function quickReviveSpec(session: TimerUserSession): ChallengeSpec {
         streak: false,
         rounds: 1,
         chants: [],
+        patientZero: "",
+        patientZeroName: "",
+        timeoutSeconds: 0,
         label: "quick revive",
     };
 }
@@ -250,6 +261,8 @@ export function quickReviveView(session: TimerUserSession): any {
         resetAt: qr.resetAt || 0,
         title: spec.title,
         subtitle: spec.kind === "chant" ? chantSubtitle(spec) : spec.subtitle,
+        // infection: the most recently infected, newest last, for the source to show scrolling in
+        names: Array.isArray(qr.names) ? qr.names.slice(-8) : [],
         unit: spec.unit,
         music: spec.music,
         musicVolume: spec.musicVolume,
@@ -278,6 +291,8 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         return { ok: false, message: "A mystery box is being opened — wait for it to land." };
     if (spec.kind === "chant" && !spec.chants.length)
         return { ok: false, message: "That chant has nothing for chat to say — add a chant to it." };
+    if (spec.kind === "infection" && !spec.patientZero)
+        return { ok: false, message: "Nobody to be patient zero — nobody has said anything in chat lately." };
     const qr = getQuickRevive(session);
     const now = Date.now();
     qr.nonce = (qr.nonce || 0) + 1;
@@ -292,8 +307,24 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.round = 1;
     qr.roundAt = now;
     qr.lastChant = -1;
+    qr.infected = {};
+    qr.names = [];
+    qr.pendingNames = [];
     const t = slots(session.userId);
     clearTimeout(t.done);
+    clearTimeout(t.spread);
+    if (spec.kind === "infection"){
+        // patient zero is the first case, so the count starts at one
+        qr.infected[spec.patientZero] = spec.patientZeroName || spec.patientZero;
+        qr.names = [spec.patientZeroName || spec.patientZero];
+        qr.points = 1;
+        armClock(session, spec.seconds);
+        emitTerminal(session.userId, `${spec.title} — ${spec.patientZeroName || spec.patientZero} is patient zero. Spreads for ${spec.seconds}s; everyone infected is then timed out for ${sayTime(spec.timeoutSeconds)}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! @${spec.patientZeroName || spec.patientZero} is PATIENT ZERO. Anyone infected can @ someone to infect them. When the clock runs out in ${spec.seconds} seconds, everyone infected gets timed out for ${sayTime(spec.timeoutSeconds)}!`, "orange");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — ${spec.patientZeroName || spec.patientZero} is patient zero, ${spec.seconds}s to spread.` };
+    }
     if (spec.kind === "chant"){
         dealChant(session, qr, spec);
         const rounds = spec.rounds > 1 ? ` (${spec.rounds} rounds)` : "";
@@ -309,6 +340,13 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         chatAnnounce(session, `${spec.title}! Chat has ${spec.seconds} seconds to hit ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6. Go!`, "blue");
     pushQuickRevive(session);
     return { ok: true, message: `${spec.title} started — ${spec.seconds}s for ${goalWords}.` };
+}
+
+// somebody to be patient zero when the box has no real opener (a rehearsal): whoever has spoken lately,
+// at random. "" if the room is silent.
+export function randomChatter(session: TimerUserSession): string {
+    const pool = activeChatters(session);
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
 }
 
 // the instruction for the current round, as chat is told it
@@ -412,6 +450,59 @@ export function creditChant(session: TimerUserSession, text: string, login = "")
     }
 }
 
+// a chat line from somebody. if they're infected, every @name in it catches it. names are taken as typed
+// (so chat sees "@Bob" and not "bob"), keyed by login. nothing spreads from the healthy, and nothing spreads
+// after the clock — a message that crosses the deadline arrives too late to count.
+// MODS AND THE BROADCASTER CAN'T CATCH IT. they can't be timed out, so infecting them would be a name on the
+// board that never pays off; the one way a mod is in the game is by opening the box themselves. "mod" is as
+// far as the chat roster knows — somebody who hasn't typed in the last ten minutes is taken at face value.
+const MENTION = /@([a-zA-Z0-9_]{1,25})/g;
+export function spreadInfection(session: TimerUserSession, login: string, text: string){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "infection")
+        return;
+    if (Date.now() >= qr.endsAt)
+        return;
+    const from = String(login || "").toLowerCase();
+    if (!from || !qr.infected[from])
+        return;
+    const roster = chatters(session);
+    const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
+    const caught: string[] = [];
+    let m: RegExpExecArray | null;
+    MENTION.lastIndex = 0;
+    while ((m = MENTION.exec(String(text || "")))){
+        const key = m[1].toLowerCase();
+        if (key === from || qr.infected[key])
+            continue;
+        if (key === channel || (roster[key] && roster[key].mod))
+            continue;
+        qr.infected[key] = m[1];
+        qr.names.push(m[1]);
+        caught.push(m[1]);
+    }
+    if (!caught.length)
+        return;
+    qr.points = Object.keys(qr.infected).length;
+    if (qr.names.length > 50)
+        qr.names.splice(0, qr.names.length - 50);
+    pushQuickRevive(session);
+    // one chat line for everyone caught in the last few seconds, not one per victim: a spreading infection
+    // is exactly the thing that would otherwise have the bot flooding chat past its own rate limit
+    qr.pendingNames.push(...caught);
+    const t = slots(session.userId);
+    if (!t.spread){
+        t.spread = setTimeout(() => {
+            t.spread = undefined;
+            const names: string[] = qr.pendingNames.splice(0);
+            if (!names.length || qr.phase !== "running")
+                return;
+            const list = names.length > 8 ? `${names.slice(0, 8).map((n) => `@${n}`).join(", ")} and ${names.length - 8} more` : names.map((n) => `@${n}`).join(", ");
+            chatSay(session, `${list} ${names.length === 1 ? "is" : "are"} INFECTED! ${qr.points} infected so far.`);
+        }, 3000);
+    }
+}
+
 // the clock stops, one way or the other. the sound and the words are the source's job; this says which, and
 // pays out a chant's reward — the one thing a challenge does to the rest of the app.
 function decide(session: TimerUserSession, won: boolean){
@@ -434,6 +525,43 @@ function decide(session: TimerUserSession, won: boolean){
         emitTerminal(session.userId, `${spec.title} — ${cleared} cleared with ${spare}s to spare. Round ${qr.round}: "${spec.phrase}" x${spec.goal} in ${spec.seconds}s.`, true);
         if (spec.announce)
             chatAnnounce(session, `Round ${qr.round - 1} cleared! Round ${qr.round} of ${spec.rounds}: ${roundWords(spec)}`, "blue");
+        return;
+    }
+    if (spec.kind === "infection"){
+        // the outbreak ends: everyone carrying it is timed out. mods and the broadcaster are left alone —
+        // twitch would refuse them anyway, and saying they were timed out when they weren't reads as a bug.
+        clearTimeout(t.spread);
+        t.spread = undefined;
+        qr.pendingNames = [];
+        qr.phase = "lost"; // the "result" phase; the source shows failText and the count
+        qr.resultAt = now;
+        pushQuickRevive(session);
+        const roster = chatters(session);
+        const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
+        const all: string[] = Object.keys(qr.infected);
+        const hit = all.filter((l) => l !== channel && !(roster[l] && roster[l].mod));
+        const names = hit.map((l) => qr.infected[l]).join(", ");
+        const secs = spec.timeoutSeconds;
+        emitTerminal(session.userId, `${spec.title} — over. ${all.length} infected${hit.length < all.length ? ` (${all.length - hit.length} immune: mods/broadcaster)` : ""}; timing out ${hit.length} for ${secs}s: ${names || "nobody"}`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.failText} ${all.length} infected — ${hit.length ? `${hit.map((l) => `@${qr.infected[l]}`).slice(0, 15).join(", ")}${hit.length > 15 ? ` and ${hit.length - 15} more` : ""} ${hit.length === 1 ? "is" : "are"} timed out for ${sayTime(secs)}.` : "nobody left to time out."}`, "orange");
+        if (hit.length){
+            if (!canTimeout(session)){
+                emitTerminal(session.userId, `${spec.title} WOULD have timed out ${hit.length} for ${secs}s, but no bot account is connected.`);
+            } else {
+                chatTimeoutMany(session, hit, secs, `${spec.title} — infected`).then((done) => {
+                    emitTerminal(session.userId, `${spec.title} — timed out ${done} of ${hit.length} for ${secs}s.`, true);
+                }).catch((err) => reportError(session.userId, "timing out the infected", err));
+            }
+        }
+        clearTimeout(t.done);
+        t.done = setTimeout(() => {
+            try {
+                endQuickRevive(session);
+            } catch (err) {
+                reportError(session.userId, "clearing a finished infection", err);
+            }
+        }, spec.holdSec * 1000);
         return;
     }
     qr.phase = won ? "won" : "lost";
@@ -479,8 +607,10 @@ export function endQuickRevive(session: TimerUserSession){
     clearTimeout(t.end);
     clearTimeout(t.done);
     t.end = t.done = undefined;
+    clearTimeout(t.spread);
+    t.spread = undefined;
     const wasRunning = qr.phase === "running";
-    const tag = qr.spec && qr.spec.kind === "chant" ? qr.spec.title : "QUICK REVIVE";
+    const tag = qr.spec && qr.spec.kind !== "subpoints" ? qr.spec.title : "QUICK REVIVE";
     qr.phase = "idle";
     qr.spec = null;
     qr.startedAt = 0;
@@ -492,6 +622,9 @@ export function endQuickRevive(session: TimerUserSession){
     qr.round = 0;
     qr.roundAt = 0;
     qr.lastChant = -1;
+    qr.infected = {};
+    qr.names = [];
+    qr.pendingNames = [];
     if (wasRunning)
         emitTerminal(session.userId, `${tag} — called off.`, true);
     pushQuickRevive(session);
@@ -502,5 +635,6 @@ export function endQuickReviveTimers(userId: number){
     const t = slots(userId);
     clearTimeout(t.end);
     clearTimeout(t.done);
+    clearTimeout(t.spread);
     delete timers[userId];
 }
