@@ -83,6 +83,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // the raffle tab's config (see migration add-raffle). the raffle itself is live state and never written.
+    raffleSettings: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // how the /mysterybox browser source looks plus the prize list (see migration add-mysterybox). the spin
     // happening right now is live state and is never written here.
     mysteryBoxSettings: {
@@ -99,6 +105,12 @@ export const USER_TABLE = {
     },
     // unfired ray gun charges, same shape as the box ledger (see migration add-rayguns)
     rayguns: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    // gift subs counted toward a box in cumulative mode (see migration add-gift-sub-progress)
+    giftSubProgress: {
         type: DataTypes.JSONB,
         allowNull: false,
         defaultValue: {}
@@ -229,9 +241,11 @@ export async function dbCreate(inObj: Object){
         eventLayers: lvObj.eventLayers,
         textBoxes: lvObj.textBoxes,
         firesaleSettings: lvObj.firesaleSettings,
+        raffleSettings: lvObj.raffleSettings,
         mysteryBoxSettings: lvObj.mysteryBoxSettings,
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
+        giftSubProgress: lvObj.giftSubProgress,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -274,9 +288,11 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 eventLayers: curSession.eventLayers,
                 textBoxes: curSession.textBoxes,
                 firesaleSettings: curSession.firesaleSettings,
+                raffleSettings: curSession.raffleSettings,
                 mysteryBoxSettings: curSession.mysteryBoxSettings,
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,
+                giftSubProgress: curSession.giftSubProgress,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,

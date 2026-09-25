@@ -4,6 +4,7 @@ import { emitSync, emitTerminal, reportError } from "../bus";
 import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
+import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, spreadInfection } from "../quickRevive";
@@ -111,6 +112,9 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)
         // and cost us the display name's capitalisation on stream.
+        // a raffle entry, likewise open to everyone. ahead of the firesale so a shared "!enter" reaches both
+        if (handleRaffleChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+            return;
         if (handleFiresaleChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
             return;
         // "!mb open" is likewise open to every chatter — they're spending a box they earned — so it goes in
@@ -148,6 +152,12 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (parsed.firesale){
             // "!firesale start/stop/draw/winner" — mods driving the overlay when fourthwall isn't
             const res = runFiresaleCommand(session, parsed.firesale);
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+            return;
+        }
+        if (parsed.raffle){
+            // "!raffle start/draw/stop" — a mod running the raffle from chat
+            const res = runRaffleCommand(session, parsed.raffle);
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }

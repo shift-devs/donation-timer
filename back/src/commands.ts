@@ -23,6 +23,10 @@ const TEXT_VERBS = ["changetext", "settext"];
 // manual handle for a rehearsal, a missed announcement, or killing a run that's still on screen.
 const FIRESALE_ACTIONS = ["start", "stop", "draw", "winner"];
 
+// the raffle the streamer runs themselves: start it with the tab's settings (optionally a different length),
+// close entries and draw, or clear it
+const RAFFLE_ACTIONS = ["start", "draw", "stop"];
+
 // the mystery box. "open" and "count" are what chat uses on itself; the rest are the operator's handles —
 // handing out a box the firesale hook missed, taking back one given by mistake, or rehearsing a prize.
 // "revive" starts the quick revive challenge with the settings on the tab; "revive stop" calls it off.
@@ -56,12 +60,13 @@ function unquote(s: string): string {
 }
 
 export function commandHelp(): string {
-    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   mb <action>   |   help"];
+    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   raffle <action>   |   mb <action>   |   help"];
     for (const p of Object.keys(SPEC))
         lines.push(`  ${p}: ${Object.keys(SPEC[p]).join(", ")}`);
     lines.push("  qty = dollars for money, count for subs/bits/members (subs & members default to 1)");
     lines.push("  changetext puts words on a /text browser source, e.g. changetext topic \"speedruns all night\" — type \\n for a line break");
     lines.push("  firesale: start [seconds], stop, draw, winner <name> — the giveaway overlay, normally started by Fourthwall");
+    lines.push("  raffle: start [seconds], draw, stop — the raffle on the Raffle tab (0 seconds = open until drawn)");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
     return lines.join("\n");
@@ -69,7 +74,7 @@ export function commandHelp(): string {
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; mb?: { action: string, name: string, count: number }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, seconds?: number }; mb?: { action: string, name: string, count: number }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -101,6 +106,16 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         if (action === "start" && parts[2] !== undefined && !Number.isFinite(seconds))
             return { error: `Usage: firesale start [seconds]` };
         return { firesale: { action, seconds: Number.isFinite(seconds) ? seconds : 0, name: (parts[2] || "").replace(/^@/, "") } };
+    }
+
+    if (head === "raffle") {
+        const action = (parts[1] || "").toLowerCase();
+        if (!RAFFLE_ACTIONS.includes(action))
+            return { error: `Usage: raffle ${RAFFLE_ACTIONS.join(" | ")} — e.g. "raffle start 120".` };
+        const seconds = action === "start" && parts[2] !== undefined ? Number(parts[2]) : undefined;
+        if (seconds !== undefined && !Number.isFinite(seconds))
+            return { error: `Usage: raffle start [seconds]` };
+        return { raffle: { action, seconds } };
     }
 
     if (head === "mb") {

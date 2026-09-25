@@ -19,6 +19,7 @@ const FwProgress = lazy(() => import("./pages/FwProgress"));
 const TextBox = lazy(() => import("./pages/TextBox"));
 const Firesale = lazy(() => import("./pages/Firesale"));
 const MysteryBox = lazy(() => import("./pages/MysteryBox"));
+const Raffle = lazy(() => import("./pages/Raffle"));
 
 const App: React.FC = () => (
 	<Router>
@@ -41,6 +42,7 @@ const App: React.FC = () => (
 					<Route path='/text' element={<TextBox />} />
 					<Route path='/firesale' element={<Firesale />} />
 					<Route path='/mysterybox' element={<MysteryBox />} />
+					<Route path='/raffle' element={<Raffle />} />
 					<Route path='*' element={<Navigate to='/' replace />} />
 				</Routes>
 			</Suspense>

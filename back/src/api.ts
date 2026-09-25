@@ -8,8 +8,9 @@ import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
+import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopRaffle, runRaffleCommand } from "./raffle";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, testMysteryBox, endMysteryBox, runMysteryBoxCommand, stopJukebox, stopSchizo } from "./mysterybox";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, runMysteryBoxCommand, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -67,6 +68,8 @@ export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     // the whole run in one field (phase, entrants, winner) plus the look. targeted firesale pushes keep it
     // live between syncs — a 5s force sync would have names turning up long after the chatter typed !enter.
     firesale: ["firesale"],
+    // the raffle, same arrangement — it draws on the firesale's overlay
+    raffle: ["raffle"],
     // the reel, who is opening it and the prize art, in one field — same arrangement as the firesale above,
     // and kept live between syncs by targeted mysterybox pushes
     // …plus the quick revive challenge, which runs on that same source and is kept live the same way
@@ -113,6 +116,8 @@ function wsSync(ws: TimerWebSocket) {
             // that connects mid-firesale, or reconnects after a blip, picks the run straight back up.
             firesale: firesaleView(curSession),
             firesaleSettings: curSession.firesaleSettings || {},
+            raffle: raffleView(curSession),
+            raffleSettings: curSession.raffleSettings || {},
             // the box being opened right now (idle when there isn't one), so a source that connects mid-spin
             // picks the reel straight back up
             mysterybox: mysteryBoxView(curSession),
@@ -122,6 +127,7 @@ function wsSync(ws: TimerWebSocket) {
             // the ledgers, for the dashboard tab's lists of who is holding what
             mysteryBoxes: curSession.mysteryBoxes || {},
             rayguns: curSession.rayguns || {},
+            giftSubProgress: curSession.giftSubProgress || {},
             // non-null only while a prize is holding the countdown still; carries the remaining time to freeze on
             timerPause: timerPauseView(curSession),
             // non-null only while a prize has every contribution granting multiplied time
@@ -396,6 +402,23 @@ export function startApi(){
         }
     });
 
+    // the raffle, to /raffle sources and the dashboard — same as the firesale above
+    bus.on("raffle", (id: number, payload: any) => {
+        const clientsArr = Array.from(wss.clients);
+        for (let i = 0; i < clientsArr.length; i++){
+            const ws = clientsArr[i] as TimerWebSocket;
+            if (id != ws.userId || ws.readyState !== WebSocket.OPEN)
+                continue;
+            if (ws.page !== "raffle" && ws.page !== "settings")
+                continue;
+            try {
+                ws.send(JSON.stringify({ raffle: payload }));
+            } catch (err) {
+                console.log("Failed to send raffle state to a client:", err);
+            }
+        }
+    });
+
     // the mystery box goes to this user's /mysterybox browser source(s) and to the dashboard, whose tab shows
     // the reel and who is opening it. same shape as the firesale route above.
     bus.on("mysterybox", (id: number, payload: any) => {
@@ -561,6 +584,11 @@ export function startApi(){
                         ws.send(JSON.stringify({ commandResult: res }));
                         return;
                     }
+                    if (parsed.raffle){
+                        const res = runRaffleCommand(curSession, parsed.raffle);
+                        ws.send(JSON.stringify({ commandResult: res }));
+                        return;
+                    }
                     if (parsed.mb){
                         // the mystery box: hand out / take back boxes, open one on someone's behalf, rehearse a
                         // prize. a prize's effect may well add time, but that goes through handle() itself, so
@@ -714,6 +742,24 @@ export function startApi(){
                     if (typeof jData.runId === "string" && jData.runId)
                         endRun(curSession, jData.runId);
                     break;
+                case "setRaffleSettings": {
+                    // merged onto what's stored, same as the firesale's
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.raffleSettings = normalizeRaffle({ ...(curSession.raffleSettings || {}), ...patch });
+                    pushRaffle(curSession);
+                    break;
+                }
+                case "startRaffle":
+                    startRaffle(curSession);
+                    break;
+                case "drawRaffle":
+                    drawRaffle(curSession);
+                    break;
+                case "stopRaffle":
+                    stopRaffle(curSession);
+                    break;
                 case "setMysteryBoxSettings": {
                     // merged onto what's stored, so the tab can push one field (or just the prize list)
                     // without resending the rest
@@ -748,6 +794,10 @@ export function startApi(){
                     ws.send(JSON.stringify({ commandResult: res }));
                     break;
                 }
+                case "clearGiftSubProgress":
+                    // wipe every cumulative gift tally, e.g. to start a fresh count for a new stream
+                    clearGiftProgress(curSession);
+                    break;
                 case "testMysteryBox":
                     // spin the reel for real onto a named prize (or a fair draw), without spending anyone's box.
                     // the effect fires exactly as it would in front of chat — that's the point of a rehearsal.

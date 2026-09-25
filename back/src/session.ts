@@ -5,6 +5,7 @@ import { normalizeConnections } from "./connections";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { normalizeTextBoxes } from "./textBoxes";
 import { normalizeFiresale, endFiresaleTimers } from "./firesale";
+import { normalizeRaffle, endRaffleTimers } from "./raffle";
 import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
 import { forgetTwitchBot } from "./platforms/twitchBot";
 import { endPauseTimer, endBoostTimer } from "./timer";
@@ -76,9 +77,12 @@ export function loginUser(inObj: Object){
     lvObj.textBoxes = normalizeTextBoxes(lvObj.textBoxes); // words included: a box comes back saying what it said
     lvObj.firesaleSettings = normalizeFiresale(lvObj.firesaleSettings);
     lvObj.firesale = undefined; // a run never survives a restart — the source comes back idle
+    lvObj.raffleSettings = normalizeRaffle(lvObj.raffleSettings);
+    lvObj.raffle = undefined;   // nor does a raffle
     lvObj.mysteryBoxSettings = normalizeMysteryBox(lvObj.mysteryBoxSettings);
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
     lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
+    lvObj.giftSubProgress = normalizeBoxes(lvObj.giftSubProgress); // and gift subs counted toward a box
     lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
     lvObj.quickRevive = undefined;  // nor a quick revive: the clock dies with the process that was running it
     lvObj.timerPause = undefined;   // nor does a pause: the deadline in the db is already the paused one
@@ -162,6 +166,7 @@ export function logoutUser(id: number){
     // teardown is best-effort: one connector failing to close must not keep the session (or the others) alive.
     curSession.loggedOut = true;
     endFiresaleTimers(id); // a pending phase timer must not fire against a detached session
+    endRaffleTimers(id);
     endMysteryBoxTimers(id);
     endQuickReviveTimers(id);
     endPauseTimer(id);     // otherwise the pause tick keeps dragging a detached session's deadline forward

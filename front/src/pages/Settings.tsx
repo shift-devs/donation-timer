@@ -12,6 +12,7 @@ import FourthwallProducts from "./Settings/FourthwallProducts";
 import SubCounts from "./Settings/SubCounts";
 import TextBoxes from "./Settings/TextBoxes";
 import Firesale from "./Settings/Firesale";
+import Raffle from "./Settings/Raffle";
 import MysteryBox from "./Settings/MysteryBox";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
@@ -39,6 +40,7 @@ const Settings: React.FC = () => {
 	const [logHasMore, setLogHasMore] = useState(false);
 	const [tabIndex, setTabIndex] = useState(0);
 	const [firesale, setFiresale] = useState<any>(null);
+	const [raffle, setRaffle] = useState<any>(null);
 	const [mysterybox, setMysterybox] = useState<any>(null);
 	const [quickRevive, setQuickRevive] = useState<any>(null);
 	const [fwProducts, setFwProducts] = useState<any[] | null>(null);
@@ -92,6 +94,13 @@ const Settings: React.FC = () => {
 			// before setSettings below would replace the whole settings object with it.
 			if ("firesale" in response) {
 				setFiresale(response.firesale);
+				if (!("endTime" in response))
+					return;
+			}
+
+			// the raffle, same two routes as the firesale
+			if ("raffle" in response) {
+				setRaffle(response.raffle);
 				if (!("endTime" in response))
 					return;
 			}
@@ -223,6 +232,7 @@ const Settings: React.FC = () => {
 						<Tab>Subcounts</Tab>
 						<Tab>Text Boxes</Tab>
 						<Tab>Firesale</Tab>
+						<Tab>Raffle</Tab>
 						<Tab>Mystery Box</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
@@ -262,6 +272,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<Firesale ws={ws} token={token} settings={settings} run={firesale} />
+						</TabPanel>
+						<TabPanel>
+							<Raffle ws={ws} token={token} settings={settings} run={raffle} />
 						</TabPanel>
 						<TabPanel>
 							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} products={fwProducts} />

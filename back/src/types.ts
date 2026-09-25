@@ -58,6 +58,10 @@ export interface TimerUserSession {
     // the giveaway currently on screen: phase, entrants, winner. transient — never persisted, because a
     // giveaway that finished while the process was down must not come back up with it.
     firesale?: any
+    // how the /raffle browser source looks, and the raffle the tab starts (persisted config — see raffle.ts)
+    raffleSettings: any
+    // the raffle on screen right now. transient, like the firesale run above
+    raffle?: any
     // how the /mysterybox browser source looks, and the prize list with each prize's rarity and effect
     // (persisted config — see mysterybox.ts)
     mysteryBoxSettings: any
@@ -66,6 +70,8 @@ export interface TimerUserSession {
     mysteryBoxes: any
     // the same again for unfired ray gun charges, won from a box and spent with "!raygun <name>"
     rayguns: any
+    // cumulative gift sub tallies toward the next box, same shape again. persisted: it's half-earned
+    giftSubProgress: any
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
     // the firesale run above — a spin that was interrupted by a restart must not come back with it.
     mysterybox?: any

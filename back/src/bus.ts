@@ -33,6 +33,12 @@ export function emitFiresale(userId: number, payload: any) {
     bus.emit("firesale", userId, payload);
 }
 
+// raffle state for this user's /raffle browser source(s), and the dashboard's Raffle tab. same route as the
+// firesale's.
+export function emitRaffle(userId: number, payload: any) {
+    bus.emit("raffle", userId, payload);
+}
+
 // mystery box state for this user's /mysterybox browser source(s). api.ts routes it to page=mysterybox
 // clients, and also to the dashboard so the Mystery Box tab can watch the reel spin.
 export function emitMysteryBox(userId: number, payload: any) {

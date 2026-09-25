@@ -18,7 +18,7 @@
 // the effects are the part that actually touches the rest of the app (the timer, the /events sources, the text
 // boxes), so they all go through applyEffect() — one place that knows what a prize is allowed to do.
 
-import { TimerUserSession } from "./types";
+import { TimerUserSession, TimerEvent } from "./types";
 import { emitMysteryBox, emitSchizoLine, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
 import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, ACTIVE_WINDOW_MS } from "./chat";
@@ -92,6 +92,8 @@ function normalizeChant(raw: any): { phrase: string, times: number, seconds: num
 }
 const MAX_CHARGES = 99;
 const MAX_EXTRA_BOXES = 99;
+const MAX_GIFT_SUBS_PER_BOX = 1000;
+const GIFT_SUB_MODES = ["batch", "cumulative"];
 const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 
@@ -118,6 +120,12 @@ export const DEFAULT_MYSTERYBOX = {
     // WHICH giveaways earn one. each entry is matched against the item fourthwall announced; empty means
     // every giveaway does, which is what this did before the list existed.
     firesaleItems: [] as string[],
+    // gifting subs earns boxes too, one per giftSubsPerBox. counts subs, not tier points, across twitch,
+    // youtube and kick alike. "batch" wants that many in ONE gift (a bomb of 50 against 25 earns two);
+    // "cumulative" keeps a running tally per gifter (see giftSubProgress), so five gifts of five earn one.
+    giftSubsEnabled: false,
+    giftSubsPerBox: 25,
+    giftSubsMode: "batch",
     // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
     // one open, and looping it would have the tail of the last spin still going under the reveal.
     music: "",
@@ -291,6 +299,9 @@ export function normalizeMysteryBox(raw: any): any {
                 .filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
                 .slice(0, 50)
             : d.firesaleItems,
+        giftSubsEnabled: r.giftSubsEnabled === undefined ? d.giftSubsEnabled : !!r.giftSubsEnabled,
+        giftSubsPerBox: numIn(r.giftSubsPerBox, 1, MAX_GIFT_SUBS_PER_BOX, d.giftSubsPerBox),
+        giftSubsMode: GIFT_SUB_MODES.includes(r.giftSubsMode) ? r.giftSubsMode : d.giftSubsMode,
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
@@ -426,6 +437,46 @@ export function grantMysteryBox(session: TimerUserSession, login: any, displayNa
     return next;
 }
 
+// gifted subs earn the gifter boxes. in batch mode it's judged per gift bomb — twitch sends a bomb as one
+// event with the whole count, which is the "gifted 25 subs" people mean. in cumulative mode every gift adds
+// to the gifter's tally and each full giftSubsPerBox is cashed in, the leftover carried to the next gift.
+// an anonymous gifter has nobody to credit, so they get nothing either way.
+export function mbGiftProgress(session: TimerUserSession): Ledger {
+    return session.giftSubProgress || (session.giftSubProgress = {});
+}
+
+export function creditGiftedSubs(session: TimerUserSession, event: TimerEvent){
+    const cfg = mbSettings(session);
+    if (!cfg.enabled || !cfg.giftSubsEnabled || event.manual || !event.gifted || event.anonymous)
+        return;
+    const gifter = String(event.gifter || "").trim();
+    if (!gifter)
+        return;
+    const per = Math.max(1, cfg.giftSubsPerBox);
+    const subs = Math.max(1, Math.trunc(Number(event.count) || 1));
+    const gave = `gifted ${subs} sub${subs === 1 ? "" : "s"} on ${event.platform}`;
+    if (cfg.giftSubsMode !== "cumulative"){
+        const boxes = Math.floor(subs / per);
+        if (boxes > 0)
+            grantMysteryBox(session, gifter, gifter, boxes, gave);
+        return;
+    }
+    const progress = mbGiftProgress(session);
+    const total = ledgerCount(progress, gifter) + subs;
+    const boxes = Math.floor(total / per);
+    // set the tally to the leftover: grant the difference, since ledgerGrant only adds
+    ledgerGrant(progress, gifter, gifter, (total % per) - ledgerCount(progress, gifter));
+    if (boxes > 0)
+        grantMysteryBox(session, gifter, gifter, boxes, `${gave}, ${total} toward boxes of ${per}`);
+    else
+        emitSync(session.userId); // the tab shows the tally
+}
+
+export function clearGiftProgress(session: TimerUserSession){
+    session.giftSubProgress = {};
+    emitSync(session.userId);
+}
+
 // ray gun charges: the same kind of wallet, spent with "!raygun <name>" instead of on a reel
 export function mbRayguns(session: TimerUserSession): Ledger {
     return session.rayguns || (session.rayguns = {});
@@ -448,6 +499,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
         return { ok: false, message: `Nobody called "${from}" is holding a box, or those are the same name.` };
     // charges follow the boxes: it's the same person being corrected to the same login
     ledgerRename(mbRayguns(session), from, to);
+    ledgerRename(mbGiftProgress(session), from, to);
     emitSync(session.userId);
     return { ok: true, message: `Moved ${moved} box${moved === 1 ? "" : "es"} from ${from} to ${to}.` };
 }
@@ -682,6 +734,8 @@ export function openBlockedBy(session: TimerUserSession): string {
     const f = session.firesale;
     if (f && Array.isArray(f.runs) && f.runs.length)
         return "a firesale is running";
+    if (session.raffle && session.raffle.run)
+        return "a raffle is running";
     const pause = session.timerPause;
     if (pause)
         return `${pause.reason} still has the timer frozen`;

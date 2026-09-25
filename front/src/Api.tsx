@@ -139,6 +139,29 @@ export function setMysteryBoxSettings(ws: WebSocket, settings: any) {
 	return 1;
 }
 
+// the raffle tab's settings. merged server-side, so one field can be pushed on its own.
+export function setRaffleSettings(ws: WebSocket, settings: any) {
+	send(ws, { event: "setRaffleSettings", settings: settings });
+	return 1;
+}
+
+// start a raffle with what's on the tab (replaces one already on screen)
+export function startRaffle(ws: WebSocket) {
+	send(ws, { event: "startRaffle" });
+	return 1;
+}
+
+// close entries and draw the winners
+export function drawRaffle(ws: WebSocket) {
+	send(ws, { event: "drawRaffle" });
+	return 1;
+}
+
+export function stopRaffle(ws: WebSocket) {
+	send(ws, { event: "stopRaffle" });
+	return 1;
+}
+
 // hand someone boxes by hand, or take them back with a negative count
 export function giveMysteryBox(ws: WebSocket, name: string, count: number) {
 	send(ws, { event: "giveMysteryBox", name: name, count: count });
@@ -155,6 +178,12 @@ export function giveRaygun(ws: WebSocket, name: string, count: number) {
 // later types !mb open
 export function renameMysteryBoxOwner(ws: WebSocket, from: string, to: string) {
 	send(ws, { event: "renameMysteryBoxOwner", from: from, to: to });
+	return 1;
+}
+
+// wipe every cumulative gift sub tally toward a mystery box
+export function clearGiftSubProgress(ws: WebSocket) {
+	send(ws, { event: "clearGiftSubProgress" });
 	return 1;
 }
 

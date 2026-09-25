@@ -21,6 +21,7 @@ import {
 	giveMysteryBox,
 	giveRaygun,
 	renameMysteryBoxOwner,
+	clearGiftSubProgress,
 	testMysteryBox,
 	stopMysteryBox,
 	stopJukebox,
@@ -179,6 +180,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const guns: { [key: string]: any } = settings.rayguns || {};
 	const gunners = Object.keys(guns)
 		.map((k) => ({ key: k, name: guns[k].name || k, count: guns[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// cumulative gift sub tallies, closest to their next box first
+	const tallies: { [key: string]: any } = settings.giftSubProgress || {};
+	const gifters = Object.keys(tallies)
+		.map((k) => ({ key: k, name: tallies[k].name || k, count: tallies[k].count || 0 }))
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
 	// what the /events and /text effects can point at
@@ -1195,10 +1201,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						/>
 						<Text fontSize="sm">Chat can open them</Text>
 					</HStack>
-					<HStack spacing={2}>
-						<Switch isChecked={draft.grantOnFiresale} onChange={(e) => patch({ grantOnFiresale: e.target.checked })} />
-						<Text fontSize="sm">A firesale earns the gifter a box</Text>
-					</HStack>
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">Command</Text>
 						<Text fontSize="sm" color="gray.500">!</Text>
@@ -1220,68 +1222,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						/>
 					</HStack>
 				</HStack>
-				{draft.grantOnFiresale && (
-					<Box borderWidth="1px" borderRadius="md" p={3}>
-						<Text fontSize="sm" fontWeight="bold" mb={1}>Which giveaways earn one</Text>
-						<Text fontSize="xs" color="gray.500" mb={2}>
-							{draft.firesaleItems.length === 0
-								? "Nothing ticked, so every Fourthwall giveaway earns the gifter a box. Tick some to narrow it down."
-								: `Only giveaways of these earn a box — ${draft.firesaleItems.length} picked.`}
-						</Text>
-						{products === null && (
-							<Text fontSize="xs" color="gray.500">Loading your Fourthwall products…</Text>
-						)}
-						{products !== null && products.length === 0 && (
-							<Text fontSize="xs" color="gray.500">
-								No products loaded — connect Fourthwall, or type an item name in the box below.
-							</Text>
-						)}
-						<VStack align="stretch" spacing={0} maxH="200px" overflowY="auto" mb={2}>
-							{(products || []).map((p: any) => (
-								<Checkbox
-									key={p.id}
-									size="sm"
-									isChecked={draft.firesaleItems.includes(p.name)}
-									onChange={(e) => patch({
-										firesaleItems: e.target.checked
-											? [...draft.firesaleItems, p.name]
-											: draft.firesaleItems.filter((n: string) => n !== p.name),
-									})}
-								>
-									<Text fontSize="sm">{p.name}</Text>
-								</Checkbox>
-							))}
-						</VStack>
-						{/* anything ticked that ISN'T one of the loaded products — a name typed by hand, or a
-						    product that has since been renamed or delisted. it would otherwise vanish from the
-						    list while still silently deciding who gets a box. */}
-						{draft.firesaleItems.filter((n: string) => !(products || []).some((p: any) => p.name === n)).map((n: string) => (
-							<Flex key={n} align="center" gap={2} mb={1}>
-								<Badge colorScheme="purple">match</Badge>
-								<Text fontSize="sm" flex="1">{n}</Text>
-								<Button size="xs" variant="ghost" onClick={() => patch({ firesaleItems: draft.firesaleItems.filter((x: string) => x !== n) })}>
-									remove
-								</Button>
-							</Flex>
-						))}
-						<HStack spacing={2} mt={1}>
-							<Input
-								size="sm"
-								maxW="280px"
-								placeholder="…or part of an item name, e.g. box of 8"
-								value={itemRule}
-								onChange={(e) => setItemRule(e.target.value)}
-								onKeyDown={(e) => { if (e.key === "Enter") addItemRule(); }}
-							/>
-							<Button size="sm" isDisabled={!itemRule.trim()} onClick={addItemRule}>Add</Button>
-						</HStack>
-						<Text fontSize="xs" color="gray.500" mt={1}>
-							Matched against what Fourthwall announces, ignoring case — a partial name is enough, so
-							&quot;collector&quot; covers every collector&apos;s edition.
-						</Text>
-					</Box>
-				)}
-
 				<Text fontSize="xs" color="gray.500">
 					Chat types <Code fontSize="xs">!{draft.command} open</Code> to open one and{" "}
 					<Code fontSize="xs">!{draft.command} count</Code> to ask how many they have.
@@ -1365,6 +1305,122 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<input type="color" value={draft.nameColor} onChange={(e) => patch({ nameColor: e.target.value }, "name")} />
 					</HStack>
 				</HStack>
+			</VStack>
+
+			{/* ---- what earns a box ---- */}
+			<Text fontWeight="bold" mb={2}>What earns a box</Text>
+			<VStack align="stretch" spacing={3} mb={5} opacity={draft.enabled ? 1 : 0.6}>
+				<Box borderWidth="1px" borderRadius="md" p={3}>
+					<HStack spacing={2} mb={draft.grantOnFiresale ? 2 : 0}>
+						<Switch isChecked={draft.grantOnFiresale} onChange={(e) => patch({ grantOnFiresale: e.target.checked })} />
+						<Text fontSize="sm" fontWeight="bold">Firesales</Text>
+						{!draft.grantOnFiresale && <Badge>OFF</Badge>}
+					</HStack>
+					{draft.grantOnFiresale && (<>
+						<Text fontSize="xs" color="gray.500" mb={2}>
+							{draft.firesaleItems.length === 0
+								? "Nothing ticked, so every Fourthwall giveaway earns the gifter a box. Tick some to narrow it down."
+								: `Only giveaways of these earn a box — ${draft.firesaleItems.length} picked.`}
+						</Text>
+						{products === null && (
+							<Text fontSize="xs" color="gray.500">Loading your Fourthwall products…</Text>
+						)}
+						{products !== null && products.length === 0 && (
+							<Text fontSize="xs" color="gray.500">
+								No products loaded — connect Fourthwall, or type an item name in the box below.
+							</Text>
+						)}
+						<VStack align="stretch" spacing={0} maxH="200px" overflowY="auto" mb={2}>
+							{(products || []).map((p: any) => (
+								<Checkbox
+									key={p.id}
+									size="sm"
+									isChecked={draft.firesaleItems.includes(p.name)}
+									onChange={(e) => patch({
+										firesaleItems: e.target.checked
+											? [...draft.firesaleItems, p.name]
+											: draft.firesaleItems.filter((n: string) => n !== p.name),
+									})}
+								>
+									<Text fontSize="sm">{p.name}</Text>
+								</Checkbox>
+							))}
+						</VStack>
+						{/* anything ticked that ISN'T one of the loaded products — a name typed by hand, or a
+						    product that has since been renamed or delisted. it would otherwise vanish from the
+						    list while still silently deciding who gets a box. */}
+						{draft.firesaleItems.filter((n: string) => !(products || []).some((p: any) => p.name === n)).map((n: string) => (
+							<Flex key={n} align="center" gap={2} mb={1}>
+								<Badge colorScheme="purple">match</Badge>
+								<Text fontSize="sm" flex="1">{n}</Text>
+								<Button size="xs" variant="ghost" onClick={() => patch({ firesaleItems: draft.firesaleItems.filter((x: string) => x !== n) })}>
+									remove
+								</Button>
+							</Flex>
+						))}
+						<HStack spacing={2} mt={1}>
+							<Input
+								size="sm"
+								maxW="280px"
+								placeholder="…or part of an item name, e.g. box of 8"
+								value={itemRule}
+								onChange={(e) => setItemRule(e.target.value)}
+								onKeyDown={(e) => { if (e.key === "Enter") addItemRule(); }}
+							/>
+							<Button size="sm" isDisabled={!itemRule.trim()} onClick={addItemRule}>Add</Button>
+						</HStack>
+						<Text fontSize="xs" color="gray.500" mt={1}>
+							Matched against what Fourthwall announces, ignoring case — a partial name is enough, so
+							&quot;collector&quot; covers every collector&apos;s edition.
+						</Text>
+					</>)}
+				</Box>
+
+				<Box borderWidth="1px" borderRadius="md" p={3}>
+					<HStack spacing={2} mb={draft.giftSubsEnabled ? 2 : 0}>
+						<Switch isChecked={draft.giftSubsEnabled} onChange={(e) => patch({ giftSubsEnabled: e.target.checked })} />
+						<Text fontSize="sm" fontWeight="bold">Gifted subs</Text>
+						{!draft.giftSubsEnabled && <Badge>OFF</Badge>}
+					</HStack>
+					{draft.giftSubsEnabled && (<>
+						<HStack spacing={2} wrap="wrap" mb={2}>
+							<Text fontSize="sm" color="gray.600">One box per</Text>
+							<NumberField width="80px" min={1} max={1000} value={draft.giftSubsPerBox} onCommit={(n) => patch({ giftSubsPerBox: n }, "gift")} />
+							<Text fontSize="sm" color="gray.600">gifted subs,</Text>
+							<Select size="sm" maxW="160px" value={draft.giftSubsMode} onChange={(e) => patch({ giftSubsMode: e.target.value })}>
+								<option value="batch">All at once</option>
+								<option value="cumulative">Cumulative</option>
+							</Select>
+						</HStack>
+						<Text fontSize="xs" color="gray.500">
+							{draft.giftSubsMode === "cumulative"
+								? <>Every <b>{draft.giftSubsPerBox}</b> subs someone gifts earns them a box, however many gifts it takes — the leftover carries over to their next gift.</>
+								: <>Someone has to gift <b>{draft.giftSubsPerBox}</b> subs in one go to earn a box (twice that in one go earns two). Smaller gifts don&apos;t add up.</>}
+							{" "}Counts subs on Twitch, YouTube and Kick, whatever the tier. Anonymous gifts earn nothing.
+						</Text>
+						{draft.giftSubsMode === "cumulative" && (
+							<Box mt={2}>
+								<Flex align="center" gap={2} mb={1}>
+									<Text fontSize="sm" fontWeight="bold" flex="1">Toward their next box</Text>
+									<Button size="xs" variant="ghost" isDisabled={gifters.length === 0} onClick={() => clearGiftSubProgress(ws)}>
+										reset all
+									</Button>
+								</Flex>
+								{gifters.length === 0 && (
+									<Text fontSize="xs" color="gray.500">Nobody is part of the way there yet.</Text>
+								)}
+								<VStack align="stretch" spacing={0} maxH="160px" overflowY="auto">
+									{gifters.map((g) => (
+										<Flex key={g.key} align="center" gap={2}>
+											<Text fontSize="sm" flex="1">{g.name}</Text>
+											<Text fontSize="sm" color="gray.600">{g.count} / {draft.giftSubsPerBox}</Text>
+										</Flex>
+									))}
+								</VStack>
+							</Box>
+						)}
+					</>)}
+				</Box>
 			</VStack>
 
 			<Text fontSize="xs" color="gray.500">

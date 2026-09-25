@@ -82,7 +82,9 @@ const CSS = `
 }
 `;
 
-const Firesale: React.FC = () => {
+// the /raffle source is this same overlay: the backend hands it the firesale's payload shape under its own key,
+// plus the title to put in the middle
+const Firesale: React.FC<{ kind?: "firesale" | "raffle" }> = ({ kind = "firesale" }) => {
 	const params = new URLSearchParams(window.location.search);
 	const token = params.get("token");
 
@@ -116,15 +118,15 @@ const Firesale: React.FC = () => {
 			ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
 			try { ws.close(); } catch {}
 		}
-		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=firesale`);
+		ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token || "")}&page=${kind}`);
 
 		ws.onmessage = (event: any) => {
 			const response = JSON.parse(event.data);
 			// the same payload arrives two ways: pushed the moment anything changes (a new entrant, a phase
 			// turning over) and carried on the periodic sync, which is what recovers a source that reconnected
 			// in the middle of a giveaway.
-			if ("firesale" in response && response.firesale)
-				setRun(response.firesale);
+			if (kind in response && response[kind])
+				setRun(response[kind]);
 			else if ("error" in response)
 				console.log(`error: ${response.error}`);
 		};
@@ -176,6 +178,9 @@ const Firesale: React.FC = () => {
 	}, []);
 
 	const cfg = canonFiresale(run || {});
+	const title = (run && typeof run.title === "string" && run.title) || "FIRESALE";
+	// a custom raffle title can be a lot longer than FIRESALE, so it shrinks to fit across
+	const titleFit = Math.floor((STAGE_W - 80) / (Math.max(1, title.length) * 0.5));
 	// several giveaways can be open at once, so the payload carries a list. the bouncing field is the union of
 	// everyone entered in any of them (the server already merged it); these split the list by what each run is
 	// doing, because a resolved giveaway and one still taking entries share the screen.
@@ -509,7 +514,7 @@ const Firesale: React.FC = () => {
 									animation: "fs-flash 420ms steps(1, end) infinite",
 									color: cfg.titleColor,
 									// a second giveaway adds another line below, so the title gives up some height for it
-									fontSize: openRuns.length >= 2 ? 116 : 148,
+									fontSize: Math.min(titleFit, openRuns.length >= 2 ? 116 : 148),
 									lineHeight: 0.95,
 									letterSpacing: "0.03em",
 									WebkitTextStrokeWidth: "6px",
@@ -518,7 +523,7 @@ const Firesale: React.FC = () => {
 									textShadow: "0 0 40px rgba(255,60,0,0.9), 0 8px 0 rgba(0,0,0,0.55)",
 								}}
 							>
-								FIRESALE
+								{title}
 							</div>
 						</div>
 					) : (
@@ -536,11 +541,19 @@ const Firesale: React.FC = () => {
 									{/* a multi-item giveaway has several, and calling that "WINNER" reads as a mistake */}
 									{(w.winners || []).length > 1 ? "WINNERS" : "WINNER"}
 								</div>
+								{/* past six names one per line runs off the frame, so a big draw wraps them into rows */}
+								<div
+									style={(w.winners || []).length > 6
+										? { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0 28px", maxWidth: STAGE_W - 80, margin: "0 auto" }
+										: undefined}
+								>
 								{(w.winners || []).map((name: string) => (
 									<div
 										key={name}
 										style={{
-											fontSize: winnerNameSize(allWinnerNames, winnerLines, openRuns.length > 0),
+											fontSize: (w.winners || []).length > 6
+												? ((w.winners || []).length > 12 ? 34 : 44)
+												: winnerNameSize(allWinnerNames, winnerLines, openRuns.length > 0),
 											lineHeight: 1.08,
 											whiteSpace: "nowrap",
 											color: cfg.nameColor,
@@ -553,6 +566,7 @@ const Firesale: React.FC = () => {
 										{name}
 									</div>
 								))}
+								</div>
 								{/* WHICH prize was won. never optional when more than one giveaway is in play — a bare
 								    name would leave viewers guessing which one they just won. */}
 								{w.prize && (
@@ -570,6 +584,21 @@ const Firesale: React.FC = () => {
 										{w.prize}
 									</div>
 								)}
+								{/* a raffle paying out in mystery boxes says so */}
+								{w.bonus && (
+									<div
+										style={{
+											marginTop: 4,
+											fontSize: 30,
+											color: "#ffe600",
+											WebkitTextStrokeWidth: "4px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+										}}
+									>
+										{w.bonus}
+									</div>
+								)}
 							</div>
 						))
 					)}
@@ -579,7 +608,7 @@ const Firesale: React.FC = () => {
 					    isn't in it. a run that's closed says so here instead of showing a count. */}
 					{openRuns.length > 0 && (
 						<div style={{ marginTop: winners.length ? 10 : 6, display: "flex", flexDirection: "column", gap: 2 }}>
-							{openRuns.map((r) => (
+							{openRuns.filter((r) => kind === "firesale" || r.prize).map((r) => (
 								<div
 									key={r.id}
 									style={{
