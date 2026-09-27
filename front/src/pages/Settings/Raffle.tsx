@@ -22,7 +22,7 @@ import MaskedUrl from "../../MaskedUrl";
 import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
 import { countdown } from "../../firesale";
-import { canonRaffle, MAX_RAFFLE_WINNERS } from "../../raffle";
+import { canonRaffle, raffleCommand, MAX_RAFFLE_WINNERS } from "../../raffle";
 
 // audio in public/media (vite.config.ts bakes the list in) — the same folder the firesale draws on
 const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_FILES__ : [];
@@ -97,6 +97,22 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 			toast(ok
 				? { title: "Source URL copied", status: "success", duration: 1500 }
 				: { title: "Couldn't copy — reveal the URL and copy it manually", status: "error", duration: 3000 }));
+	};
+
+	// the whole setup as a terminal command, for an event or a chat macro
+	const command = raffleCommand({
+		seconds: draft.entrySec,
+		winners: draft.winners,
+		giveBoxes: draft.giveBoxes,
+		boxesPerWinner: draft.boxesPerWinner,
+		title: draft.title,
+		prize: draft.prize,
+	});
+	const copyCommand = () => {
+		copyText(command).then((ok) =>
+			toast(ok
+				? { title: "Command copied", description: command, status: "success", duration: 2500 }
+				: { title: "Couldn't copy — select the command and copy it manually", status: "error", duration: 3000 }));
 	};
 
 	// a start sends what's on screen, so flush any edit still waiting on its debounce first
@@ -295,6 +311,16 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 					<Switch isChecked={draft.announceInChat} onChange={(e) => patch({ announceInChat: e.target.checked })} />
 					<Text color="gray.500" fontSize="xs">Posts the winners as a Twitch announcement from the bot account.</Text>
 				</Flex>
+
+				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
+					<Text color="gray.500" w="150px">As a command</Text>
+					<Code fontSize="xs" p={2} flex="1" minW="200px" overflowX="auto" whiteSpace="nowrap">{command}</Code>
+					<Button size="sm" onClick={copyCommand}>Copy</Button>
+				</Flex>
+				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+					Starts this raffle from the Terminal, from chat as a mod (<Code fontSize="xs">!{command}</Code>), or from an
+					event&apos;s terminal command.
+				</Text>
 			</VStack>
 
 			{/* ---- look and sound ---- */}

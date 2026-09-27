@@ -109,6 +109,27 @@ function normalizeTriggers(raw: any): any[] {
     return out;
 }
 
+// an event can start a raffle as well as (or instead of) playing a clip. every field but enabled/delaySec is an
+// override on the Raffle tab's setup for that one raffle: blank/null = whatever the tab says.
+function normalizeEventRaffle(raw: any): any {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const inRange = (v: any, min: number, max: number) => {
+        const n = numOrNull(v);
+        return n == null ? null : Math.min(max, Math.max(min, n));
+    };
+    const dN = Number(r.delaySec);
+    return {
+        enabled: !!r.enabled,
+        delaySec: Number.isFinite(dN) && dN >= 0 ? Math.min(86400, dN) : 0,
+        title: typeof r.title === "string" ? r.title.slice(0, 40) : "",
+        prize: typeof r.prize === "string" ? r.prize.slice(0, 200) : "",
+        entrySec: inRange(r.entrySec, 0, 3600),
+        winners: inRange(r.winners, 1, 20),
+        giveBoxes: typeof r.giveBoxes === "boolean" ? r.giveBoxes : null,
+        boxesPerWinner: inRange(r.boxesPerWinner, 1, 99),
+    };
+}
+
 function normalizeOne(raw: any, i: number): any | null {
     if (!raw || typeof raw !== "object")
         return null;
@@ -145,6 +166,7 @@ function normalizeOne(raw: any, i: number): any | null {
         volume,
         cmdText,
         cmdDelaySec,
+        raffle: normalizeEventRaffle(raw.raffle),
     };
 }
 

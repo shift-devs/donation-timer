@@ -67,6 +67,7 @@ export function commandHelp(): string {
     lines.push("  changetext puts words on a /text browser source, e.g. changetext topic \"speedruns all night\" — type \\n for a line break");
     lines.push("  firesale: start [seconds], stop, draw, winner <name> — the giveaway overlay, normally started by Fourthwall");
     lines.push("  raffle: start [seconds], draw, stop — the raffle on the Raffle tab (0 seconds = open until drawn)");
+    lines.push("    start also takes overrides for that one raffle: winners=3 boxes=2 (0 = none) title=\"BIG RAFFLE\" prize=\"Signed poster\"");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
     return lines.join("\n");
@@ -74,7 +75,7 @@ export function commandHelp(): string {
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, seconds?: number }; mb?: { action: string, name: string, count: number }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -112,10 +113,49 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         const action = (parts[1] || "").toLowerCase();
         if (!RAFFLE_ACTIONS.includes(action))
             return { error: `Usage: raffle ${RAFFLE_ACTIONS.join(" | ")} — e.g. "raffle start 120".` };
-        const seconds = action === "start" && parts[2] !== undefined ? Number(parts[2]) : undefined;
-        if (seconds !== undefined && !Number.isFinite(seconds))
-            return { error: `Usage: raffle start [seconds]` };
-        return { raffle: { action, seconds } };
+        if (action !== "start")
+            return { raffle: { action } };
+        // everything after "start": an optional bare number of seconds, then key=value overrides, a value in
+        // "quotes" when it has spaces. taken off the raw text so a prize keeps its capitals from the terminal.
+        const rest = raw.replace(/^\s*\S+\s+\S+\s*/, "").replace(/[“”]/g, '"');
+        const overrides: any = {};
+        const bad: string[] = [];
+        const re = /(\w+)=(?:"([^"]*)"|(\S+))|(\S+)/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(rest))){
+            if (m[4] !== undefined){
+                const n = Number(m[4]);
+                if (Number.isFinite(n) && overrides.seconds === undefined)
+                    overrides.seconds = n;
+                else
+                    bad.push(m[4]);
+                continue;
+            }
+            const key = m[1].toLowerCase();
+            const val = m[2] !== undefined ? m[2] : m[3];
+            if (key === "seconds" || key === "secs" || key === "time")
+                overrides.seconds = Number(val);
+            else if (key === "winners")
+                overrides.winners = Number(val);
+            else if (key === "boxes"){
+                // boxes=0 turns them off for this raffle; any other number turns them on at that many each
+                const n = Number(val);
+                if (Number.isFinite(n)){
+                    overrides.giveBoxes = n > 0;
+                    if (n > 0)
+                        overrides.boxesPerWinner = n;
+                }
+            }
+            else if (key === "title")
+                overrides.title = val;
+            else if (key === "prize")
+                overrides.prize = val;
+            else
+                bad.push(m[0]);
+        }
+        if (bad.length)
+            return { error: `raffle start: didn't understand ${bad.join(", ")}. Try: raffle start 120 winners=3 boxes=1 prize="Signed poster"` };
+        return { raffle: { action, overrides } };
     }
 
     if (head === "mb") {

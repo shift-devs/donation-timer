@@ -4,6 +4,7 @@ import { emitPlayEvent, emitTerminal, reportError } from "./bus";
 import { parseCommand } from "./commands";
 import { handle } from "./events";
 import { DONATION_SOURCES } from "./timerEvents";
+import { startRaffle, isRaffling } from "./raffle";
 
 // drives events. an event holds a list of triggers and fires when ANY of them does:
 //   daily / once  — off the clock, evaluated by the tick below
@@ -114,13 +115,44 @@ function scheduleEventCommand(session: TimerUserSession, ev: any) {
     }, delayMs);
 }
 
+// optional raffle, delaySec after the event fires, with the event's overrides over the Raffle tab's setup.
+// an automatic start never tramples a raffle that's already up — the people in it would lose their entries —
+// so it says so on the terminal and skips instead. (a start by hand still replaces, since that's a choice.)
+function scheduleEventRaffle(session: TimerUserSession, ev: any) {
+    const r = ev.raffle;
+    if (!r || !r.enabled)
+        return;
+    setTimeout(() => {
+        try {
+            if (session.loggedOut)
+                return;
+            if (isRaffling(session)){
+                emitTerminal(session.userId, `Event "${ev.name || ev.id}" wanted to start a raffle, but one is already running — skipped.`);
+                return;
+            }
+            startRaffle(session, {
+                seconds: r.entrySec,
+                title: r.title,
+                prize: r.prize,
+                winners: r.winners,
+                giveBoxes: r.giveBoxes,
+                boxesPerWinner: r.boxesPerWinner,
+            });
+        } catch (err) {
+            reportError(session.userId, `starting event "${ev.name || ev.id}" raffle`, err);
+        }
+    }, Math.max(0, Number(r.delaySec) || 0) * 1000);
+}
+
 // play an event now: the clip on the /events source plus its optional delayed command. the remaining-time
 // window is the one condition every trigger shares, so it's checked here rather than in each matcher.
 function fireEvent(session: TimerUserSession, ev: any, remainingMs: number) {
     if (!windowMatches(ev, remainingMs))
         return;
-    emitPlayEvent(session.userId, playPayload(ev));
+    if (ev.mediaSrc) // a raffle-only event has nothing to play
+        emitPlayEvent(session.userId, playPayload(ev));
     scheduleEventCommand(session, ev);
+    scheduleEventRaffle(session, ev);
 }
 
 // a gift bomb matches when it came from a service the trigger listens to and its size is inside the (optional)
@@ -255,7 +287,9 @@ export function testTimerEvent(session: TimerUserSession, id: string) {
     const events = Array.isArray(session.timerEvents) ? session.timerEvents : [];
     const ev = events.find((e: any) => e && e.id === id);
     if (ev){
-        emitPlayEvent(session.userId, playPayload(ev));
+        if (ev.mediaSrc)
+            emitPlayEvent(session.userId, playPayload(ev));
         scheduleEventCommand(session, ev);
+        scheduleEventRaffle(session, ev);
     }
 }

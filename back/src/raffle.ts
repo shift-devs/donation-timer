@@ -207,12 +207,51 @@ function pushSoon(session: TimerUserSession){
     }, PUSH_COALESCE);
 }
 
-// start a raffle with whatever is on the tab. `seconds` overrides the entry window (the terminal's
-// "raffle start 60"); undefined keeps the tab's.
-export function startRaffle(session: TimerUserSession, seconds?: number): any {
-    const cfg = raffleSettings(session);
+// what a single start can change about the raffle, over what's on the tab. anything left out keeps the tab's.
+// a timer event carries one of these, and so can "raffle start" in the terminal.
+export type RaffleOverrides = {
+    seconds?: number | null,
+    title?: string | null,
+    prize?: string | null,
+    winners?: number | null,
+    giveBoxes?: boolean | null,
+    boxesPerWinner?: number | null,
+};
+
+// the same bounds the settings get, applied to one start's overrides. nulls and blanks drop out, so a caller
+// can pass a half-filled form straight through.
+export function normalizeRaffleOverrides(raw: any): RaffleOverrides {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const num = (v: any, min: number, max: number) => {
+        if (v == null || v === "")
+            return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : undefined;
+    };
+    const text = (v: any, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
+    const out: RaffleOverrides = {};
+    const seconds = num(r.seconds, 0, 3600);
+    if (seconds !== undefined) out.seconds = seconds;
+    const title = text(r.title, MAX_TITLE);
+    if (title !== undefined) out.title = title;
+    const prize = text(r.prize, MAX_PRIZE);
+    if (prize !== undefined) out.prize = prize;
+    const winners = num(r.winners, 1, MAX_WINNERS);
+    if (winners !== undefined) out.winners = winners;
+    if (typeof r.giveBoxes === "boolean") out.giveBoxes = r.giveBoxes;
+    const boxes = num(r.boxesPerWinner, 1, MAX_BOXES);
+    if (boxes !== undefined) out.boxesPerWinner = boxes;
+    return out;
+}
+
+// start a raffle with whatever is on the tab, with any overrides laid over the top for this one run
+export function startRaffle(session: TimerUserSession, overrides: RaffleOverrides = {}): any {
+    const o = normalizeRaffleOverrides(overrides);
+    const cfg = { ...raffleSettings(session), ...o };
+    if (o.seconds !== undefined)
+        cfg.entrySec = o.seconds;
     const f = getRaffle(session);
-    const secs = seconds === undefined ? cfg.entrySec : numIn(seconds, 0, 3600, cfg.entrySec);
+    const secs = cfg.entrySec;
     clearRunTimers(session.userId);
     f.seq = (f.seq || 0) + 1;
     f.nonce = (f.nonce || 0) + 1;
@@ -336,14 +375,14 @@ export function endRaffleTimers(userId: number){
 // the "raffle <action>" command, from the terminal or a mod in chat
 // ---------------------------------------------------------------------------
 
-export function runRaffleCommand(session: TimerUserSession, cmd: { action: string, seconds?: number }): { ok: boolean, message: string } {
+export function runRaffleCommand(session: TimerUserSession, cmd: { action: string, overrides?: RaffleOverrides }): { ok: boolean, message: string } {
     const cfg = raffleSettings(session);
     const run = currentRun(session);
     if (cmd.action === "start"){
         const replaced = !!run;
-        const r = startRaffle(session, cmd.seconds);
+        const r = startRaffle(session, cmd.overrides);
         const secs = r.endsAt ? Math.round((r.endsAt - r.startedAt) / 1000) : 0;
-        return { ok: true, message: `Raffle started${replaced ? " (replaced the one on screen)" : ""} — !${cfg.command} to enter, ${secs ? `${secs}s` : "open until you draw"}.` };
+        return { ok: true, message: `Raffle started${replaced ? " (replaced the one on screen)" : ""} — !${cfg.command} to enter, ${r.want} winner${r.want === 1 ? "" : "s"}${r.boxes ? ` getting ${r.boxes} box${r.boxes === 1 ? "" : "es"} each` : ""}, ${secs ? `${secs}s` : "open until you draw"}.` };
     }
     if (cmd.action === "draw"){
         if (!run || run.phase !== "running")

@@ -32,6 +32,7 @@ import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import { BASE_URL } from "../../Consts";
 import { parseYouTube } from "../../youtube";
+import { raffleCommand } from "../../raffle";
 
 // media files found in public/media at build time (vite.config.ts bakes the list in) — the
 // dropdown lists these and only these; audio-vs-video is derived from the chosen file's extension
@@ -275,6 +276,50 @@ const fwBackwards = (t: any) => rangeIsBackwards(parseCount(t.fwMin), parseCount
 // ---- events -----------------------------------------------------------------------------------------------------
 
 // coerce server data into a complete canonical event (fills any missing fields with defaults)
+// the raffle an event can start. every field but enabled/delaySec overrides the Raffle tab's setup for that
+// one raffle; blank/null = use the tab's. mirrors normalizeEventRaffle on the server, key order included,
+// since the dirty check compares these as json.
+function canonEventRaffle(raw: any) {
+	const r = raw && typeof raw === "object" ? raw : {};
+	const inRange = (v: any, min: number, max: number) => {
+		const n = numOrNull(v);
+		return n == null ? null : Math.min(max, Math.max(min, n));
+	};
+	const d = Number(r.delaySec);
+	return {
+		enabled: !!r.enabled,
+		delaySec: Number.isFinite(d) && d >= 0 ? Math.min(86400, d) : 0,
+		title: typeof r.title === "string" ? r.title.slice(0, 40) : "",
+		prize: typeof r.prize === "string" ? r.prize.slice(0, 200) : "",
+		entrySec: inRange(r.entrySec, 0, 3600),
+		winners: inRange(r.winners, 1, 20),
+		giveBoxes: typeof r.giveBoxes === "boolean" ? r.giveBoxes : null,
+		boxesPerWinner: inRange(r.boxesPerWinner, 1, 99),
+	};
+}
+
+// number boxes are edited as text, so a half-typed value doesn't snap
+const raffleToEdit = (r: any) => ({
+	...r,
+	delaySec: String(r.delaySec || 0),
+	entrySec: r.entrySec == null ? "" : String(r.entrySec),
+	winners: r.winners == null ? "" : String(r.winners),
+	boxesPerWinner: r.boxesPerWinner == null ? "" : String(r.boxesPerWinner),
+	giveBoxes: r.giveBoxes == null ? "tab" : r.giveBoxes ? "yes" : "no",
+});
+
+const raffleToCanon = (r: any) => canonEventRaffle({
+	...r,
+	delaySec: parseDelaySec(r.delaySec),
+	giveBoxes: r.giveBoxes === "yes" ? true : r.giveBoxes === "no" ? false : null,
+});
+
+// this event's raffle as the equivalent terminal command, blanks left out so they fall back the same way
+function eventRaffleCommand(r: any): string {
+	const c = raffleToCanon(r);
+	return raffleCommand({ seconds: c.entrySec, winners: c.winners, giveBoxes: c.giveBoxes, boxesPerWinner: c.boxesPerWinner, title: c.title, prize: c.prize });
+}
+
 function canonFromServer(raw: any) {
 	const r = raw || {};
 	const end = numOrNull(r.clipEndSec);
@@ -306,6 +351,7 @@ function canonFromServer(raw: any) {
 		volume: Number.isFinite(Number(r.volume)) ? Math.min(1, Math.max(0, Number(r.volume))) : 1,
 		cmdText: typeof r.cmdText === "string" ? r.cmdText : "",
 		cmdDelaySec: Number.isFinite(Number(r.cmdDelaySec)) && Number(r.cmdDelaySec) >= 0 ? Number(r.cmdDelaySec) : 0,
+		raffle: canonEventRaffle(r.raffle),
 	};
 }
 
@@ -318,6 +364,7 @@ const toEdit = (c: any) => {
 		minRemaining: fmtHMS(c.minRemainingMs),
 		maxRemaining: fmtHMS(c.maxRemainingMs),
 		cmdDelay: String(cmdDelaySec ?? 0),
+		raffle: raffleToEdit(c.raffle),
 		// a saved src is a media-folder path, a youtube link, or a direct url — split them apart so flipping
 		// the dropdown keeps whatever was set under the other two
 		source: yt ? "youtube" : /^https?:\/\//i.test(c.mediaSrc || "") ? "link" : "file",
@@ -348,6 +395,7 @@ function toCanon(e: any) {
 		minRemainingMs: parseHMS(minRemaining),
 		maxRemainingMs: parseHMS(maxRemaining),
 		cmdDelaySec: parseDelaySec(cmdDelay),
+		raffle: raffleToCanon(e.raffle),
 	};
 }
 
@@ -423,6 +471,8 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 	const dirty = eventsDirty || layersDirty;
 
 	const update = (i: number, patch: any) => setDraft((d) => d.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+	const updateRaffle = (i: number, patch: any) =>
+		setDraft((d) => d.map((e, idx) => (idx === i ? { ...e, raffle: { ...e.raffle, ...patch } } : e)));
 	const remove = (i: number) => setDraft((d) => d.filter((_, idx) => idx !== i));
 	const add = () => setDraft((d) => [...d, defaultEdit()]);
 
@@ -819,11 +869,76 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				</Box>
 			</Flex>
 
+			{/* start a raffle */}
+			<Box mt={3} borderWidth="1px" borderRadius="md" p={3}>
+				<HStack mb={e.raffle.enabled ? 2 : 0}>
+					<Switch isChecked={e.raffle.enabled} onChange={(ev) => updateRaffle(i, { enabled: ev.currentTarget.checked })} />
+					<Text fontSize="sm" fontWeight={600}>Start a raffle</Text>
+					{!e.raffle.enabled && <Badge>OFF</Badge>}
+				</HStack>
+				{e.raffle.enabled && (<>
+					<Flex gap={3} wrap="wrap" align="center" fontSize="sm">
+						<HStack>
+							<NumberInput size="sm" maxW="80px" min={0} step={1} value={e.raffle.delaySec} onChange={(str: string) => updateRaffle(i, { delaySec: str })}>
+								<NumberInputField />
+							</NumberInput>
+							<Text color="gray.600">sec after the event fires</Text>
+						</HStack>
+						<HStack>
+							<Text color="gray.600">title</Text>
+							<Input size="sm" maxW="160px" maxLength={40} value={e.raffle.title} placeholder="(Raffle tab's)" onChange={(ev) => updateRaffle(i, { title: ev.currentTarget.value })} />
+						</HStack>
+						<HStack>
+							<Text color="gray.600">prize</Text>
+							<Input size="sm" maxW="220px" maxLength={200} value={e.raffle.prize} placeholder="(Raffle tab's)" onChange={(ev) => updateRaffle(i, { prize: ev.currentTarget.value })} />
+						</HStack>
+					</Flex>
+					<Flex gap={3} wrap="wrap" align="center" fontSize="sm" mt={2}>
+						<HStack>
+							<Text color="gray.600">entries open</Text>
+							<NumberInput size="sm" maxW="90px" min={0} max={3600} value={e.raffle.entrySec} onChange={(str: string) => updateRaffle(i, { entrySec: str })}>
+								<NumberInputField placeholder="tab's" />
+							</NumberInput>
+							<Text color="gray.600">sec</Text>
+						</HStack>
+						<HStack>
+							<Text color="gray.600">winners</Text>
+							<NumberInput size="sm" maxW="80px" min={1} max={20} value={e.raffle.winners} onChange={(str: string) => updateRaffle(i, { winners: str })}>
+								<NumberInputField placeholder="tab's" />
+							</NumberInput>
+						</HStack>
+						<HStack>
+							<Text color="gray.600">mystery boxes</Text>
+							<Select size="sm" width="170px" value={e.raffle.giveBoxes} onChange={(ev) => updateRaffle(i, { giveBoxes: ev.currentTarget.value })}>
+								<option value="tab">as on the Raffle tab</option>
+								<option value="yes">yes</option>
+								<option value="no">no</option>
+							</Select>
+							{e.raffle.giveBoxes !== "no" && (<>
+								<NumberInput size="sm" maxW="80px" min={1} max={99} value={e.raffle.boxesPerWinner} onChange={(str: string) => updateRaffle(i, { boxesPerWinner: str })}>
+									<NumberInputField placeholder="tab's" />
+								</NumberInput>
+								<Text color="gray.600">each</Text>
+							</>)}
+						</HStack>
+					</Flex>
+					<HStack mt={2}>
+						<Code fontSize="xs" p={1} flex="1" overflowX="auto" whiteSpace="nowrap">{eventRaffleCommand(e.raffle)}</Code>
+						<Button size="xs" onClick={() => copyText(eventRaffleCommand(e.raffle))}>Copy as command</Button>
+					</HStack>
+					<Text fontSize="xs" color="gray.500" mt={2}>
+						Anything left blank uses the <b>Raffle</b> tab&apos;s setup, and the look, sounds and entry command
+						always come from there. Entries open 0 = stays open until you hit Draw now. If a raffle is already
+						running when this fires, it&apos;s skipped rather than replacing it. Runs on real fires and on Test.
+					</Text>
+				</>)}
+			</Box>
+
 			<HStack mt={3}>
 				<Button
 					size="sm"
 					onClick={() => testTimerEvent(ws, e.id)}
-					isDisabled={dirty || !editedSrc(e)}
+					isDisabled={dirty || (!editedSrc(e) && !e.raffle.enabled)}
 					title={dirty ? "Save first — Test plays the saved version" : "Play now on the /events source"}
 				>
 					Test
@@ -840,7 +955,8 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 			<Text color="gray.500" fontSize="sm" mb={3}>
 				An event holds any number of triggers — a time of day, a one-off moment, a gifted-subs bomb, a cash
 				donation, or a shop product being bought. When any of them fires, and only if the live countdown's
-				remaining time is inside the window, it plays its clip on the browser source it renders to. Set up
+				remaining time is inside the window, it plays its clip on the browser source it renders to (and can
+				start a raffle too — see <b>Start a raffle</b> on each event). Set up
 				those sources under <b>OBS browser sources</b> below.
 			</Text>
 

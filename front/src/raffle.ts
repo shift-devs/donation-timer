@@ -78,3 +78,26 @@ export function canonRaffle(raw: any) {
 		nameColor: hexOr(r.nameColor, d.nameColor),
 	};
 }
+
+// the terminal command that starts this raffle — "raffle start 90 winners=3 boxes=2 prize=\"…\"". anything
+// null/blank is left out, so it falls back to the Raffle tab's setup when run. the parser has no escape for a
+// quote inside a quoted value, so those become apostrophes.
+export function raffleCommand(o: { seconds?: number | null, winners?: number | null, giveBoxes?: boolean | null, boxesPerWinner?: number | null, title?: string, prize?: string }): string {
+	const q = (s: string) => `"${s.trim().replace(/["“”]/g, "'")}"`;
+	const parts = ["raffle start"];
+	if (o.seconds != null)
+		parts.push(String(o.seconds));
+	if (o.winners != null)
+		parts.push(`winners=${o.winners}`);
+	// boxes=N switches them on, so it's only written when they ARE on — with the choice left to the tab
+	// (null), writing it would take that choice away
+	if (o.giveBoxes === false)
+		parts.push("boxes=0");
+	else if (o.giveBoxes === true)
+		parts.push(`boxes=${o.boxesPerWinner != null ? o.boxesPerWinner : 1}`);
+	if (o.title && o.title.trim())
+		parts.push(`title=${q(o.title)}`);
+	if (o.prize && o.prize.trim())
+		parts.push(`prize=${q(o.prize)}`);
+	return parts.join(" ");
+}
