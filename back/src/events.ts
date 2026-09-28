@@ -1,11 +1,12 @@
 import { TimerUserSession, TimerEvent } from "./types";
 import { CHAT_CMD_MAX_TIME } from "./config";
 import { toSeconds } from "./rates";
-import { addToEndTime, boostFactor, refreshTimebomb } from "./timer";
+import { addToEndTime, boostFactor, refreshTimebomb, isStoppedAtZero } from "./timer";
 import { emitSync, reportError } from "./bus";
 import { firePlatformTriggers } from "./scheduler";
 import { creditQuickRevive } from "./quickRevive";
 import { creditGiftedSubs } from "./mysterybox";
+import { rollForDrop } from "./drops";
 
 // tally a genuine (non-command) sub/membership for the /subcount browser sources. counts each gifted
 // recipient (gift bombs carry count = N) and is independent of the anon/rate/cap logic below — those
@@ -83,7 +84,13 @@ export function handle(session: TimerUserSession, event: TimerEvent){
             return;
         }
         // tag every logged action with its platform (one chokepoint -> covers organic + chat + terminal commands)
+        const stopped = isStoppedAtZero(session);
         addToEndTime(session, seconds, `[${event.platform}] ${label}`);
+        // a contribution that put time on the clock is a chance at a drop, and counts toward the hour's floor.
+        // what it was WORTH is what counts, not what the cap let through — a timer sitting at its cap would
+        // otherwise never drop anything. a timer stopped at zero took nothing, so that's no chance at all.
+        if (isContribution(event) && seconds > 0 && !stopped)
+            rollForDrop(session, event, seconds);
     } catch (err) {
         reportError(session.userId, `applying event "${(event && event.label) || "?"}"`, err);
     }

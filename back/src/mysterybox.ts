@@ -733,8 +733,13 @@ function buildReel(session: TimerUserSession, winnerId: string): { reel: string[
 export function openBlockedBy(session: TimerUserSession): string {
     if (isOpening(session))
         return "a box is already being opened";
-    if (isReviving(session))
-        return "a quick revive is running";
+    if (isReviving(session)){
+        const qr = session.quickRevive;
+        return qr && qr.spec && qr.spec.dropName ? "a drop is up" : "a quick revive is running";
+    }
+    // a drop that's waiting for the overlay goes first — otherwise a busy chat could keep it waiting forever
+    if (Array.isArray(session.dropQueue) && session.dropQueue.length)
+        return "a drop is on its way";
     const f = session.firesale;
     if (f && Array.isArray(f.runs) && f.runs.length)
         return "a firesale is running";
@@ -1027,9 +1032,25 @@ function holdEffect(session: TimerUserSession, seconds: number, what: string){
         session.mbEffect = { until, what };
 }
 
-export function applyEffect(session: TimerUserSession, prize: any){
+// who a prize is FOR, when it isn't the box on screen: a drop is won by chat, and its winner is whoever
+// finished the game. `test` is a rehearsal, which credits nobody. absent = the box being opened right now.
+export interface EffectFor {
+    login: string
+    name: string
+    test: boolean
+    label: string
+}
+
+function recipient(session: TimerUserSession, ctx?: EffectFor): { login: string, name: string, test: boolean } {
+    if (ctx)
+        return { login: String(ctx.login || "").toLowerCase(), name: ctx.name || ctx.login, test: !!ctx.test };
+    const mbState = getMysteryBox(session);
+    return { login: mbState.opener, name: mbState.openerName || mbState.opener, test: !!mbState.isTest };
+}
+
+export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectFor){
     const e = prize.effect || {};
-    const label = `mystery box: ${prize.name || prize.id}`;
+    const label = `${ctx ? ctx.label : "mystery box"}: ${prize.name || prize.id}`;
     if (e.kind === "addTime" && e.seconds > 0){
         addToEndTime(session, e.seconds, label);
         return;
@@ -1071,26 +1092,26 @@ export function applyEffect(session: TimerUserSession, prize: any){
     if (e.kind === "raygun" && e.charges > 0 && e.seconds > 0){
         // the winner is credited, not the target — this prize hands out a weapon rather than firing one, and
         // who it gets fired at is their decision to make later.
-        const mbState = getMysteryBox(session);
-        const who = mbState.opener;
-        if (!who || mbState.isTest)
+        const r = recipient(session, ctx);
+        const who = r.login;
+        if (!who || r.test)
             return; // a rehearsal must not credit a viewer called TEST
-        const held = grantRaygun(session, who, mbState.openerName, e.charges);
+        const held = grantRaygun(session, who, r.name, e.charges);
         const cfg = mbSettings(session);
-        emitTerminal(session.userId, `MYSTERYBOX — ${mbState.openerName || who} was given ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} (${held} in hand).`, true);
-        chatSay(session, `@${mbState.openerName || who} got ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to time somebody out for ${Math.round(e.seconds / 60)} minute${e.seconds >= 120 ? "s" : ""}. ${held} in hand.`);
+        emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} was given ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} (${held} in hand).`, true);
+        chatSay(session, `@${r.name || who} got ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to time somebody out for ${Math.round(e.seconds / 60)} minute${e.seconds >= 120 ? "s" : ""}. ${held} in hand.`);
         return;
     }
     if (e.kind === "extraBoxes" && e.boxes > 0){
         // the box that pays out in boxes. credited to the opener like the ray gun's shots are — and like
         // those, never to a rehearsal, which would mint currency for a viewer called TEST.
-        const mbState = getMysteryBox(session);
-        const who = mbState.opener;
-        if (!who || mbState.isTest)
+        const r = recipient(session, ctx);
+        const who = r.login;
+        if (!who || r.test)
             return;
-        const held = grantMysteryBox(session, who, mbState.openerName, e.boxes, prize.name || "a prize");
+        const held = grantMysteryBox(session, who, r.name, e.boxes, prize.name || "a prize");
         const cfg = mbSettings(session);
-        chatSay(session, `@${mbState.openerName || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
+        chatSay(session, `@${r.name || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
         return;
     }
     if (e.kind === "chant" && Array.isArray(e.chants) && e.chants.length && e.rounds > 0){
@@ -1137,10 +1158,10 @@ export function applyEffect(session: TimerUserSession, prize: any){
         // the opener is patient zero — it's their prize, and it lands on them. a rehearsal has no opener, so
         // it picks somebody who has spoken lately (and says so if nobody has).
         const cfg = mbSettings(session);
-        const mbState = getMysteryBox(session);
-        const real = !!mbState.opener && !mbState.isTest;
-        const zero = real ? String(mbState.opener).toLowerCase() : randomChatter(session);
-        const zeroName = real ? (mbState.openerName || zero) : (zero ? chatterName(session, zero) : "");
+        const r = recipient(session, ctx);
+        const real = !!r.login && !r.test;
+        const zero = real ? String(r.login).toLowerCase() : randomChatter(session);
+        const zeroName = real ? (r.name || zero) : (zero ? chatterName(session, zero) : "");
         const res = startChallenge(session, {
             kind: "infection",
             title: prize.name || "INFECTION",
@@ -1189,7 +1210,7 @@ export function applyEffect(session: TimerUserSession, prize: any){
         return;
     }
     if (e.kind === "command" && e.command.trim()){
-        runPrizeCommands(session, prize);
+        runPrizeCommands(session, prize, ctx);
         return;
     }
     if (e.kind === "textBox" && e.box){
@@ -1262,21 +1283,22 @@ export function nukeChat(session: TimerUserSession, percent: number, seconds: nu
 // the opener, so a prize can hand them something ("mb give {user} 2"). a test spin has no opener, so a line
 // that needs one is skipped rather than handing a real viewer called TEST whatever it gives.
 // `seconds` delays the lot. the opener is read NOW, not when they run — by then the next box may be opening.
-function runPrizeCommands(session: TimerUserSession, prize: any){
-    const mbState = getMysteryBox(session);
-    const opener = mbState.isTest ? "" : String(mbState.openerName || mbState.opener || "");
+function runPrizeCommands(session: TimerUserSession, prize: any, ctx?: EffectFor){
+    const r = recipient(session, ctx);
+    const opener = r.test ? "" : String(r.name || r.login || "");
     const name = prize.name || prize.id;
+    const from = ctx ? ctx.label : "mystery box";
     const lines = String(prize.effect.command || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l).slice(0, MAX_COMMAND_LINES);
     const run = () => {
         for (const raw of lines){
             const line = raw.replace(/^!/, "");
             if (/\{user\}/i.test(line) && !opener){
-                emitTerminal(session.userId, `MYSTERYBOX — skipped "${line}": {user} needs someone who opened the box, and a test spin has nobody.`);
+                emitTerminal(session.userId, `MYSTERYBOX — skipped "${line}": {user} needs someone who won it, and ${ctx ? "nobody in chat finished this one" : "a test spin has nobody"}.`);
                 continue;
             }
             const text = line.replace(/\{user\}/gi, opener);
             try {
-                const res = runCommandLine(session, text, `mystery box: ${name}`);
+                const res = runCommandLine(session, text, `${from}: ${name}`);
                 emitTerminal(session.userId, `MYSTERYBOX — ${name} ran "${text}": ${res.message}`, res.ok);
             } catch (err) {
                 reportError(session.userId, `running "${text}" for a mystery box prize`, err);

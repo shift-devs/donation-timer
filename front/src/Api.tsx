@@ -241,6 +241,37 @@ export function stopQuickRevive(ws: WebSocket) {
 	return 1;
 }
 
+// the drops tab's settings. merged server-side, so one field can be pushed on its own.
+export function setDropSettings(ws: WebSocket, settings: any) {
+	send(ws, { event: "setDropSettings", settings: settings });
+	return 1;
+}
+
+// rehearse a drop on the /mysterybox source: plays for real, says nothing in chat, credits nobody.
+// blank ids = a fair draw.
+export function testDrop(ws: WebSocket, rewardId = "", gameId = "") {
+	send(ws, { event: "testDrop", rewardId, gameId });
+	return 1;
+}
+
+// put a real drop up now (waits its turn if the source is busy). blank = a fair draw of the rewards.
+export function forceDrop(ws: WebSocket, rewardId = "") {
+	send(ws, { event: "forceDrop", rewardId });
+	return 1;
+}
+
+// call the drop on screen off
+export function stopDrop(ws: WebSocket) {
+	send(ws, { event: "stopDrop" });
+	return 1;
+}
+
+// throw away the drops waiting for the source
+export function clearDropQueue(ws: WebSocket) {
+	send(ws, { event: "clearDropQueue" });
+	return 1;
+}
+
 // cut a prize's timer pause short
 export function resumeTimer(ws: WebSocket) {
 	send(ws, { event: "resumeTimer" });

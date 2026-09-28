@@ -7,7 +7,8 @@ import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
-import { creditChant, spreadInfection } from "../quickRevive";
+import { creditChant, creditCount, creditScramble, spreadInfection } from "../quickRevive";
+import { runDropCommand } from "../drops";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -102,7 +103,10 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         pruneChatters(session);
         // a chant prize counts every line that says its phrase, whoever typed it. the original message, so a
         // phrase with punctuation or capitals in it matches what was actually said.
-        creditChant(session, String(message || ""), tags.username);
+        creditChant(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        // a drop's count and scramble games read every line the same way
+        creditCount(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        creditScramble(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // an infected chatter @-ing somebody passes it on
         spreadInfection(session, tags.username, String(message || ""));
         // while a schizo prize runs, the source reads this out. the original message, capitals and all,
@@ -158,6 +162,12 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         if (parsed.raffle){
             // "!raffle start/draw/stop" — a mod running the raffle from chat
             const res = runRaffleCommand(session, parsed.raffle);
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+            return;
+        }
+        if (parsed.drop){
+            // "!drop", "!drop test", "!drop stop" — a mod putting one up or calling it off
+            const res = runDropCommand(session, parsed.drop);
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }

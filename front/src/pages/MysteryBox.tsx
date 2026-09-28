@@ -100,6 +100,9 @@ const MysteryBox: React.FC = () => {
 	// which run's result sound has played, keyed on the run's nonce for the same reason landCue is
 	const [reviveCue, setReviveCue] = useState("");
 	const decided = useRef<{ [nonce: string]: boolean }>({});
+	// the same again for a drop's sting as it appears
+	const [dropCue, setDropCue] = useState("");
+	const dropped = useRef<{ [nonce: string]: boolean }>({});
 	// which open's prize sound has already been played, keyed on the open's nonce. NOT a bare "have i played
 	// one" flag: that stays truthy after the overlay goes idle, so the element would remount — and replay —
 	// the moment the next box was opened. (the firesale source learned this the hard way.)
@@ -426,8 +429,21 @@ const MysteryBox: React.FC = () => {
 		if (revivePhase === "idle"){
 			setReviveCue("");
 			decided.current = {};
+			setDropCue("");
+			dropped.current = {};
 		}
 	}, [revivePhase]);
+
+	// a drop's sting, once, as it appears — gated on the start being recent so a source that loads mid-drop
+	// stays quiet, the same as the result sound
+	useEffect(() => {
+		if (revivePhase !== "running" || !reviveNonce || !(revive && revive.kicker) || dropped.current[reviveNonce])
+			return;
+		dropped.current[reviveNonce] = true;
+		if (revive.startedAt && Date.now() - revive.startedAt < LAND_WINDOW)
+			setDropCue(reviveNonce);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [revivePhase, reviveNonce]);
 
 	useEffect(() => {
 		if (phase === "idle"){
@@ -482,13 +498,24 @@ const MysteryBox: React.FC = () => {
 	const reviveInfection = !!(revive && revive.kind === "infection");
 	const reviveNames: string[] = revive && Array.isArray(revive.names) ? revive.names : [];
 	const reviveRounds = Number((revive && revive.rounds) || 1);
-	const reviveTitleFs = Math.max(56, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
+	// a drop: the heading and the reward's art go above the title, so everything under them draws smaller to
+	// leave the room. scramble has no count to show — its letters are the whole game — and count shows which
+	// number is up next.
+	const reviveKicker = String((revive && revive.kicker) || "");
+	const reviveDrop = !!reviveKicker;
+	const reviveArt = reviveDrop ? prizeImageSrc(String(revive.image || "")) : "";
+	const reviveScramble = !!(revive && revive.kind === "scramble");
+	const reviveCount = !!(revive && revive.kind === "count");
+	const reviveLetters = String((revive && revive.scrambled) || "");
+	const reviveLettersFs = Math.max(48, Math.min(120, Math.floor((STAGE_W - 120) / (Math.max(4, reviveLetters.length) * 0.62))));
+	const reviveWinner = String((revive && revive.winner) || "");
+	const reviveTitleFs = Math.max(reviveDrop ? 48 : 56, Math.min(reviveDrop ? 90 : 110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
 	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
 	const reviveSub = String((revive && revive.subtitle) || "");
 	const reviveSubFs = Math.max(30, Math.min(46, Math.floor((STAGE_W - 120) / (Math.max(8, reviveSub.length) * 0.55))));
 	// the clock is smaller when it shares the frame with an instruction line, so the two fit
-	const reviveClockFs = reviveSub ? 150 : 200;
+	const reviveClockFs = reviveDrop ? (reviveArt ? 110 : 130) : reviveSub ? 150 : 200;
 	const reviveResult = revivePhase === "won" ? String(revive.winText || "") : revivePhase === "lost" ? String(revive.failText || "") : "";
 	const reviveResultFs = Math.max(56, Math.min(130, Math.floor((STAGE_W - 120) / (Math.max(4, reviveResult.length) * 0.55))));
 	const reviveResultSound = revivePhase === "won" ? revive.winSound : revivePhase === "lost" ? revive.failSound : "";
@@ -644,6 +671,16 @@ const MysteryBox: React.FC = () => {
 					autoPlay
 					loop
 					ref={(el) => { if (el) el.volume = Number(revive.musicVolume); }}
+				/>
+			)}
+
+			{/* a drop's sting, once, as it appears */}
+			{dropCue && reviveActive && revive.startSound && (
+				<audio
+					key={`qrd${dropCue}`}
+					src={`/media/${encodeURIComponent(revive.startSound)}`}
+					autoPlay
+					ref={(el) => { if (el) el.volume = Number(revive.startVolume); }}
 				/>
 			)}
 
@@ -841,6 +878,43 @@ const MysteryBox: React.FC = () => {
 							zIndex: 6,
 						}}
 					>
+						{reviveDrop && (
+							<div
+								key={`drop${reviveNonce}`}
+								style={{
+									color: cfg.nameColor,
+									fontSize: 48,
+									lineHeight: 1,
+									letterSpacing: "0.16em",
+									WebkitTextStrokeWidth: "3px",
+									WebkitTextStrokeColor: "#000",
+									paintOrder: "stroke fill",
+									textShadow: "0 0 30px rgba(255,212,0,0.9)",
+									animation: "mb-pop 420ms ease-out both",
+								}}
+							>
+								{reviveKicker}
+							</div>
+						)}
+						{/* the reward's art, as the power-up itself: it bobs while it's there to be grabbed, and glows
+						    once it's been had */}
+						{reviveArt && (
+							<div
+								style={{
+									width: 150,
+									height: 150,
+									margin: "8px 0 6px",
+									borderRadius: 18,
+									overflow: "hidden",
+									animation: revivePhase === "won" ? "mb-glow 900ms ease-in-out infinite" : reviveRunning ? "mb-bob 1200ms ease-in-out infinite" : undefined,
+									opacity: lost ? 0.35 : 1,
+									filter: lost ? "grayscale(1)" : undefined,
+									transition: "opacity 400ms linear",
+								}}
+							>
+								<img src={reviveArt} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+							</div>
+						)}
 						<div
 							style={{
 								color: cfg.titleColor,
@@ -901,7 +975,26 @@ const MysteryBox: React.FC = () => {
 							>
 								{reviveSecs}
 							</div>
-							<div style={{ color: cfg.nameColor, fontSize: 64, lineHeight: 1, marginTop: 18, textShadow: outline }}>
+							{/* a scramble's letters take the place of the count — they're what chat is staring at */}
+							{reviveScramble ? (
+								<div
+									style={{
+										color: cfg.titleColor,
+										fontSize: reviveLettersFs,
+										lineHeight: 1,
+										marginTop: 14,
+										letterSpacing: "0.12em",
+										WebkitTextStrokeWidth: "4px",
+										WebkitTextStrokeColor: "#000",
+										paintOrder: "stroke fill",
+										textShadow: "0 0 40px rgba(255,212,0,0.8), 0 6px 0 rgba(0,0,0,0.55)",
+										animation: "mb-pop 420ms ease-out both",
+									}}
+								>
+									{reviveLetters}
+								</div>
+							) : (<>
+							<div style={{ color: cfg.nameColor, fontSize: reviveDrop ? 54 : 64, lineHeight: 1, marginTop: reviveDrop ? 10 : 18, textShadow: outline }}>
 								<span
 									key={reviveInfection ? `inf${revivePts}` : undefined}
 									style={{
@@ -919,7 +1012,7 @@ const MysteryBox: React.FC = () => {
 								{!reviveInfection && <>{" / "}{reviveGoal}</>}
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", marginTop: 2, textShadow: outline }}>
-								{reviveUnit}
+								{reviveCount ? <>NEXT UP: <span style={{ color: cfg.titleColor }}>{Number(revive.next)}</span></> : reviveUnit}
 							</div>
 							{/* who's caught it, newest last — the names are what make it spread, since seeing yours
 							    go up is the moment you go looking for somebody to @ */}
@@ -965,6 +1058,7 @@ const MysteryBox: React.FC = () => {
 									}}
 								/>
 							</div>}
+							</>)}
 						</>) : (<>
 							<div style={{ animation: "mb-pop 420ms ease-out both", marginTop: 20 }}>
 								<div
@@ -987,8 +1081,16 @@ const MysteryBox: React.FC = () => {
 								</div>
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
-								{reviveInfection ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
+								{reviveScramble
+									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
+									: reviveInfection ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
+							{/* who finished it, for a drop — the name is the payoff for whoever typed the last one */}
+							{reviveDrop && reviveWinner && revivePhase === "won" && (
+								<div style={{ color: cfg.titleColor, fontSize: 40, marginTop: 8, textShadow: outline }}>
+									@{reviveWinner}
+								</div>
+							)}
 						</>)}
 					</div>
 				)}

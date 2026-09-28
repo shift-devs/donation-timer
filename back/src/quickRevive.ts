@@ -27,6 +27,11 @@
 // a chant prize is ROUNDS of that, warioware-style: it carries a list of chants, each round draws one at
 // random, clearing it starts the next straight away with a fresh clock, and only the last one pays. failing
 // any round fails the lot.
+//
+// DROPS (drops.ts) run on this too, and bring two more counters: COUNT (chat counts from one number to another,
+// one number per line) and SCRAMBLE (first to type the unscrambled word gets it). a drop is a challenge with a
+// reward on the end, and the reward is paid through the onWin hook startChallenge takes — this file never has
+// to know what a drop is worth.
 
 import { TimerUserSession, TimerEvent } from "./types";
 import { emitQuickRevive, emitTerminal, reportError } from "./bus";
@@ -127,7 +132,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -161,6 +166,20 @@ export interface ChallengeSpec {
     timeoutSeconds: number
     // how the reward shows up in the timer log
     label: string
+    // count only: where chat starts and where it has to get to (either direction), and whether a wrong
+    // number sends it back to the start
+    countFrom?: number
+    countTo?: number
+    resetOnMistake?: boolean
+    // scramble only: the word as it has to be typed. `phrase` carries it scrambled, which is what's shown.
+    answer?: string
+    // a drop's extras: the reward's art over the title, the heading above it, the sting as it appears, and
+    // the reward's name for chat. blank on everything that isn't a drop.
+    image?: string
+    kicker?: string
+    startSound?: string
+    startVolume?: number
+    dropName?: string
 }
 
 // one thing chat can be asked to say: the phrase, how many lines have to say it, and how long they get
@@ -172,7 +191,8 @@ export interface Chant {
 
 // phase timers per user, off the session for the usual reason: a Timeout is not state anyone should serialize
 // or sync, and ending a run must never leave one behind.
-const timers: { [userId: number]: { end?: any, done?: any, spread?: any } } = {};
+// `onWin` is the reward a drop pays, held here with the run's nonce so it can only ever pay the run it came with.
+const timers: { [userId: number]: { end?: any, done?: any, spread?: any, onWin?: { nonce: number, fn: (login: string, name: string) => void } } } = {};
 
 function slots(userId: number){
     return timers[userId] || (timers[userId] = {});
@@ -180,7 +200,7 @@ function slots(userId: number){
 
 export function getQuickRevive(session: TimerUserSession): any {
     if (!session.quickRevive || typeof session.quickRevive !== "object")
-        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [] };
+        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "" };
     return session.quickRevive;
 }
 
@@ -235,6 +255,17 @@ function chantSubtitle(spec: ChallengeSpec): string {
         + (spec.rewardSeconds > 0 && spec.rounds <= 1 ? ` FOR +${sayTime(spec.rewardSeconds).toUpperCase()}` : "");
 }
 
+// what the source puts under the title, per counter
+function subtitleFor(spec: ChallengeSpec): string {
+    if (spec.kind === "chant")
+        return chantSubtitle(spec);
+    if (spec.kind === "count")
+        return `COUNT FROM ${spec.countFrom} TO ${spec.countTo}${spec.resetOnMistake ? " — A WRONG NUMBER STARTS IT OVER" : ""}`;
+    if (spec.kind === "scramble")
+        return "UNSCRAMBLE IT!";
+    return spec.subtitle;
+}
+
 export function quickReviveView(session: TimerUserSession): any {
     const qr = getQuickRevive(session);
     // idle carries the quick revive's own words, so a source has sensible defaults to hand before anything runs
@@ -260,10 +291,21 @@ export function quickReviveView(session: TimerUserSession): any {
         // when a streak was last broken, so the source can flinch the count as it drops to zero
         resetAt: qr.resetAt || 0,
         title: spec.title,
-        subtitle: spec.kind === "chant" ? chantSubtitle(spec) : spec.subtitle,
+        subtitle: subtitleFor(spec),
+        // count: the number chat has to say next. scramble: the letters to unscramble (the answer never
+        // leaves the server until it's been got or the clock has run out).
+        next: spec.kind === "count" ? qr.next : 0,
+        scrambled: spec.kind === "scramble" ? spec.phrase : "",
+        answer: spec.kind === "scramble" && qr.phase !== "running" ? spec.answer || "" : "",
+        // whoever finished it — the solver of a scramble, the last number of a count
+        winner: qr.phase === "won" ? qr.lastByName || qr.lastBy || "" : "",
+        image: spec.image || "",
+        kicker: spec.kicker || "",
+        startSound: spec.startSound || "",
+        startVolume: Number.isFinite(Number(spec.startVolume)) ? Number(spec.startVolume) : 1,
         // infection: the most recently infected, newest last, for the source to show scrolling in
         names: Array.isArray(qr.names) ? qr.names.slice(-8) : [],
-        unit: spec.unit,
+        unit: spec.kind === "count" && qr.phase !== "running" ? "COUNTED" : spec.unit,
         music: spec.music,
         musicVolume: spec.musicVolume,
         winSound: spec.winSound,
@@ -283,7 +325,9 @@ export function pushQuickRevive(session: TimerUserSession){
 // start the clock on a spec. `fromPrize` is a challenge a landing prize started: that one is allowed to begin
 // while the reel is still showing the prize (the source draws it over the top), where a hand-started one is
 // refused until the box on screen has finished.
-export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, fromPrize = false): { ok: boolean, message: string } {
+// `onWin` pays out when it's won (a drop's reward), handed whoever finished it — "" when nobody in chat did.
+export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, fromPrize = false,
+    onWin?: (login: string, name: string) => void): { ok: boolean, message: string } {
     if (isReviving(session))
         return { ok: false, message: "A challenge is already running." };
     const mb = session.mysterybox;
@@ -293,6 +337,8 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         return { ok: false, message: "That chant has nothing for chat to say — add a chant to it." };
     if (spec.kind === "infection" && !spec.patientZero)
         return { ok: false, message: "Nobody to be patient zero — nobody has said anything in chat lately." };
+    if (spec.kind === "scramble" && !spec.answer)
+        return { ok: false, message: "That scramble has no word to unscramble." };
     const qr = getQuickRevive(session);
     const now = Date.now();
     qr.nonce = (qr.nonce || 0) + 1;
@@ -310,9 +356,16 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.infected = {};
     qr.names = [];
     qr.pendingNames = [];
+    qr.next = 0;
+    qr.lastBy = "";
+    qr.lastByName = "";
+    qr.lastCounter = "";
     const t = slots(session.userId);
     clearTimeout(t.done);
     clearTimeout(t.spread);
+    t.onWin = onWin ? { nonce: qr.nonce, fn: onWin } : undefined;
+    if (spec.dropName)
+        return startDrop(session, qr, spec);
     if (spec.kind === "infection"){
         // patient zero is the first case, so the count starts at one
         qr.infected[spec.patientZero] = spec.patientZeroName || spec.patientZero;
@@ -352,6 +405,38 @@ export function randomChatter(session: TimerUserSession): string {
 // the instruction for the current round, as chat is told it
 function roundWords(spec: ChallengeSpec): string {
     return `Say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"}${spec.streak ? " in a row (anything else resets it)" : ""} within ${spec.seconds} seconds.`;
+}
+
+// what chat is told to do, whatever the counter
+function instruction(spec: ChallengeSpec): string {
+    if (spec.kind === "chant")
+        return roundWords(spec);
+    if (spec.kind === "count")
+        return `Count from ${spec.countFrom} to ${spec.countTo}, one number per message${spec.resetOnMistake ? " — a wrong number starts it over" : ""}, within ${spec.seconds} seconds.`;
+    if (spec.kind === "scramble")
+        return `Unscramble "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
+    return `Put up ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} within ${spec.seconds} seconds — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6.`;
+}
+
+// a drop: one round of whichever counter it drew, with the reward named up front so chat knows what it's
+// playing for. the counter's own setup is the same as when it runs on its own.
+function startDrop(session: TimerUserSession, qr: any, spec: ChallengeSpec): { ok: boolean, message: string } {
+    if (spec.kind === "chant"){
+        dealChant(session, qr, spec);
+    } else {
+        if (spec.kind === "count"){
+            qr.next = Number(spec.countFrom) || 0;
+            qr.goal = Math.abs((Number(spec.countTo) || 0) - qr.next) + 1;
+        }
+        if (spec.kind === "scramble")
+            qr.goal = 1;
+        armClock(session, spec.seconds);
+        pushQuickRevive(session);
+    }
+    emitTerminal(session.userId, `DROP — ${spec.dropName}: ${instruction(spec)}`, true);
+    if (spec.announce)
+        chatAnnounce(session, `${spec.kicker || "DROP!"} ${spec.dropName} — ${instruction(spec)} Do it and it's chat's!`, "purple");
+    return { ok: true, message: `Drop up — ${spec.dropName}: ${instruction(spec)}` };
 }
 
 // the round's clock: one timer per user, re-armed for every round, so a cleared round's deadline can't fire
@@ -395,12 +480,15 @@ export function startQuickRevive(session: TimerUserSession): { ok: boolean, mess
 }
 
 // one more toward the goal. shared by both counters; decides the run the moment the goal is met.
-function credit(session: TimerUserSession, qr: any, n: number){
+function credit(session: TimerUserSession, qr: any, n: number, login = "", name = ""){
     // the deadline is checked here as well as by the timer, so something arriving in the same tick the clock
     // ran out can't be counted after the fact
     if (Date.now() >= qr.endsAt)
         return;
     qr.points += n;
+    // whoever put in the last one is who finished it, if this is what finishes it
+    qr.lastBy = String(login || "").toLowerCase();
+    qr.lastByName = String(name || login || "");
     pushQuickRevive(session);
     if (qr.points >= qr.goal)
         decide(session, true);
@@ -415,7 +503,7 @@ export function creditQuickRevive(session: TimerUserSession, event: TimerEvent){
         return;
     const pts = subPointsFor(event);
     if (pts)
-        credit(session, qr, pts);
+        credit(session, qr, pts, event.gifted && !event.anonymous ? String(event.gifter || "") : "");
 }
 
 // a chat line arrived. a line that contains the phrase counts ONCE, however many times it repeats it — so
@@ -427,7 +515,7 @@ export function creditQuickRevive(session: TimerUserSession, event: TimerEvent){
 // with `streak` on, a line that DOESN'T say it puts the count back to zero — chat has to hold the line, and
 // one person typing anything else costs everybody. the bot's own lines are ignored either way: it announces
 // the chant and reports the result in this same chat, and must not be the one to break it.
-export function creditChant(session: TimerUserSession, text: string, login = ""){
+export function creditChant(session: TimerUserSession, text: string, login = "", displayName = ""){
     const qr = getQuickRevive(session);
     if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "chant")
         return;
@@ -440,7 +528,7 @@ export function creditChant(session: TimerUserSession, text: string, login = "")
         return;
     const said = String(text || "").toLowerCase().replace(/\s+/g, " ");
     if (said.includes(want)){
-        credit(session, qr, 1);
+        credit(session, qr, 1, login, displayName);
         return;
     }
     if (spec.streak && qr.points > 0 && Date.now() < qr.endsAt){
@@ -448,6 +536,61 @@ export function creditChant(session: TimerUserSession, text: string, login = "")
         qr.resetAt = Date.now();
         pushQuickRevive(session);
     }
+}
+
+function isBot(session: TimerUserSession, login: string): boolean {
+    const bot = String((session.connections && session.connections.twitchBot && session.connections.twitchBot.botLogin) || "").toLowerCase();
+    return !!bot && String(login || "").toLowerCase() === bot;
+}
+
+// a chat line during a count. a line that IS a number (a "!" or "." after it is fine) is a go at the next one;
+// anything else is chat talking and is ignored. the right number moves it on. with resetOnMistake a wrong
+// number sends it back to the start. the same person can't say two in a row — otherwise one fast typist
+// counts to a hundred alone, and the point is that chat does it together.
+export function creditCount(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "count")
+        return;
+    if (isBot(session, login) || Date.now() >= qr.endsAt)
+        return;
+    const m = String(text || "").trim().match(/^(-?\d+)[!.?]*$/);
+    if (!m)
+        return;
+    const said = Number(m[1]);
+    const who = String(login || "").toLowerCase();
+    const spec: ChallengeSpec = qr.spec;
+    if (said === qr.next){
+        if (who && who === qr.lastCounter)
+            return;
+        qr.lastCounter = who;
+        qr.next += (Number(spec.countTo) >= Number(spec.countFrom)) ? 1 : -1;
+        credit(session, qr, 1, login, displayName);
+        return;
+    }
+    if (spec.resetOnMistake && qr.points > 0){
+        qr.points = 0;
+        qr.next = Number(spec.countFrom) || 0;
+        qr.lastCounter = "";
+        qr.resetAt = Date.now();
+        pushQuickRevive(session);
+    }
+}
+
+// what a scramble answer is compared as: letters and digits only, so "Zombies!" and "z o m b i e s" both land
+function bare(s: string): string {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// a chat line during a scramble: the first one that spells the word wins it, for everybody
+export function creditScramble(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "scramble")
+        return;
+    if (isBot(session, login))
+        return;
+    const want = bare(qr.spec.answer || "");
+    if (want && bare(text) === want)
+        credit(session, qr, 1, login, displayName);
 }
 
 // a chat line from somebody. if they're infected, every @name in it catches it. names are taken as typed
@@ -567,6 +710,10 @@ function decide(session: TimerUserSession, won: boolean){
     qr.phase = won ? "won" : "lost";
     qr.resultAt = now;
     pushQuickRevive(session);
+    if (spec.dropName){
+        decideDrop(session, qr, spec, won, spare);
+        return;
+    }
     const tag = spec.kind === "chant" ? spec.title : "QUICK REVIVE";
     const tally = spec.kind === "chant"
         ? `"${spec.phrase}" ${qr.points} of ${qr.goal} time${qr.goal === 1 ? "" : "s"}${spec.rounds > 1 ? ` in round ${qr.round} of ${spec.rounds}` : ""}`
@@ -600,6 +747,53 @@ function decide(session: TimerUserSession, won: boolean){
     }, spec.holdSec * 1000);
 }
 
+// how a drop went, in words: what chat managed, per counter
+function dropTally(qr: any, spec: ChallengeSpec, won: boolean): string {
+    const who = qr.lastByName || qr.lastBy;
+    if (spec.kind === "scramble")
+        return won ? `${who ? `@${who}` : "Chat"} unscrambled "${spec.answer}"` : `Nobody got it — it was "${spec.answer}"`;
+    if (spec.kind === "count"){
+        const step = Number(spec.countTo) >= Number(spec.countFrom) ? 1 : -1;
+        return won ? `Chat counted ${spec.countFrom} to ${spec.countTo}` : qr.points ? `Chat only got to ${qr.next - step} of ${spec.countTo}` : "Chat never got counting";
+    }
+    if (spec.kind === "chant")
+        return `Chat said "${spec.phrase}" ${qr.points} of ${qr.goal} time${qr.goal === 1 ? "" : "s"}`;
+    return `Chat put up ${qr.points} of ${qr.goal} sub point${qr.goal === 1 ? "" : "s"}`;
+}
+
+// a drop is decided: the reward is paid (through the hook it started with) or it's gone
+function decideDrop(session: TimerUserSession, qr: any, spec: ChallengeSpec, won: boolean, spare: number){
+    const t = slots(session.userId);
+    const tally = dropTally(qr, spec, won);
+    if (won){
+        emitTerminal(session.userId, `DROP — ${spec.dropName}: ${tally} with ${spare}s to spare.${qr.lastBy ? ` Finished by ${qr.lastByName || qr.lastBy}.` : ""}`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.winText} ${tally} with ${spare} second${spare === 1 ? "" : "s"} to spare — ${spec.dropName} is chat's!`, "green");
+        const hook = t.onWin;
+        t.onWin = undefined;
+        if (hook && hook.nonce === qr.nonce){
+            try {
+                hook.fn(qr.lastBy || "", qr.lastByName || qr.lastBy || "");
+            } catch (err) {
+                reportError(session.userId, `paying out the "${spec.dropName}" drop`, err);
+            }
+        }
+    } else {
+        t.onWin = undefined;
+        emitTerminal(session.userId, `DROP — ${spec.dropName}: ${spec.failText} ${tally}.`);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.failText} ${tally}. The ${spec.dropName} is gone.`, "orange");
+    }
+    clearTimeout(t.done);
+    t.done = setTimeout(() => {
+        try {
+            endQuickRevive(session);
+        } catch (err) {
+            reportError(session.userId, "clearing a finished drop", err);
+        }
+    }, spec.holdSec * 1000);
+}
+
 // back to idle: the source draws nothing and a box can be opened again. also the operator's Cancel.
 export function endQuickRevive(session: TimerUserSession){
     const qr = getQuickRevive(session);
@@ -609,8 +803,9 @@ export function endQuickRevive(session: TimerUserSession){
     t.end = t.done = undefined;
     clearTimeout(t.spread);
     t.spread = undefined;
+    t.onWin = undefined;
     const wasRunning = qr.phase === "running";
-    const tag = qr.spec && qr.spec.kind !== "subpoints" ? qr.spec.title : "QUICK REVIVE";
+    const tag = qr.spec && qr.spec.dropName ? `DROP — ${qr.spec.dropName}` : qr.spec && qr.spec.kind !== "subpoints" ? qr.spec.title : "QUICK REVIVE";
     qr.phase = "idle";
     qr.spec = null;
     qr.startedAt = 0;
@@ -625,6 +820,10 @@ export function endQuickRevive(session: TimerUserSession){
     qr.infected = {};
     qr.names = [];
     qr.pendingNames = [];
+    qr.next = 0;
+    qr.lastBy = "";
+    qr.lastByName = "";
+    qr.lastCounter = "";
     if (wasRunning)
         emitTerminal(session.userId, `${tag} — called off.`, true);
     pushQuickRevive(session);

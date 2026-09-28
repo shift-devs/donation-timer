@@ -32,6 +32,10 @@ const RAFFLE_ACTIONS = ["start", "draw", "stop"];
 // "revive" starts the quick revive challenge with the settings on the tab; "revive stop" calls it off.
 const MB_ACTIONS = ["open", "count", "give", "take", "stop", "test", "revive"];
 
+// drops: put one up by hand (a fair draw, or a named reward), rehearse one without chat, call one off, clear
+// the ones waiting for the overlay, or see where the hour stands. "drop" on its own is "drop now".
+const DROP_ACTIONS = ["now", "test", "stop", "clear", "status"];
+
 // the box leaderboard: wipe it, or fix someone's count by hand
 const BOARD_ACTIONS = ["reset", "add", "take", "set"];
 
@@ -63,7 +67,7 @@ function unquote(s: string): string {
 }
 
 export function commandHelp(): string {
-    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   raffle <action>   |   mb <action>   |   board <action>   |   help"];
+    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   raffle <action>   |   mb <action>   |   drop <action>   |   board <action>   |   help"];
     for (const p of Object.keys(SPEC))
         lines.push(`  ${p}: ${Object.keys(SPEC[p]).join(", ")}`);
     lines.push("  qty = dollars for money, count for subs/bits/members (subs & members default to 1)");
@@ -73,13 +77,14 @@ export function commandHelp(): string {
     lines.push("    start also takes overrides for that one raffle: winners=3 boxes=2 (0 = none) title=\"BIG RAFFLE\" prize=\"Signed poster\"");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
+    lines.push("  drop [now] [reward], test [reward], stop, clear, status — drops (now = for real, test = no chat, clear = empty the queue)");
     lines.push("  board: reset, add <name> [n], take <name> [n], set <name> <n> — the box leaderboard (quote a name with spaces)");
     return lines.join("\n");
 }
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number }; board?: { action: string, name: string, count: number }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number }; drop?: { action: string, name: string }; board?: { action: string, name: string, count: number }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -173,6 +178,17 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         if (!Number.isFinite(count))
             return { error: `Usage: mb ${action} <name> [count]` };
         return { mb: { action, name: (parts[2] || "").replace(/^@/, ""), count } };
+    }
+
+    if (head === "drop") {
+        const first = (parts[1] || "").toLowerCase();
+        const action = DROP_ACTIONS.includes(first) ? first : "now";
+        // the reward is the rest of the line, so a name with spaces needs no quotes
+        const rest = DROP_ACTIONS.includes(first) ? raw.replace(/^\s*\S+\s+\S+\s*/, "") : raw.replace(/^\s*\S+\s*/, "");
+        const name = unquote(rest.replace(/[“”]/g, '"'));
+        if (name && !["now", "test"].includes(action))
+            return { error: `Usage: drop ${action}` };
+        return { drop: { action, name } };
     }
 
     if (head === "board") {

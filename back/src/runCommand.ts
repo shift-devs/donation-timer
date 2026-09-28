@@ -12,6 +12,7 @@ import { runFiresaleCommand } from "./firesale";
 import { runRaffleCommand } from "./raffle";
 import { runMysteryBoxCommand } from "./mysterybox";
 import { runBoxBoardCommand } from "./boxBoard";
+import { runDropCommand } from "./drops";
 
 // `from` is tacked onto a time command's log label, so the audit log says where it came from
 export function runCommandLine(session: TimerUserSession, text: string, from = ""): { ok: boolean, message: string } {
@@ -32,6 +33,8 @@ export function runCommandLine(session: TimerUserSession, text: string, from = "
         return runRaffleCommand(session, parsed.raffle);
     if (parsed.board)
         return runBoxBoardCommand(session, parsed.board);
+    if (parsed.drop)
+        return runDropCommand(session, parsed.drop);
     if (parsed.mb){
         // the mystery box: hand out / take back boxes, open one on someone's behalf, rehearse a prize. a
         // prize's effect may well add time, but that goes through handle() itself, so there's nothing to

@@ -20,6 +20,7 @@ import { normalizeTwitchSubs, twitchSubsReady, startTwitchSubsDeviceAuth, runTwi
 import { normalizeTwitchBot, twitchBotReady, appFor, startTwitchBotDeviceAuth, runTwitchBotDeviceAuth, testTwitchBot, forgetTwitchBot, describeError as describeTwitchBotError } from "./platforms/twitchBot";
 import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer, timeBoostView, endTimeBoost } from "./timer";
 import { quickReviveView, startQuickRevive, endQuickRevive } from "./quickRevive";
+import { normalizeDrops, dropView, startDrop, runDropCommand, clearDropQueue } from "./drops";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
 import { runCommandLine } from "./runCommand";
@@ -135,6 +136,9 @@ function wsSync(ws: TimerWebSocket) {
             mysteryBoxes: curSession.mysteryBoxes || {},
             rayguns: curSession.rayguns || {},
             giftSubProgress: curSession.giftSubProgress || {},
+            // the drops tab: its config, and where this hour stands (dashboard only — the floor is in here)
+            dropSettings: curSession.dropSettings || {},
+            drops: dropView(curSession),
             // non-null only while a prize is holding the countdown still; carries the remaining time to freeze on
             timerPause: timerPauseView(curSession),
             // non-null only while a prize has every contribution granting multiplied time
@@ -800,6 +804,31 @@ export function startApi(){
                 case "stopSchizo":
                     // the operator shutting the schizo prize's voice up early
                     stopSchizo(curSession);
+                    break;
+                case "setDropSettings": {
+                    // merged onto what's stored, same as the others
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.dropSettings = normalizeDrops({ ...(curSession.dropSettings || {}), ...patch });
+                    emitSync(curSession.userId);
+                    break;
+                }
+                case "testDrop":
+                    // the tab's Test: a drop plays for real on the source, with no chat and nobody credited
+                    ws.send(JSON.stringify({ commandResult: startDrop(curSession,
+                        typeof jData.rewardId === "string" ? jData.rewardId : "",
+                        typeof jData.gameId === "string" ? jData.gameId : "", true) }));
+                    break;
+                case "forceDrop":
+                    // the tab's "Drop one now": for real, announced, queued if the overlay is busy
+                    ws.send(JSON.stringify({ commandResult: runDropCommand(curSession, { action: "now", name: typeof jData.rewardId === "string" ? jData.rewardId : "" }) }));
+                    break;
+                case "stopDrop":
+                    ws.send(JSON.stringify({ commandResult: runDropCommand(curSession, { action: "stop", name: "" }) }));
+                    break;
+                case "clearDropQueue":
+                    clearDropQueue(curSession);
                     break;
                 case "startQuickRevive":
                     // the tab's "Start quick revive": chat races the clock for sub points on the /mysterybox source

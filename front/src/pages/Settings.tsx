@@ -13,6 +13,7 @@ import SubCounts from "./Settings/SubCounts";
 import TextBoxes from "./Settings/TextBoxes";
 import Firesale from "./Settings/Firesale";
 import Raffle from "./Settings/Raffle";
+import Drops from "./Settings/Drops";
 import MysteryBox from "./Settings/MysteryBox";
 import BoxBoard from "./Settings/BoxBoard";
 import { runCommand } from "../Api";
@@ -235,6 +236,7 @@ const Settings: React.FC = () => {
 						<Tab>Firesale</Tab>
 						<Tab>Raffle</Tab>
 						<Tab>Mystery Box</Tab>
+						<Tab>Drops</Tab>
 						<Tab>Box Board</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
@@ -280,6 +282,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} products={fwProducts} />
+						</TabPanel>
+						<TabPanel>
+							<Drops ws={ws} token={token} settings={settings} revive={quickRevive} />
 						</TabPanel>
 						<TabPanel>
 							<BoxBoard ws={ws} token={token} settings={settings} products={fwProducts} />

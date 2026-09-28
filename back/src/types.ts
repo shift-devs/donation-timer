@@ -86,6 +86,14 @@ export interface TimerUserSession {
     // words). the freezes and the bonfire sale are visible in timerPause/timeBoost instead.
     // what it's for: knowing whether the last box is still playing out, so the next one can't start on top.
     mbEffect?: { until: number, what: string }
+    // the drops tab's config: the odds, the hourly cap and the hidden floor, the rewards and the minigames
+    // (persisted — see drops.ts)
+    dropSettings: any
+    // this eastern hour's drop tally: how many dropped, how much time was added, where the floor is and
+    // whether it's been passed. persisted, so a restart mid-hour can't hand out an extra one
+    dropState: any
+    // drops that landed while the overlay was busy, waiting their turn. transient
+    dropQueue?: any[]
     // the jukebox prize's long clip, while it plays in the background on the /mysterybox source. transient:
     // the source is what's playing it, and a restart leaves the source to finish on its own.
     jukebox?: { nonce: number, track: string, volume: number, startedAt: number, name: string }

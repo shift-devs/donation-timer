@@ -126,6 +126,17 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // the drops tab's config, and this hour's drop tally (see migration add-drops)
+    dropSettings: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    dropState: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     fwProductBonuses: {
         type: DataTypes.JSONB,
         allowNull: false,
@@ -259,6 +270,8 @@ export async function dbCreate(inObj: Object){
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
         giftSubProgress: lvObj.giftSubProgress,
+        dropSettings: lvObj.dropSettings,
+        dropState: lvObj.dropState,
         fwProductBonuses: lvObj.fwProductBonuses,
         fwProductSounds: lvObj.fwProductSounds,
         fwProductAlerts: lvObj.fwProductAlerts,
@@ -308,6 +321,8 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,
                 giftSubProgress: curSession.giftSubProgress,
+                dropSettings: curSession.dropSettings,
+                dropState: curSession.dropState,
                 fwProductBonuses: curSession.fwProductBonuses,
                 fwProductSounds: curSession.fwProductSounds,
                 fwProductAlerts: curSession.fwProductAlerts,
