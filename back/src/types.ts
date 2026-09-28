@@ -62,6 +62,10 @@ export interface TimerUserSession {
     raffleSettings: any
     // the raffle on screen right now. transient, like the firesale run above
     raffle?: any
+    // the box leaderboard's look and which products count (persisted config — see boxBoard.ts)
+    boxBoardSettings: any
+    // its standings: boxes bought per buyer, ledger-shaped. persisted, only cleared by the reset button
+    boxBoard: any
     // how the /mysterybox browser source looks, and the prize list with each prize's rarity and effect
     // (persisted config — see mysterybox.ts)
     mysteryBoxSettings: any

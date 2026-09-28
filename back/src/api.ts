@@ -8,9 +8,10 @@ import { usersModel, dbCreate, USER_TABLE } from "./db";
 import { DEFAULT_RATES, normalizeRates } from "./rates";
 import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
-import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopRaffle, runRaffleCommand } from "./raffle";
+import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopRaffle } from "./raffle";
+import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, runMysteryBoxCommand, stopJukebox, stopSchizo } from "./mysterybox";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -21,8 +22,7 @@ import { setEndTime, isStoppedAtZero, timerPauseView, resumeTimer, timeBoostView
 import { quickReviveView, startQuickRevive, endQuickRevive } from "./quickRevive";
 import { logTimerEvent, sendLogPage } from "./log";
 import { handle } from "./events";
-import { parseCommand } from "./commands";
-import { CHAT_CMD_MAX_TIME } from "./config";
+import { runCommandLine } from "./runCommand";
 
 let wss: WebSocket.Server;
 
@@ -74,6 +74,9 @@ export const PAGE_SYNC_FIELDS: { [page: string]: string[] } = {
     // and kept live between syncs by targeted mysterybox pushes
     // …plus the quick revive challenge, which runs on that same source and is kept live the same way
     mysterybox: ["mysterybox", "quickRevive"],
+    // the top N and the look, already cut down to what's on screen. small enough to ride every sync, so a
+    // purchase reaches it with the emitSync the credit sends
+    boxboard: ["boxBoard"],
 };
 
 export function projectSync(page: string | undefined, full: any): any {
@@ -118,6 +121,10 @@ function wsSync(ws: TimerWebSocket) {
             firesaleSettings: curSession.firesaleSettings || {},
             raffle: raffleView(curSession),
             raffleSettings: curSession.raffleSettings || {},
+            // the box leaderboard as the source draws it, plus the config and every buyer for the dashboard tab
+            boxBoard: boxBoardView(curSession),
+            boxBoardSettings: curSession.boxBoardSettings || {},
+            boxBoardTally: curSession.boxBoard || {},
             // the box being opened right now (idle when there isn't one), so a source that connects mid-spin
             // picks the reel straight back up
             mysterybox: mysteryBoxView(curSession),
@@ -565,53 +572,8 @@ export function startApi(){
                     return;
                 case "runCommand": {
                     // terminal input: same parser/grammar as chat would use, routed through the one handler
-                    const parsed = parseCommand(typeof jData.command === "string" ? jData.command : "");
-                    if (parsed.help){
-                        ws.send(JSON.stringify({ commandResult: { ok: true, message: parsed.help } }));
-                        return;
-                    }
-                    if (parsed.text){
-                        // a text command changes no time, so it reports itself and skips the timer path entirely
-                        const res = setTextBoxText(curSession, parsed.text.box, parsed.text.text);
-                        ws.send(JSON.stringify({ commandResult: res }));
-                        if (res.ok)
-                            emitSync(id); // pushes the new words to that box's browser source(s)
-                        return;
-                    }
-                    if (parsed.firesale){
-                        // drives the giveaway overlay; grants no time, so it reports itself and stops here
-                        const res = runFiresaleCommand(curSession, parsed.firesale);
-                        ws.send(JSON.stringify({ commandResult: res }));
-                        return;
-                    }
-                    if (parsed.raffle){
-                        const res = runRaffleCommand(curSession, parsed.raffle);
-                        ws.send(JSON.stringify({ commandResult: res }));
-                        return;
-                    }
-                    if (parsed.mb){
-                        // the mystery box: hand out / take back boxes, open one on someone's behalf, rehearse a
-                        // prize. a prize's effect may well add time, but that goes through handle() itself, so
-                        // there's nothing to measure here.
-                        const res = runMysteryBoxCommand(curSession, parsed.mb);
-                        ws.send(JSON.stringify({ commandResult: res }));
-                        emitSync(id); // the ledger may have moved
-                        return;
-                    }
-                    if (parsed.error || !parsed.event){
-                        ws.send(JSON.stringify({ commandResult: { ok: false, message: parsed.error || "Invalid command." } }));
-                        return;
-                    }
-                    const before = curSession.endTime;
-                    const wasStopped = isStoppedAtZero(curSession); // handle() returns early in that case
-                    handle(curSession, parsed.event); // applies rates + cap, adds time, writes the log entry
-                    const added = Math.round((curSession.endTime - before) / 1000);
-                    const message = added !== 0
-                        ? `+${added}s — ${parsed.event.label}`
-                        : wasStopped
-                            ? `no time added — the timer is at 0 and "stop at zero" is on`
-                            : `no time added — rate is 0 or over the ${CHAT_CMD_MAX_TIME / 3600}h command cap`;
-                    ws.send(JSON.stringify({ commandResult: { ok: added !== 0, message } }));
+                    const res = runCommandLine(curSession, typeof jData.command === "string" ? jData.command : "");
+                    ws.send(JSON.stringify({ commandResult: res }));
                     return;
                 }
                 case "setConnection": {
@@ -760,6 +722,26 @@ export function startApi(){
                 case "stopRaffle":
                     stopRaffle(curSession);
                     break;
+                case "setBoxBoardSettings": {
+                    // merged onto what's stored, same as the others
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.boxBoardSettings = normalizeBoxBoard({ ...(curSession.boxBoardSettings || {}), ...patch });
+                    break;
+                }
+                case "resetBoxBoard":
+                    resetBoxBoard(curSession);
+                    break;
+                case "boxBoardCommand": {
+                    // the tab's add / take / set, sent as fields so a name with spaces needs no quoting
+                    const action = typeof jData.action === "string" ? jData.action : "";
+                    const name = typeof jData.name === "string" ? jData.name.trim().replace(/^@/, "") : "";
+                    if (!["add", "take", "set"].includes(action))
+                        return;
+                    ws.send(JSON.stringify({ commandResult: runBoxBoardCommand(curSession, { action, name, count: Number(jData.count) }) }));
+                    return;
+                }
                 case "setMysteryBoxSettings": {
                     // merged onto what's stored, so the tab can push one field (or just the prize list)
                     // without resending the rest

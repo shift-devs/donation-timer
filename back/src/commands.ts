@@ -32,6 +32,9 @@ const RAFFLE_ACTIONS = ["start", "draw", "stop"];
 // "revive" starts the quick revive challenge with the settings on the tab; "revive stop" calls it off.
 const MB_ACTIONS = ["open", "count", "give", "take", "stop", "test", "revive"];
 
+// the box leaderboard: wipe it, or fix someone's count by hand
+const BOARD_ACTIONS = ["reset", "add", "take", "set"];
+
 // twitch chat lowercases and strips non-ascii before parsing, which is right for "<platform> <action> <qty>" and
 // wrong for prose a mod typed — the adapter asks this first so it knows to take a text command off the raw line.
 export function isTextCommand(text: string): boolean {
@@ -60,7 +63,7 @@ function unquote(s: string): string {
 }
 
 export function commandHelp(): string {
-    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   raffle <action>   |   mb <action>   |   help"];
+    const lines = ["Commands:  <platform> <action> [qty]   |   time <seconds>   |   changetext <box> \"text\"   |   firesale <action>   |   raffle <action>   |   mb <action>   |   board <action>   |   help"];
     for (const p of Object.keys(SPEC))
         lines.push(`  ${p}: ${Object.keys(SPEC[p]).join(", ")}`);
     lines.push("  qty = dollars for money, count for subs/bits/members (subs & members default to 1)");
@@ -70,12 +73,13 @@ export function commandHelp(): string {
     lines.push("    start also takes overrides for that one raffle: winners=3 boxes=2 (0 = none) title=\"BIG RAFFLE\" prize=\"Signed poster\"");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
+    lines.push("  board: reset, add <name> [n], take <name> [n], set <name> <n> — the box leaderboard (quote a name with spaces)");
     return lines.join("\n");
 }
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number }; board?: { action: string, name: string, count: number }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -169,6 +173,25 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         if (!Number.isFinite(count))
             return { error: `Usage: mb ${action} <name> [count]` };
         return { mb: { action, name: (parts[2] || "").replace(/^@/, ""), count } };
+    }
+
+    if (head === "board") {
+        const action = (parts[1] || "").toLowerCase();
+        if (!BOARD_ACTIONS.includes(action))
+            return { error: `Usage: board ${BOARD_ACTIONS.join(" | ")} — e.g. "board add someone 2".` };
+        if (action === "reset")
+            return { board: { action, name: "", count: 0 } };
+        // fourthwall checkout names can have spaces, so the name may be "quoted"
+        const rest = raw.replace(/^\s*\S+\s+\S+\s*/, "").replace(/[“”]/g, '"');
+        const { arg, rest: after } = takeArg(rest);
+        const name = arg.replace(/^@/, "");
+        const usage = action === "set" ? `Usage: board set <name> <count>` : `Usage: board ${action} <name> [count]`;
+        if (!name || (action === "set" && !after.trim()))
+            return { error: usage };
+        const count = after.trim() ? Number(after.trim()) : 1;
+        if (!Number.isFinite(count))
+            return { error: usage };
+        return { board: { action, name, count } };
     }
 
     if (head === "time") {

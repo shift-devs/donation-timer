@@ -235,6 +235,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								{prize.effect.kind === "pauseTimer" ? "Pause for"
 									: prize.effect.kind === "timebomb" ? "Each contribution buys"
 									: prize.effect.kind === "textBox" ? "Hold for"
+									: prize.effect.kind === "command" ? "Run after"
 									: prize.effect.kind === "timeBoost" ? "for"
 									: prize.effect.kind === "infection" ? "Spreads for"
 									: prize.effect.kind === "schizo" ? "Reads chat for"
@@ -632,6 +633,17 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						placeholder="What the text box should say"
 						value={prize.effect.text}
 						onChange={(e) => patchEffect(prize.id, { text: e.target.value }, `txt${prize.id}`)}
+					/>
+				)}
+				{spec.needs.includes("command") && (
+					<Textarea
+						size="sm"
+						rows={3}
+						fontFamily="mono"
+						maxLength={1000}
+						placeholder={"time 300\nmb give {user} 1"}
+						value={prize.effect.command}
+						onChange={(e) => patchEffect(prize.id, { command: e.target.value }, `cmd${prize.id}`)}
 					/>
 				)}
 			</VStack>

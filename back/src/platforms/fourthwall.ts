@@ -3,6 +3,7 @@ import { TimerUserSession, TimerEvent } from "../types";
 import { FW_POLL_TIME, FW_UNITS_POLL_TIME, FW_UNITS_NUDGE_TIME, FW_UNITS_RETRY_TIME, FW_THUMBS_POLL_TIME, FW_HTTP_TIMEOUT, FW_LIST_PAGE_MIN, FW_LIST_PAGE_MAX, FW_LIST_QUIET_POLLS } from "../config";
 import { emitSync, emitFwAlert, emitFwActivity } from "../bus";
 import { diag } from "../diag";
+import { creditBoardOrder } from "../boxBoard";
 
 const FW_API = "https://api.fourthwall.com/open-api/v1.0";
 
@@ -413,6 +414,8 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 const qty = lineQty(line);
                 emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${displayNameFor(session, line.id, line.name || line.id)} x${qty}` });
             }
+            // box leaderboard: the box lines of this order, by quantity
+            creditBoardOrder(session, o);
             // activity feed: one row per purchased product, carrying the buyer + their checkout message
             const buyer = o.username || "Someone";
             const orderMsg = typeof o.message === "string" ? o.message : "";

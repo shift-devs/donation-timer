@@ -14,6 +14,7 @@ import TextBoxes from "./Settings/TextBoxes";
 import Firesale from "./Settings/Firesale";
 import Raffle from "./Settings/Raffle";
 import MysteryBox from "./Settings/MysteryBox";
+import BoxBoard from "./Settings/BoxBoard";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -234,6 +235,7 @@ const Settings: React.FC = () => {
 						<Tab>Firesale</Tab>
 						<Tab>Raffle</Tab>
 						<Tab>Mystery Box</Tab>
+						<Tab>Box Board</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
@@ -278,6 +280,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} products={fwProducts} />
+						</TabPanel>
+						<TabPanel>
+							<BoxBoard ws={ws} token={token} settings={settings} products={fwProducts} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />

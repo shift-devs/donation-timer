@@ -72,7 +72,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 export const MAX_PRIZES = 30;
@@ -99,6 +99,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "schizo", label: "Schizo (chat read aloud)", needs: ["seconds", "tts"], hint: "For this long, every chat line is read out loud on the Mystery Box source in the browser's own built-in voice — no service, no AI, just the machine's text-to-speech. Commands and the bot's own lines are skipped, long lines are cut short, and if chat outruns the voice the oldest lines are dropped so it stays live. Boxes keep opening over it; a second one landing extends the time. In OBS the voice comes out of the system's speech engine, so it lands on the desktop audio device rather than the browser source's own audio track. Testing in an ordinary browser tab? Click the page once first — browsers refuse to speak until they've been clicked; OBS's source has no such rule." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
 	{ key: "textBox", label: "Set a text box", needs: ["box", "text", "seconds"], hint: "Puts words on a /text source. Seconds = how long before whatever was there goes back; 0 keeps them up." },
+	{ key: "command", label: "Run a command", needs: ["seconds", "command"], hint: "Waits the seconds set here (0 = straight away), then runs a command exactly as if you'd typed it in the Terminal tab — anything the Terminal takes, e.g. \"time 300\", \"changetext topic \"WINNER\"\", \"raffle start 60\". One per line to run several. {user} becomes whoever opened the box, e.g. \"mb give {user} 2\" or \"board add {user} 1\"; a test spin has nobody to put there, so lines with {user} are skipped on a test. What each line did shows in the Terminal." },
 ];
 
 // the 4:3 stage every prize is laid out inside, scaled as one to whatever size the OBS source is — the same
@@ -171,6 +172,7 @@ export function canonPrize(raw: any, i: number) {
 			eventId: typeof e.eventId === "string" ? e.eventId.slice(0, 100) : "",
 			box: typeof e.box === "string" ? e.box.slice(0, 100) : "",
 			text: typeof e.text === "string" ? e.text.slice(0, 500) : "",
+			command: typeof e.command === "string" ? e.command.slice(0, 1000) : "",
 		},
 	};
 }

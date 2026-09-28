@@ -89,6 +89,17 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // the box leaderboard's config and its standings (see migration add-box-board)
+    boxBoardSettings: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    boxBoard: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // how the /mysterybox browser source looks plus the prize list (see migration add-mysterybox). the spin
     // happening right now is live state and is never written here.
     mysteryBoxSettings: {
@@ -242,6 +253,8 @@ export async function dbCreate(inObj: Object){
         textBoxes: lvObj.textBoxes,
         firesaleSettings: lvObj.firesaleSettings,
         raffleSettings: lvObj.raffleSettings,
+        boxBoardSettings: lvObj.boxBoardSettings,
+        boxBoard: lvObj.boxBoard,
         mysteryBoxSettings: lvObj.mysteryBoxSettings,
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
@@ -289,6 +302,8 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 textBoxes: curSession.textBoxes,
                 firesaleSettings: curSession.firesaleSettings,
                 raffleSettings: curSession.raffleSettings,
+                boxBoardSettings: curSession.boxBoardSettings,
+                boxBoard: curSession.boxBoard,
                 mysteryBoxSettings: curSession.mysteryBoxSettings,
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,

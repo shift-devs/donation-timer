@@ -22,6 +22,7 @@
 import { TimerUserSession } from "./types";
 import { emitFiresale, emitTerminal, reportError } from "./bus";
 import { mbSettings, grantMysteryBox, alreadyMintedFor, earnsBoxFor } from "./mysterybox";
+import { creditBoardFiresale } from "./boxBoard";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 const MAX_PRIZE = 200;
@@ -414,6 +415,9 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
     if (gifter && mb.enabled && mb.grantOnFiresale && earnsBoxFor(session, prize)
         && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
         grantMysteryBox(session, gifter, gifter, boxes, `put ${boxes > 1 ? `${boxes}x ` : ""}"${prize || "an item"}" up for firesale`);
+    // and on the box leaderboard, if it's one of the boxes
+    if (gifter)
+        creditBoardFiresale(session, gifter, prize, boxes);
 
     emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${boxes > 1 ? ` (read as ${boxes} items)` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);
     pushFiresale(session);
@@ -647,6 +651,8 @@ export function handleFiresaleChat(session: TimerUserSession, login: string, dis
     if (start){
         if (!cfg.enabled){
             emitTerminal(session.userId, `Fourthwall giveaway detected, but the firesale overlay is turned off.`);
+            // the box still got bought, so the leaderboard counts it with the overlay off
+            creditBoardFiresale(session, start.gifter, start.prize, start.qty);
             return true;
         }
         // the same announcement delivered twice (a chat reconnect can replay one) must not open a second run

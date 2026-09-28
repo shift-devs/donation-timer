@@ -25,6 +25,7 @@ import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, cha
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { testTimerEvent } from "./scheduler";
+import { runCommandLine } from "./runCommand";
 import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime, randomChatter } from "./quickRevive";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
@@ -67,7 +68,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
 // "now playing" that never clears would be a lie on the tab.
@@ -96,6 +97,8 @@ const MAX_GIFT_SUBS_PER_BOX = 1000;
 const GIFT_SUB_MODES = ["batch", "cumulative"];
 const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
+const MAX_COMMAND = 1000;      // a command prize's whole text
+const MAX_COMMAND_LINES = 10;  // …and how many lines of it run
 
 export const DEFAULT_MYSTERYBOX = {
     // the whole feature. off = nothing is earned and nothing can be opened; the boxes people already hold
@@ -161,7 +164,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -242,6 +245,7 @@ function normalizeEffect(raw: any): any {
         eventId: str(r.eventId, 100),          // playEvent: which configured timer event's clip to fire
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
+        command: str(r.command, MAX_COMMAND),  // command: terminal command(s) to run, one per line
     };
 }
 
@@ -318,7 +322,7 @@ export function normalizeMysteryBox(raw: any): any {
 // what an item name is compared as. fourthwall writes its product names with em dashes and curly quotes and
 // the announcement carries them through verbatim, so a rule typed with a plain hyphen would never match the
 // item it names — which would look like the feature is simply broken.
-function matchable(s: any): string {
+export function matchable(s: any): string {
     return String(s || "")
         .toLowerCase()
         .replace(/[\u2018\u2019]/g, "'")
@@ -514,7 +518,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
 // `restore` is keyed by TEXT BOX, not by user: two text-box prizes landing close together each own their own
 // box, and a single slot meant the second one cancelled the first's restore and left that box stuck on its
 // prize text for good.
-const timers: { [userId: number]: { land?: any, done?: any, juke?: any, schizo?: any, restore: { [box: string]: any } } } = {};
+const timers: { [userId: number]: { land?: any, done?: any, juke?: any, schizo?: any, restore: { [box: string]: any }, cmds?: Set<any> } } = {};
 
 function slots(userId: number){
     return timers[userId] || (timers[userId] = { restore: {} });
@@ -1002,6 +1006,8 @@ export function endMysteryBoxTimers(userId: number){
     clearTimeout(t.schizo);
     for (const box of Object.keys(t.restore))
         clearTimeout(t.restore[box]);
+    for (const c of t.cmds || [])
+        clearTimeout(c);
     delete timers[userId];
 }
 
@@ -1182,6 +1188,10 @@ export function applyEffect(session: TimerUserSession, prize: any){
         testTimerEvent(session, e.eventId);
         return;
     }
+    if (e.kind === "command" && e.command.trim()){
+        runPrizeCommands(session, prize);
+        return;
+    }
     if (e.kind === "textBox" && e.box){
         const prev = restorableText(session, e.box);
         const res = setTextBoxText(session, e.box, e.text);
@@ -1248,6 +1258,48 @@ export function nukeChat(session: TimerUserSession, percent: number, seconds: nu
     return { hit, pool: pool.length };
 }
 
+// a prize that runs terminal commands, one per line, through the same runner the terminal uses. {user} is
+// the opener, so a prize can hand them something ("mb give {user} 2"). a test spin has no opener, so a line
+// that needs one is skipped rather than handing a real viewer called TEST whatever it gives.
+// `seconds` delays the lot. the opener is read NOW, not when they run — by then the next box may be opening.
+function runPrizeCommands(session: TimerUserSession, prize: any){
+    const mbState = getMysteryBox(session);
+    const opener = mbState.isTest ? "" : String(mbState.openerName || mbState.opener || "");
+    const name = prize.name || prize.id;
+    const lines = String(prize.effect.command || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l).slice(0, MAX_COMMAND_LINES);
+    const run = () => {
+        for (const raw of lines){
+            const line = raw.replace(/^!/, "");
+            if (/\{user\}/i.test(line) && !opener){
+                emitTerminal(session.userId, `MYSTERYBOX — skipped "${line}": {user} needs someone who opened the box, and a test spin has nobody.`);
+                continue;
+            }
+            const text = line.replace(/\{user\}/gi, opener);
+            try {
+                const res = runCommandLine(session, text, `mystery box: ${name}`);
+                emitTerminal(session.userId, `MYSTERYBOX — ${name} ran "${text}": ${res.message}`, res.ok);
+            } catch (err) {
+                reportError(session.userId, `running "${text}" for a mystery box prize`, err);
+            }
+        }
+    };
+    const delay = Math.max(0, Number(prize.effect.seconds) || 0);
+    if (!delay){
+        run();
+        return;
+    }
+    emitTerminal(session.userId, `MYSTERYBOX — ${name}'s command${lines.length === 1 ? "" : "s"} will run in ${delay}s.`);
+    const t = slots(session.userId);
+    const cmds = t.cmds || (t.cmds = new Set());
+    const id = setTimeout(() => {
+        cmds.delete(id);
+        if (session.loggedOut)
+            return;
+        run();
+    }, delay * 1000);
+    cmds.add(id);
+}
+
 function restorableText(session: TimerUserSession, box: any): string {
     const boxes = Array.isArray(session.textBoxes) ? session.textBoxes : [];
     const want = String(box || "").trim().toLowerCase();
@@ -1304,6 +1356,12 @@ export function describeEffect(effect: any): string {
         return e.eventId ? "plays an event clip" : "plays nothing (pick an event)";
     if (e.kind === "textBox")
         return e.box ? `sets the "${e.box}" text box${e.seconds > 0 ? ` for ${mins(e.seconds)}` : ""}` : "sets nothing (pick a text box)";
+    if (e.kind === "command"){
+        const lines = String(e.command || "").split(/\r?\n/).map((l: string) => l.trim()).filter((l: string) => l);
+        return lines.length
+            ? `runs ${lines.length === 1 ? `"${lines[0]}"` : `${lines.length} commands`}${e.seconds > 0 ? ` after ${mins(e.seconds)}` : ""}`
+            : "runs nothing (type a command)";
+    }
     return "does nothing";
 }
 

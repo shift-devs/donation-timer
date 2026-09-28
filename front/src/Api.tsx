@@ -162,6 +162,24 @@ export function stopRaffle(ws: WebSocket) {
 	return 1;
 }
 
+// the box leaderboard tab's settings, merged server-side
+export function setBoxBoardSettings(ws: WebSocket, settings: any) {
+	send(ws, { event: "setBoxBoardSettings", settings: settings });
+	return 1;
+}
+
+// wipe the box leaderboard back to nobody
+export function resetBoxBoard(ws: WebSocket) {
+	send(ws, { event: "resetBoxBoard" });
+	return 1;
+}
+
+// fix someone's count on the box leaderboard: add / take n, or set it outright (0 = off the board)
+export function boxBoardCommand(ws: WebSocket, action: "add" | "take" | "set", name: string, count: number) {
+	send(ws, { event: "boxBoardCommand", action: action, name: name, count: count });
+	return 1;
+}
+
 // hand someone boxes by hand, or take them back with a negative count
 export function giveMysteryBox(ws: WebSocket, name: string, count: number) {
 	send(ws, { event: "giveMysteryBox", name: name, count: count });
