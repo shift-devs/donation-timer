@@ -8,7 +8,6 @@ import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, creditCount, creditScramble, spreadInfection } from "../quickRevive";
-import { runDropCommand } from "../drops";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -165,12 +164,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }
-        if (parsed.drop){
-            // "!drop", "!drop test", "!drop stop" — a mod putting one up or calling it off
-            const res = runDropCommand(session, parsed.drop);
-            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
+        if (parsed.drop) // drops are terminal-only — mods were putting them up at will
             return;
-        }
         if (parsed.mb){
             // "!mb ..." in the canonical grammar. only reachable when the configured chat command is
             // something OTHER than "mb" (handleMysteryBoxChat above consumes the configured one, whatever it
