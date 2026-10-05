@@ -28,8 +28,9 @@
 // random, clearing it starts the next straight away with a fresh clock, and only the last one pays. failing
 // any round fails the lot.
 //
-// DROPS (drops.ts) run on this too, and bring two more counters: COUNT (chat counts from one number to another,
-// one number per line) and SCRAMBLE (first to type the unscrambled word gets it). a drop is a challenge with a
+// DROPS (drops.ts) run on this too, and bring three more counters: COUNT (chat counts from one number to another,
+// one number per line), SCRAMBLE (first to type the unscrambled word gets it) and SECRET (a hint goes up, first
+// to type the phrase it points at gets it). a drop is a challenge with a
 // reward on the end, and the reward is paid through the onWin hook startChallenge takes — this file never has
 // to know what a drop is worth.
 
@@ -132,7 +133,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection" | "count" | "scramble"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -171,7 +172,8 @@ export interface ChallengeSpec {
     countFrom?: number
     countTo?: number
     resetOnMistake?: boolean
-    // scramble only: the word as it has to be typed. `phrase` carries it scrambled, which is what's shown.
+    // scramble and secret only: the words as they have to be typed. `phrase` carries what's shown instead —
+    // the letters shuffled for a scramble, the hint for a secret.
     answer?: string
     // a drop's extras: the reward's art over the title, the heading above it, the sting as it appears, and
     // the reward's name for chat. blank on everything that isn't a drop.
@@ -263,6 +265,8 @@ function subtitleFor(spec: ChallengeSpec): string {
         return `COUNT FROM ${spec.countFrom} TO ${spec.countTo}${spec.resetOnMistake ? " — A WRONG NUMBER STARTS IT OVER" : ""}`;
     if (spec.kind === "scramble")
         return "UNSCRAMBLE IT!";
+    if (spec.kind === "secret")
+        return "GUESS THE SECRET PHRASE!";
     return spec.subtitle;
 }
 
@@ -292,11 +296,12 @@ export function quickReviveView(session: TimerUserSession): any {
         resetAt: qr.resetAt || 0,
         title: spec.title,
         subtitle: subtitleFor(spec),
-        // count: the number chat has to say next. scramble: the letters to unscramble (the answer never
-        // leaves the server until it's been got or the clock has run out).
+        // count: the number chat has to say next. scramble: the letters to unscramble. secret: the hint. the
+        // answer never leaves the server until it's been got or the clock has run out.
         next: spec.kind === "count" ? qr.next : 0,
         scrambled: spec.kind === "scramble" ? spec.phrase : "",
-        answer: spec.kind === "scramble" && qr.phase !== "running" ? spec.answer || "" : "",
+        hint: spec.kind === "secret" ? spec.phrase : "",
+        answer: (spec.kind === "scramble" || spec.kind === "secret") && qr.phase !== "running" ? spec.answer || "" : "",
         // whoever finished it — the solver of a scramble, the last number of a count
         winner: qr.phase === "won" ? qr.lastByName || qr.lastBy || "" : "",
         image: spec.image || "",
@@ -339,6 +344,8 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         return { ok: false, message: "Nobody to be patient zero — nobody has said anything in chat lately." };
     if (spec.kind === "scramble" && !spec.answer)
         return { ok: false, message: "That scramble has no word to unscramble." };
+    if (spec.kind === "secret" && !spec.answer)
+        return { ok: false, message: "That secret phrase has no phrase to guess." };
     const qr = getQuickRevive(session);
     const now = Date.now();
     qr.nonce = (qr.nonce || 0) + 1;
@@ -415,6 +422,8 @@ function instruction(spec: ChallengeSpec): string {
         return `Count from ${spec.countFrom} to ${spec.countTo}, one number per message${spec.resetOnMistake ? " — a wrong number starts it over" : ""}, within ${spec.seconds} seconds.`;
     if (spec.kind === "scramble")
         return `Unscramble "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
+    if (spec.kind === "secret")
+        return `Guess the secret phrase. Hint: "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
     return `Put up ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} within ${spec.seconds} seconds — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6.`;
 }
 
@@ -428,7 +437,7 @@ function startDrop(session: TimerUserSession, qr: any, spec: ChallengeSpec): { o
             qr.next = Number(spec.countFrom) || 0;
             qr.goal = Math.abs((Number(spec.countTo) || 0) - qr.next) + 1;
         }
-        if (spec.kind === "scramble")
+        if (spec.kind === "scramble" || spec.kind === "secret")
             qr.goal = 1;
         armClock(session, spec.seconds);
         pushQuickRevive(session);
@@ -581,15 +590,18 @@ function bare(s: string): string {
     return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// a chat line during a scramble: the first one that spells the word wins it, for everybody
+// a chat line during a scramble or a secret phrase: the first one that spells the answer wins it, for
+// everybody. a scramble wants the whole line to be the word; a secret is a guess, so "is it zombies?" counts —
+// the phrase anywhere in the line lands.
 export function creditScramble(session: TimerUserSession, text: string, login = "", displayName = ""){
     const qr = getQuickRevive(session);
-    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "scramble")
+    if (qr.phase !== "running" || !qr.spec || (qr.spec.kind !== "scramble" && qr.spec.kind !== "secret"))
         return;
     if (isBot(session, login))
         return;
     const want = bare(qr.spec.answer || "");
-    if (want && bare(text) === want)
+    const said = bare(text);
+    if (want && (qr.spec.kind === "secret" ? said.includes(want) : said === want))
         credit(session, qr, 1, login, displayName);
 }
 
@@ -752,6 +764,8 @@ function dropTally(qr: any, spec: ChallengeSpec, won: boolean): string {
     const who = qr.lastByName || qr.lastBy;
     if (spec.kind === "scramble")
         return won ? `${who ? `@${who}` : "Chat"} unscrambled "${spec.answer}"` : `Nobody got it — it was "${spec.answer}"`;
+    if (spec.kind === "secret")
+        return won ? `${who ? `@${who}` : "Chat"} guessed "${spec.answer}"` : `Nobody guessed it — it was "${spec.answer}"`;
     if (spec.kind === "count"){
         const step = Number(spec.countTo) >= Number(spec.countFrom) ? 1 : -1;
         return won ? `Chat counted ${spec.countFrom} to ${spec.countTo}` : qr.points ? `Chat only got to ${qr.next - step} of ${spec.countTo}` : "Chat never got counting";

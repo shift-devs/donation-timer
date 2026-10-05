@@ -816,9 +816,10 @@ export function startApi(){
                 }
                 case "testDrop":
                     // the tab's Test: a drop plays for real on the source, with no chat and nobody credited
-                    ws.send(JSON.stringify({ commandResult: startDrop(curSession,
-                        typeof jData.rewardId === "string" ? jData.rewardId : "",
-                        typeof jData.gameId === "string" ? jData.gameId : "", true) }));
+                    ws.send(JSON.stringify({ commandResult: startDrop(curSession, {
+                        rewardId: typeof jData.rewardId === "string" ? jData.rewardId : "",
+                        gameId: typeof jData.gameId === "string" ? jData.gameId : "",
+                    }, true) }));
                     break;
                 case "forceDrop":
                     // the tab's "Drop one now": for real, announced, queued if the overlay is busy

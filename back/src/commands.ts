@@ -32,7 +32,7 @@ const RAFFLE_ACTIONS = ["start", "draw", "stop"];
 // "revive" starts the quick revive challenge with the settings on the tab; "revive stop" calls it off.
 const MB_ACTIONS = ["open", "count", "give", "take", "stop", "test", "revive"];
 
-// drops: put one up by hand (a fair draw, or a named reward), rehearse one without chat, call one off, clear
+// drops: put one up by hand (a fair draw, a named reward, or a draw from a named pool), rehearse one without chat, call one off, clear
 // the ones waiting for the overlay, or see where the hour stands. "drop" on its own is "drop now".
 const DROP_ACTIONS = ["now", "test", "stop", "clear", "status"];
 
@@ -77,7 +77,7 @@ export function commandHelp(): string {
     lines.push("    start also takes overrides for that one raffle: winners=3 boxes=2 (0 = none) title=\"BIG RAFFLE\" prize=\"Signed poster\"");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
-    lines.push("  drop [now] [reward], test [reward], stop, clear, status — drops (now = for real, test = no chat, clear = empty the queue)");
+    lines.push("  drop [now] [reward|pool], test [reward|pool], stop, clear, status — drops (now = for real, test = no chat, a pool's name draws from that pool, clear = empty the queue)");
     lines.push("  board: reset, add <name> [n], take <name> [n], set <name> <n> — the box leaderboard (quote a name with spaces)");
     return lines.join("\n");
 }

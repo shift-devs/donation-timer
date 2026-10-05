@@ -17,6 +17,11 @@
 // drop, no roll needed. that drop is indistinguishable from a rolled one — same draw, same overlay, same chat
 // lines — so chat never learns the floor is there. only the terminal says which it was.
 //
+// POOLS. the rewards are sorted into pools, and every minigame names the pool it pays from. that's how a
+// harder game — a longer chant, a bigger count — can be the only way at the better rewards. a drop picks its
+// game first, from the ones that are on and have something in their pool, then draws the reward from that
+// game's pool. a reward's rarity is its weight against the rest of its own pool.
+//
 // ONE AT A TIME, like everything on that source. a drop that lands while the overlay is busy (a box opening,
 // a challenge, a firesale or raffle) waits in a queue and goes up as soon as it's free, and a queued drop
 // holds new box opens back so it can't be starved.
@@ -32,8 +37,13 @@ import { startChallenge, isReviving, endQuickRevive, ChallengeSpec } from "./qui
 
 const MAX_REWARDS = 30;
 const MAX_GAMES = 30;
+const MAX_POOLS = 10;
 const MAX_WORDS = 50;
 const MAX_WORD = 60;
+// a secret phrase game: so many phrases, each with so many hints
+const MAX_SECRETS = 50;
+const MAX_HINTS = 20;
+const MAX_HINT = 120;
 const MAX_PATH = 300;
 const MAX_TEXT = 80;
 const MAX_QUEUE = 10;
@@ -45,7 +55,7 @@ const PUMP_MS = 2000;
 // time, so one of these as the prize would be turned away the moment it was won.
 const NOT_A_DROP = ["chant", "infection"];
 
-export const GAME_KINDS = ["chant", "count", "subpoints", "scramble"];
+export const GAME_KINDS = ["chant", "count", "subpoints", "scramble", "secret"];
 
 export const DEFAULT_DROPS = {
     enabled: false,
@@ -71,8 +81,13 @@ export const DEFAULT_DROPS = {
     failText: "TOO SLOW!",
     holdSec: 8,
     announce: true,
+    pools: [] as any[],
     rewards: [] as any[],
     games: [] as any[],
+};
+
+export const DEFAULT_POOL = {
+    name: "Standard",
 };
 
 export const DEFAULT_GAME = {
@@ -80,8 +95,13 @@ export const DEFAULT_GAME = {
     enabled: true,
     kind: "chant",
     seconds: 60,
+    // the pool it pays from. blank, or one that's gone, means the first pool.
+    pool: "",
     // chant: the phrases, one drawn per drop. scramble: the words, likewise.
     words: [] as string[],
+    // secret: the phrases to guess, each with the hints that can go up for it. one phrase is drawn per
+    // drop, then one of its hints.
+    secrets: [] as { phrase: string, hints: string[] }[],
     times: 20,
     streak: false,
     from: 1,
@@ -107,7 +127,32 @@ function vol(v: any, fallback: number): number {
 // config
 // ---------------------------------------------------------------------------
 
-function normalizeGame(raw: any, i: number): any | null {
+function normalizePools(raw: any): any[] {
+    const out: any[] = [];
+    const seen = new Set<string>();
+    if (Array.isArray(raw)){
+        for (let i = 0; i < raw.length && out.length < MAX_POOLS; i++){
+            const p = raw[i];
+            if (!p || typeof p !== "object")
+                continue;
+            let id = typeof p.id === "string" && p.id ? p.id.slice(0, 100) : `pool${i + 1}`;
+            if (seen.has(id))
+                id = `${id}_${i}`;
+            seen.add(id);
+            out.push({ id, name: str(p.name, 60).trim() || `Pool ${out.length + 1}` });
+        }
+    }
+    // there's always a pool, so a reward and a game always have somewhere to be
+    if (!out.length)
+        out.push({ id: "pool1", name: DEFAULT_POOL.name });
+    return out;
+}
+
+function poolIn(pools: any[], v: any): string {
+    return pools.some((p) => p.id === v) ? v : pools[0].id;
+}
+
+function normalizeGame(raw: any, i: number, pools: any[]): any | null {
     if (!raw || typeof raw !== "object")
         return null;
     const d = DEFAULT_GAME;
@@ -117,11 +162,26 @@ function normalizeGame(raw: any, i: number): any | null {
         enabled: raw.enabled === undefined ? d.enabled : !!raw.enabled,
         kind: GAME_KINDS.includes(raw.kind) ? raw.kind : d.kind,
         seconds: numIn(raw.seconds, 5, 3600, d.seconds),
+        pool: poolIn(pools, raw.pool),
         words: Array.isArray(raw.words)
             ? raw.words
                 .map((w: any) => str(w, MAX_WORD).trim())
                 .filter((w: string, j: number, all: string[]) => w && all.indexOf(w) === j)
                 .slice(0, MAX_WORDS)
+            : [],
+        secrets: Array.isArray(raw.secrets)
+            ? raw.secrets
+                .filter((s: any) => s && typeof s === "object")
+                .slice(0, MAX_SECRETS)
+                .map((s: any) => ({
+                    phrase: str(s.phrase, MAX_WORD).trim(),
+                    hints: Array.isArray(s.hints)
+                        ? s.hints
+                            .map((h: any) => str(h, MAX_HINT).trim())
+                            .filter((h: string, j: number, all: string[]) => h && all.indexOf(h) === j)
+                            .slice(0, MAX_HINTS)
+                        : [],
+                }))
             : [],
         times: numIn(raw.times, 1, 10000, d.times),
         streak: !!raw.streak,
@@ -132,13 +192,13 @@ function normalizeGame(raw: any, i: number): any | null {
     };
 }
 
-function normalizeGames(raw: any): any[] {
+function normalizeGames(raw: any, pools: any[]): any[] {
     if (!Array.isArray(raw))
         return [];
     const out: any[] = [];
     const seen = new Set<string>();
     for (let i = 0; i < raw.length && out.length < MAX_GAMES; i++){
-        const g = normalizeGame(raw[i], i);
+        const g = normalizeGame(raw[i], i, pools);
         if (!g)
             continue;
         if (seen.has(g.id))
@@ -154,6 +214,9 @@ export function normalizeDrops(raw: any): any {
     const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const lo = numIn(r.guaranteeMin, 1, 600, d.guaranteeMin);
     const chance = Number(r.chance);
+    const pools = normalizePools(r.pools);
+    // only the objects go through, so the normalized list lines up with this one index for index
+    const rawRewards: any[] = Array.isArray(r.rewards) ? r.rewards.filter((x: any) => x && typeof x === "object").slice(0, MAX_REWARDS) : [];
     return {
         enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
         chance: Number.isFinite(chance) ? Math.min(100, Math.max(0, Math.round(chance * 100) / 100)) : d.chance,
@@ -174,19 +237,27 @@ export function normalizeDrops(raw: any): any {
         failText: str(r.failText, MAX_TEXT).trim() || d.failText,
         holdSec: numIn(r.holdSec, 1, 60, d.holdSec),
         announce: r.announce === undefined ? d.announce : !!r.announce,
+        pools,
         // the mystery box's own prize shape, so the same effects apply — minus the ones that are games
-        rewards: normalizePrizes(r.rewards).slice(0, MAX_REWARDS).map((p: any) => {
+        rewards: normalizePrizes(rawRewards).map((p: any, i: number) => {
             if (NOT_A_DROP.includes(p.effect.kind))
                 p.effect.kind = "none";
             p.profile = "";
+            // the pool it's in. one that's gone (or was never set) puts it in the first.
+            p.pool = poolIn(pools, rawRewards[i].pool);
             return p;
         }),
-        games: normalizeGames(r.games),
+        games: normalizeGames(r.games, pools),
     };
 }
 
 export function dropSettings(session: TimerUserSession): any {
     return session.dropSettings || (session.dropSettings = normalizeDrops(null));
+}
+
+// a secret that can go up: it has a phrase, and a hint to point at it
+function hinted(s: any): boolean {
+    return !!(s.phrase && s.hints.length);
 }
 
 // a game that can actually be played: the phrase or word games need something to say
@@ -195,17 +266,43 @@ function playable(g: any): boolean {
         return false;
     if (g.kind === "chant" || g.kind === "scramble")
         return g.words.length > 0;
+    if (g.kind === "secret")
+        return g.secrets.some(hinted);
     if (g.kind === "count")
         return g.from !== g.to;
     return true;
 }
 
-function winnableRewards(session: TimerUserSession): any[] {
-    return dropSettings(session).rewards.filter((p: any) => p.enabled && p.weight > 0);
+// the rewards that can drop — all of them, or one pool's
+function winnableRewards(session: TimerUserSession, poolId = ""): any[] {
+    return dropSettings(session).rewards.filter((p: any) => p.enabled && p.weight > 0 && (!poolId || p.pool === poolId));
 }
 
 function playableGames(session: TimerUserSession): any[] {
     return dropSettings(session).games.filter(playable);
+}
+
+// a game that can be played AND has something in its pool to hand out
+function armed(session: TimerUserSession, g: any): boolean {
+    return playable(g) && winnableRewards(session, g.pool).length > 0;
+}
+
+function armedGames(session: TimerUserSession): any[] {
+    return dropSettings(session).games.filter((g: any) => armed(session, g));
+}
+
+function poolName(cfg: any, id: string): string {
+    const p = cfg.pools.find((x: any) => x.id === id);
+    return p ? p.name : id;
+}
+
+// why nothing can drop right now, for the terminal
+function whyNothing(session: TimerUserSession): string {
+    if (!winnableRewards(session).length)
+        return "no reward is set up";
+    if (!playableGames(session).length)
+        return "no minigame is set up";
+    return "no minigame that's ready pays from a pool with a reward in it";
 }
 
 // ---------------------------------------------------------------------------
@@ -303,13 +400,13 @@ export function rollForDrop(session: TimerUserSession, event: TimerEvent, addedS
     const rolled = Math.random() * 100 < cfg.chance;
     if (!crossed && !rolled)
         return;
-    if (!winnableRewards(session).length || !playableGames(session).length){
-        emitTerminal(session.userId, `DROP — one would have dropped (${event.label}), but ${!winnableRewards(session).length ? "no reward is set up" : "no minigame is set up"} on the Drops tab.`);
+    if (!armedGames(session).length){
+        emitTerminal(session.userId, `DROP — one would have dropped (${event.label}), but ${whyNothing(session)} on the Drops tab.`);
         return;
     }
     st.drops += 1;
     emitTerminal(session.userId, `DROP — ${crossed ? `guaranteed: ${Math.floor(st.seconds / 60)} minutes added this hour passed the ${Math.round(st.threshold / 60)}-minute floor` : `rolled on ${event.label}`} (${st.drops} of ${cfg.maxPerHour} this hour).`, true);
-    queueDrop(session, crossed ? "guaranteed" : "rolled");
+    queueDrop(session, crossed ? "guaranteed" : "rolled", {});
 }
 
 // ---------------------------------------------------------------------------
@@ -322,13 +419,13 @@ function queue(session: TimerUserSession): any[] {
     return Array.isArray(session.dropQueue) ? session.dropQueue : (session.dropQueue = []);
 }
 
-function queueDrop(session: TimerUserSession, why: string, rewardId = "", gameId = ""){
+function queueDrop(session: TimerUserSession, why: string, want: DropPick){
     const q = queue(session);
     if (q.length >= MAX_QUEUE){
         emitTerminal(session.userId, `DROP — ${q.length} already waiting; this one was dropped.`);
         return;
     }
-    q.push({ why, rewardId, gameId, at: Date.now() });
+    q.push({ why, rewardId: want.rewardId || "", gameId: want.gameId || "", poolId: want.poolId || "", at: Date.now() });
     pump(session);
     emitSync(session.userId);
 }
@@ -356,7 +453,7 @@ function pump(session: TimerUserSession){
     if (!overlayBusy(session)){
         const next = q.shift();
         try {
-            const res = startDrop(session, next.rewardId, next.gameId, false);
+            const res = startDrop(session, next, false);
             if (!res.ok)
                 emitTerminal(session.userId, `DROP — ${res.message}`);
         } catch (err) {
@@ -386,12 +483,13 @@ export function endDropTimers(userId: number){
 // putting one up
 // ---------------------------------------------------------------------------
 
-function pick<T>(list: T[]): T {
+function oneOf<T>(list: T[]): T {
     return list[Math.floor(Math.random() * list.length)];
 }
 
-function drawReward(session: TimerUserSession): any | null {
-    const pool = winnableRewards(session);
+// a weighted draw from one pool
+function drawReward(session: TimerUserSession, poolId: string): any | null {
+    const pool = winnableRewards(session, poolId);
     if (!pool.length)
         return null;
     const total = pool.reduce((sum, p) => sum + p.weight, 0);
@@ -427,7 +525,7 @@ export function scramble(word: string): string {
 }
 
 function gameSpec(cfg: any, reward: any, game: any, test: boolean): ChallengeSpec {
-    const word = game.words.length ? pick(game.words) as string : "";
+    const word = game.words.length ? oneOf(game.words) as string : "";
     const base: ChallengeSpec = {
         kind: game.kind,
         title: reward.name || "DROP",
@@ -477,6 +575,12 @@ function gameSpec(cfg: any, reward: any, game: any, test: boolean): ChallengeSpe
         base.unit = "";
         base.answer = word;
         base.phrase = scramble(word);
+    } else if (game.kind === "secret"){
+        // the phrase is the answer; what goes up is one of its hints
+        const secret: any = oneOf(game.secrets.filter(hinted));
+        base.unit = "";
+        base.answer = secret.phrase;
+        base.phrase = oneOf(secret.hints) as string;
     } else {
         base.unit = "SUB POINTS";
         base.goal = game.points;
@@ -484,20 +588,41 @@ function gameSpec(cfg: any, reward: any, game: any, test: boolean): ChallengeSpe
     return base;
 }
 
-// put a drop on screen now. blank ids = a fair draw of each. `test` is the tab's rehearsal: it plays for real
-// but says nothing in chat and credits nobody with anything personal.
-export function startDrop(session: TimerUserSession, rewardId = "", gameId = "", test = false): { ok: boolean, message: string } {
+// what a drop is asked to be. anything blank is drawn: a named game draws its reward from its own pool, a
+// named reward gets one of the games that pay from its pool, a named pool gets one of its games and then one
+// of its rewards, and nothing at all is a fair draw of every game that has something to give.
+export type DropPick = { rewardId?: string, gameId?: string, poolId?: string };
+
+// put a drop on screen now. `test` is the tab's rehearsal: it plays for real but says nothing in chat and
+// credits nobody with anything personal.
+export function startDrop(session: TimerUserSession, want: DropPick = {}, test = false): { ok: boolean, message: string } {
     const cfg = dropSettings(session);
     const busy = overlayBusy(session);
     if (busy)
         return { ok: false, message: `Can't put a drop up — ${busy}.` };
-    const reward = rewardId ? cfg.rewards.find((p: any) => p.id === rewardId) : drawReward(session);
+    const named = want.rewardId ? cfg.rewards.find((p: any) => p.id === want.rewardId) : null;
+    if (want.rewardId && !named)
+        return { ok: false, message: "That reward isn't on the Drops tab any more." };
+    const poolId = named ? named.pool : want.poolId || "";
+    if (poolId && !cfg.pools.some((p: any) => p.id === poolId))
+        return { ok: false, message: "That pool isn't on the Drops tab any more." };
+    let game: any;
+    if (want.gameId){
+        game = cfg.games.find((g: any) => g.id === want.gameId);
+        if (!game)
+            return { ok: false, message: "That minigame isn't on the Drops tab any more." };
+        if (!playable(game))
+            return { ok: false, message: `That minigame has nothing to play — give it ${game.kind === "secret" ? "a phrase with a hint" : game.kind === "count" ? "a range" : "some words"}.` };
+    } else {
+        // a named reward only needs a game that's ready in its pool; otherwise the pool has to have something in it too
+        const games = cfg.games.filter((g: any) => named ? g.pool === poolId && playable(g) : poolId ? g.pool === poolId && armed(session, g) : armed(session, g));
+        if (!games.length)
+            return { ok: false, message: poolId ? `No minigame that's ready pays from the ${poolName(cfg, poolId)} pool.` : `Nothing can drop — ${whyNothing(session)}.` };
+        game = oneOf(games);
+    }
+    const reward = named || drawReward(session, game.pool);
     if (!reward)
-        return { ok: false, message: rewardId ? "That reward isn't on the Drops tab any more." : "No reward is set up to drop." };
-    const games = playableGames(session);
-    const game = gameId ? cfg.games.find((g: any) => g.id === gameId) : games.length ? pick(games) : null;
-    if (!game || !playable(game))
-        return { ok: false, message: gameId ? "That minigame has nothing to play — give it some words." : "No minigame is set up to play." };
+        return { ok: false, message: `Nothing in the ${poolName(cfg, game.pool)} pool can drop.` };
     const spec = gameSpec(cfg, reward, game, test);
     // the reward is copied now, so retuning the tab while chat plays can't change what they're playing for
     const prize = JSON.parse(JSON.stringify(reward));
@@ -541,18 +666,23 @@ export function runDropCommand(session: TimerUserSession, cmd: { action: string,
                 + `${v.queued ? `, ${v.queued} waiting` : ""}.`,
         };
     }
+    // the name is a reward, or failing that a pool to draw from
     const reward = cmd.name ? findByName(cfg.rewards, cmd.name) : null;
-    if (cmd.name && !reward)
-        return { ok: false, message: `No reward called "${cmd.name}". Try: ${cfg.rewards.map((p: any) => p.name || p.id).join(", ") || "(none set up)"}.` };
+    const pool = cmd.name && !reward ? findByName(cfg.pools, cmd.name) : null;
+    if (cmd.name && !reward && !pool)
+        return { ok: false, message: `No reward or pool called "${cmd.name}". Rewards: ${cfg.rewards.map((p: any) => p.name || p.id).join(", ") || "(none set up)"}. Pools: ${cfg.pools.map((p: any) => p.name).join(", ")}.` };
+    const want: DropPick = { rewardId: reward ? reward.id : "", poolId: pool ? pool.id : "" };
     if (cmd.action === "test")
-        return startDrop(session, reward ? reward.id : "", "", true);
+        return startDrop(session, want, true);
     // a drop by hand: goes up for real, announced like any other, and waits its turn if the overlay is busy.
     // it doesn't count toward the hour — the cap is on what the timer hands out, not on the operator.
-    if (!winnableRewards(session).length && !reward)
-        return { ok: false, message: "No reward is set up to drop." };
-    if (!playableGames(session).length)
-        return { ok: false, message: "No minigame is set up to play." };
+    if (reward && !cfg.games.some((g: any) => g.pool === reward.pool && playable(g)))
+        return { ok: false, message: `No minigame that's ready pays from the ${poolName(cfg, reward.pool)} pool, so ${reward.name || reward.id} can't drop.` };
+    if (pool && !cfg.games.some((g: any) => g.pool === pool.id && armed(session, g)))
+        return { ok: false, message: `Nothing in the ${pool.name} pool can drop — it needs a reward that's on and a minigame that's ready.` };
+    if (!reward && !pool && !armedGames(session).length)
+        return { ok: false, message: `Nothing can drop — ${whyNothing(session)}.` };
     const busy = overlayBusy(session);
-    queueDrop(session, "manual", reward ? reward.id : "");
-    return { ok: true, message: busy ? `Drop queued — it goes up once ${busy.replace(/^a /, "the ")} is done.` : `Dropped${reward ? ` ${reward.name || reward.id}` : ""}.` };
+    queueDrop(session, "manual", want);
+    return { ok: true, message: busy ? `Drop queued — it goes up once ${busy.replace(/^a /, "the ")} is done.` : `Dropped${reward ? ` ${reward.name || reward.id}` : pool ? ` from ${pool.name}` : ""}.` };
 }

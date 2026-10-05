@@ -499,15 +499,19 @@ const MysteryBox: React.FC = () => {
 	const reviveNames: string[] = revive && Array.isArray(revive.names) ? revive.names : [];
 	const reviveRounds = Number((revive && revive.rounds) || 1);
 	// a drop: the heading and the reward's art go above the title, so everything under them draws smaller to
-	// leave the room. scramble has no count to show — its letters are the whole game — and count shows which
-	// number is up next.
+	// leave the room. scramble has no count to show — its letters are the whole game — and a secret phrase
+	// shows its hint there instead; count shows which number is up next.
 	const reviveKicker = String((revive && revive.kicker) || "");
 	const reviveDrop = !!reviveKicker;
 	const reviveArt = reviveDrop ? prizeImageSrc(String(revive.image || "")) : "";
 	const reviveScramble = !!(revive && revive.kind === "scramble");
+	const reviveSecret = !!(revive && revive.kind === "secret");
 	const reviveCount = !!(revive && revive.kind === "count");
 	const reviveLetters = String((revive && revive.scrambled) || "");
 	const reviveLettersFs = Math.max(48, Math.min(120, Math.floor((STAGE_W - 120) / (Math.max(4, reviveLetters.length) * 0.62))));
+	// a hint is a sentence, so it wraps rather than shrinking out of sight, and only needs a floor
+	const reviveHint = String((revive && revive.hint) || "");
+	const reviveHintFs = Math.max(40, Math.min(80, Math.floor((STAGE_W - 120) / (Math.max(10, reviveHint.length) * 0.5))));
 	const reviveWinner = String((revive && revive.winner) || "");
 	const reviveTitleFs = Math.max(reviveDrop ? 48 : 56, Math.min(reviveDrop ? 90 : 110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
@@ -975,15 +979,17 @@ const MysteryBox: React.FC = () => {
 							>
 								{reviveSecs}
 							</div>
-							{/* a scramble's letters take the place of the count — they're what chat is staring at */}
-							{reviveScramble ? (
+							{/* a scramble's letters take the place of the count — they're what chat is staring at. a secret
+							    phrase puts its hint there, the same way */}
+							{reviveScramble || reviveSecret ? (
 								<div
 									style={{
 										color: cfg.titleColor,
-										fontSize: reviveLettersFs,
-										lineHeight: 1,
+										fontSize: reviveSecret ? reviveHintFs : reviveLettersFs,
+										lineHeight: reviveSecret ? 1.1 : 1,
 										marginTop: 14,
-										letterSpacing: "0.12em",
+										padding: reviveSecret ? "0 40px" : 0,
+										letterSpacing: reviveSecret ? "0.03em" : "0.12em",
 										WebkitTextStrokeWidth: "4px",
 										WebkitTextStrokeColor: "#000",
 										paintOrder: "stroke fill",
@@ -991,7 +997,7 @@ const MysteryBox: React.FC = () => {
 										animation: "mb-pop 420ms ease-out both",
 									}}
 								>
-									{reviveLetters}
+									{reviveSecret ? `“${reviveHint}”` : reviveLetters}
 								</div>
 							) : (<>
 							<div style={{ color: cfg.nameColor, fontSize: reviveDrop ? 54 : 64, lineHeight: 1, marginTop: reviveDrop ? 10 : 18, textShadow: outline }}>
@@ -1081,7 +1087,7 @@ const MysteryBox: React.FC = () => {
 								</div>
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
-								{reviveScramble
+								{reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
 									: reviveInfection ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
