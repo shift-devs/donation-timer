@@ -94,6 +94,8 @@ export interface TimerUserSession {
     dropState: any
     // drops that landed while the overlay was busy, waiting their turn. transient
     dropQueue?: any[]
+    // which ! commands mods may run in chat, one switch per group (persisted — see chatPermissions.ts)
+    chatPermissions: any
     // the jukebox prize's long clip, while it plays in the background on the /mysterybox source. transient:
     // the source is what's playing it, and a restart leaves the source to finish on its own.
     jukebox?: { nonce: number, track: string, volume: number, startedAt: number, name: string }

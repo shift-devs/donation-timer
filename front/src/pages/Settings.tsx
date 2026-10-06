@@ -16,6 +16,7 @@ import Raffle from "./Settings/Raffle";
 import Drops from "./Settings/Drops";
 import MysteryBox from "./Settings/MysteryBox";
 import BoxBoard from "./Settings/BoxBoard";
+import Permissions from "./Settings/Permissions";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -238,6 +239,7 @@ const Settings: React.FC = () => {
 						<Tab>Mystery Box</Tab>
 						<Tab>Drops</Tab>
 						<Tab>Box Board</Tab>
+						<Tab>Permissions</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
@@ -288,6 +290,9 @@ const Settings: React.FC = () => {
 						</TabPanel>
 						<TabPanel>
 							<BoxBoard ws={ws} token={token} settings={settings} products={fwProducts} />
+						</TabPanel>
+						<TabPanel>
+							<Permissions ws={ws} settings={settings} />
 						</TabPanel>
 						<TabPanel>
 							<Controls ws={ws} token={token} settings={settings} />

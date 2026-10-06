@@ -10,6 +10,7 @@ import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopRaffle } from "./raffle";
 import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
+import { normalizeChatPermissions } from "./chatPermissions";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
 import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
@@ -126,6 +127,8 @@ function wsSync(ws: TimerWebSocket) {
             boxBoard: boxBoardView(curSession),
             boxBoardSettings: curSession.boxBoardSettings || {},
             boxBoardTally: curSession.boxBoard || {},
+            // the permissions tab: which ! commands mods may run in chat
+            chatPermissions: normalizeChatPermissions(curSession.chatPermissions),
             // the box being opened right now (idle when there isn't one), so a source that connects mid-spin
             // picks the reel straight back up
             mysterybox: mysteryBoxView(curSession),
@@ -732,6 +735,14 @@ export function startApi(){
                         ? jData.settings
                         : {};
                     curSession.boxBoardSettings = normalizeBoxBoard({ ...(curSession.boxBoardSettings || {}), ...patch });
+                    break;
+                }
+                case "setChatPermissions": {
+                    // merged onto what's stored, so the tab can flip one switch on its own
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.chatPermissions = normalizeChatPermissions({ ...(curSession.chatPermissions || {}), ...patch });
                     break;
                 }
                 case "resetBoxBoard":

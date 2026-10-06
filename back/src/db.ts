@@ -100,6 +100,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // which ! commands mods may run in chat (see migration add-chat-permissions)
+    chatPermissions: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // how the /mysterybox browser source looks plus the prize list (see migration add-mysterybox). the spin
     // happening right now is live state and is never written here.
     mysteryBoxSettings: {
@@ -266,6 +272,7 @@ export async function dbCreate(inObj: Object){
         raffleSettings: lvObj.raffleSettings,
         boxBoardSettings: lvObj.boxBoardSettings,
         boxBoard: lvObj.boxBoard,
+        chatPermissions: lvObj.chatPermissions,
         mysteryBoxSettings: lvObj.mysteryBoxSettings,
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
@@ -317,6 +324,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 raffleSettings: curSession.raffleSettings,
                 boxBoardSettings: curSession.boxBoardSettings,
                 boxBoard: curSession.boxBoard,
+                chatPermissions: curSession.chatPermissions,
                 mysteryBoxSettings: curSession.mysteryBoxSettings,
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,

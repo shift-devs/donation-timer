@@ -162,6 +162,12 @@ export function stopRaffle(ws: WebSocket) {
 	return 1;
 }
 
+// the permissions tab: which ! commands mods may run in chat, merged server-side
+export function setChatPermissions(ws: WebSocket, settings: any) {
+	send(ws, { event: "setChatPermissions", settings: settings });
+	return 1;
+}
+
 // the box leaderboard tab's settings, merged server-side
 export function setBoxBoardSettings(ws: WebSocket, settings: any) {
 	send(ws, { event: "setBoxBoardSettings", settings: settings });

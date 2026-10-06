@@ -7,6 +7,7 @@ import { normalizeTextBoxes } from "./textBoxes";
 import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeRaffle, endRaffleTimers } from "./raffle";
 import { normalizeBoxBoard, normalizeBoxBoardTally } from "./boxBoard";
+import { normalizeChatPermissions } from "./chatPermissions";
 import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
 import { forgetTwitchBot } from "./platforms/twitchBot";
 import { endPauseTimer, endBoostTimer } from "./timer";
@@ -83,6 +84,7 @@ export function loginUser(inObj: Object){
     lvObj.raffle = undefined;   // nor does a raffle
     lvObj.boxBoardSettings = normalizeBoxBoard(lvObj.boxBoardSettings);
     lvObj.boxBoard = normalizeBoxBoardTally(lvObj.boxBoard); // the standings survive: only reset clears them
+    lvObj.chatPermissions = normalizeChatPermissions(lvObj.chatPermissions);
     lvObj.mysteryBoxSettings = normalizeMysteryBox(lvObj.mysteryBoxSettings);
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
     lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges

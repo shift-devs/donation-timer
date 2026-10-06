@@ -8,6 +8,8 @@ import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, creditCount, creditScramble, spreadInfection } from "../quickRevive";
+import { runDropCommand } from "../drops";
+import { modMay, eventPermission } from "../chatPermissions";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -95,7 +97,15 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         console.log(`(${channel}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
         if (!tags.username)
             return;
-        const isMod = !!(tags.mod || tags.username.toLowerCase() == channel.toLowerCase());
+        const isBroadcaster = tags.username.toLowerCase() == channel.toLowerCase();
+        const isMod = !!(tags.mod || isBroadcaster);
+        // the Permissions tab: a group switched off there is refused for mods, never for the broadcaster
+        const may = (key: string) => {
+            if (isBroadcaster || modMay(session, key))
+                return true;
+            emitTerminal(session.userId, `Chat (${tags.username}): "${filterMessage}" refused — mods can't use that in chat (Permissions tab).`, false);
+            return false;
+        };
         // note who is talking, for the prizes that act on chat. recorded before anything below can return,
         // so somebody typing "!mb open" still counts as being in chat.
         recordChatter(session, tags.username, String(tags["display-name"] || tags.username), isMod);
@@ -123,7 +133,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // "!mb open" is likewise open to every chatter — they're spending a box they earned — so it goes in
         // ahead of the mod gate too, and for the same reason it gets the ORIGINAL message: the display name
         // is what goes up on the overlay, capitals and all.
-        if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod))
+        // a mod held back from the mystery box on the Permissions tab is treated like any other chatter here
+        if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod && (isBroadcaster || modMay(session, "mb"))))
             return;
         // "!raygun <name>" — open to everyone too, since the shots are a thing a viewer won
         if (handleRaygunChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || "")))
@@ -137,6 +148,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             // the filter above lowercases and strips anything non-ascii, which is right for "twitch bits 100"
             // and would mangle "Back in 5!" into something the mod didn't type. verb detection still uses the
             // filtered copy, so "!ChangeText" works.
+            if (!may("text"))
+                return;
             const raw = String(message || "").trim();
             const parsed = parseCommand(raw.slice(raw.indexOf("!") + 1));
             const res = parsed.text
@@ -154,22 +167,34 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         const parsed = parseCommand(command);
         if (parsed.firesale){
             // "!firesale start/stop/draw/winner" — mods driving the overlay when fourthwall isn't
+            if (!may("firesale"))
+                return;
             const res = runFiresaleCommand(session, parsed.firesale);
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }
         if (parsed.raffle){
             // "!raffle start/draw/stop" — a mod running the raffle from chat
+            if (!may("raffle"))
+                return;
             const res = runRaffleCommand(session, parsed.raffle);
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
         }
-        if (parsed.drop) // drops are terminal-only — mods were putting them up at will
+        if (parsed.drop){
+            // "!drop", "!drop test", "!drop stop" — off for mods unless the Permissions tab lets them
+            if (!may("drop"))
+                return;
+            const res = runDropCommand(session, parsed.drop);
+            emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
+        }
         if (parsed.mb){
             // "!mb ..." in the canonical grammar. only reachable when the configured chat command is
             // something OTHER than "mb" (handleMysteryBoxChat above consumes the configured one, whatever it
             // is) — so this is the escape hatch that keeps the documented command working after a rename.
+            if (!may("mb"))
+                return;
             const res = runMysteryBoxCommand(session, parsed.mb, { login: tags.username, displayName: String(tags["display-name"] || tags.username) });
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);
             return;
@@ -178,6 +203,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             console.log(`(${channel}) chat command "${filterMessage}" rejected: ${parsed.error || "no event"}`);
             return;
         }
+        if (!may(eventPermission(parsed.event)))
+            return;
         parsed.event.label = `Chat: ${filterMessage} (${tags.username})`; // keep who ran it in the audit log
         emit(parsed.event);
     }));
