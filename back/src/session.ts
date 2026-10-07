@@ -88,6 +88,7 @@ export function loginUser(inObj: Object){
     lvObj.mysteryBoxSettings = normalizeMysteryBox(lvObj.mysteryBoxSettings);
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
     lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
+    lvObj.doubleTime = normalizeBoxes(lvObj.doubleTime);     // and unspent double time prizes
     lvObj.giftSubProgress = normalizeBoxes(lvObj.giftSubProgress); // and gift subs counted toward a box
     lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
     lvObj.quickRevive = undefined;  // nor a quick revive: the clock dies with the process that was running it

@@ -401,18 +401,21 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
             const offers = Array.isArray(o.offers) ? o.offers : [];
             // what was bought rides along on the order event so a "product bought" event trigger can match on it
             const fwOffers = offers.map((line: any) => ({ id: String((line && line.id) || ""), qty: lineQty(line) }));
-            emit({ platform: "fourthwall", kind: "money", usd, unit: "order", fwOffers, label: `order $${usd} from ${o.username || o.email || "someone"}` });
+            // the order and its bonuses share a ref, so a double time prize doubles all of it
+            const from = String(o.username || "");
+            const ref = `fw-order-${o.id}`;
+            emit({ platform: "fourthwall", kind: "money", usd, unit: "order", fwOffers, from, ref, label: `order $${usd} from ${o.username || o.email || "someone"}` });
             // flat per-order bonus: granted once per whole order (any # of items), on top of the $-rate time
             const orderFlat = Number(session.rates && session.rates.fourthwall && session.rates.fourthwall.orderFlat) || 0;
             if (orderFlat > 0)
-                emit({ platform: "fourthwall", kind: "time", seconds: orderFlat, label: `order bonus from ${o.username || o.email || "someone"}` });
+                emit({ platform: "fourthwall", kind: "time", seconds: orderFlat, from, ref, label: `order bonus from ${o.username || o.email || "someone"}` });
             // per-product bonuses: flat seconds per item on top of the $-rate time, scaled by quantity
             for (const line of offers){
                 const per = Number(line && line.id && session.fwProductBonuses && session.fwProductBonuses[line.id]) || 0;
                 if (!per)
                     continue;
                 const qty = lineQty(line);
-                emit({ platform: "fourthwall", kind: "time", seconds: per * qty, label: `product bonus: ${displayNameFor(session, line.id, line.name || line.id)} x${qty}` });
+                emit({ platform: "fourthwall", kind: "time", seconds: per * qty, from, ref, label: `product bonus: ${displayNameFor(session, line.id, line.name || line.id)} x${qty}` });
             }
             // box leaderboard: the box lines of this order, by quantity
             creditBoardOrder(session, o);
@@ -501,12 +504,12 @@ export function connectFourthwall(session: TimerUserSession, emit: (e: TimerEven
                 if (!usd)
                     diag(`FW-DIAG ${watching}: donation ${d.id} parsed to $0 (check amounts.total field)`);
                 pushFwActivity(session, { t: Date.now(), product: `Donation $${usd}`, user: d.username || d.email || "someone", message: typeof d.message === "string" ? d.message : "", image: "", unit: "donation" });
-                return { platform: "fourthwall", kind: "money", usd, unit: "donation", label: `donation $${usd} from ${d.username || d.email || "someone"}` };
+                return { platform: "fourthwall", kind: "money", usd, unit: "donation", from: String(d.username || ""), label: `donation $${usd} from ${d.username || d.email || "someone"}` };
             });
             await pollList(memberList, (m) => {
                 // flat per new member (renewals reuse the same id so polling won't re-fire them; tiers TBD)
                 pushFwActivity(session, { t: Date.now(), product: "New membership", user: m.nickname || m.email || "someone", message: "", image: "", unit: "membership" });
-                return { platform: "fourthwall", kind: "member", count: 1, unit: "membership", label: `membership from ${m.nickname || m.email || "someone"}` };
+                return { platform: "fourthwall", kind: "member", count: 1, unit: "membership", from: String(m.nickname || ""), label: `membership from ${m.nickname || m.email || "someone"}` };
             });
             if (!diagnosed){ // creds work (we got here), so dump real samples once
                 await logDiagnostics();

@@ -126,6 +126,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // unspent double time prizes, same shape as the box ledger (see migration add-double-time)
+    doubleTime: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // gift subs counted toward a box in cumulative mode (see migration add-gift-sub-progress)
     giftSubProgress: {
         type: DataTypes.JSONB,
@@ -276,6 +282,7 @@ export async function dbCreate(inObj: Object){
         mysteryBoxSettings: lvObj.mysteryBoxSettings,
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
+        doubleTime: lvObj.doubleTime,
         giftSubProgress: lvObj.giftSubProgress,
         dropSettings: lvObj.dropSettings,
         dropState: lvObj.dropState,
@@ -328,6 +335,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 mysteryBoxSettings: curSession.mysteryBoxSettings,
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,
+                doubleTime: curSession.doubleTime,
                 giftSubProgress: curSession.giftSubProgress,
                 dropSettings: curSession.dropSettings,
                 dropState: curSession.dropState,

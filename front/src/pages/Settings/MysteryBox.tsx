@@ -19,6 +19,7 @@ import {
 	setMysteryBoxSettings,
 	giveMysteryBox,
 	giveRaygun,
+	giveDoubleTime,
 	renameMysteryBoxOwner,
 	clearGiftSubProgress,
 	testMysteryBox,
@@ -165,6 +166,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const guns: { [key: string]: any } = settings.rayguns || {};
 	const gunners = Object.keys(guns)
 		.map((k) => ({ key: k, name: guns[k].name || k, count: guns[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// banked double time prizes, waiting on the holder's next contribution
+	const dbl: { [key: string]: any } = settings.doubleTime || {};
+	const doublers = Object.keys(dbl)
+		.map((k) => ({ key: k, name: dbl[k].name || k, count: dbl[k].count || 0 }))
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 	// cumulative gift sub tallies, closest to their next box first
 	const tallies: { [key: string]: any } = settings.giftSubProgress || {};
@@ -542,6 +548,27 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</Box>
 			)}
 
+			{doublers.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">Double time</Text>
+						<Text fontSize="sm" color="gray.600">
+							banked — each one doubles that person's next contribution
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{doublers.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="green">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveDoubleTime(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveDoubleTime(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
 			{/* ---- the prizes ---- */}
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Prizes</Text>
@@ -785,6 +812,21 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					boxes still bank up and you can still open and test them from here. Turning <b>Mystery boxes</b>{" "}
 					off stops the earning too.
 				</Text>
+				<HStack spacing={3} wrap="wrap">
+					<HStack spacing={2}>
+						<Switch
+							isChecked={draft.remindUnopened}
+							isDisabled={!draft.enabled}
+							onChange={(e) => patch({ remindUnopened: e.target.checked })}
+						/>
+						<Text fontSize="sm">Remind people with unopened boxes when they chat</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">at most once every</Text>
+						<NumberField width="80px" min={5} max={1440} value={draft.remindEveryMin} onCommit={(n) => patch({ remindEveryMin: n }, "remind")} />
+						<Text fontSize="sm" color="gray.600">min per person</Text>
+					</HStack>
+				</HStack>
 
 				<HStack spacing={3} wrap="wrap">
 					<HStack spacing={1}>

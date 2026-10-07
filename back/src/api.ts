@@ -12,7 +12,7 @@ import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopR
 import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
 import { normalizeChatPermissions } from "./chatPermissions";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
+import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantDoubleTime, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -138,6 +138,7 @@ function wsSync(ws: TimerWebSocket) {
             // the ledgers, for the dashboard tab's lists of who is holding what
             mysteryBoxes: curSession.mysteryBoxes || {},
             rayguns: curSession.rayguns || {},
+            doubleTime: curSession.doubleTime || {},
             giftSubProgress: curSession.giftSubProgress || {},
             // the drops tab: its config, and where this hour stands (dashboard only — the floor is in here)
             dropSettings: curSession.dropSettings || {},
@@ -783,6 +784,13 @@ export function startApi(){
                     const n = Math.trunc(Number(jData.count) || 1);
                     if (name && n)
                         grantRaygun(curSession, name, name, n);
+                    break;
+                }
+                case "giveDoubleTime": {
+                    const name = typeof jData.name === "string" ? jData.name.trim() : "";
+                    const n = Math.trunc(Number(jData.count) || 1);
+                    if (name && n)
+                        grantDoubleTime(curSession, name, name, n);
                     break;
                 }
                 case "renameMysteryBoxOwner": {

@@ -5,7 +5,7 @@ import { addToEndTime, boostFactor, refreshTimebomb, isStoppedAtZero } from "./t
 import { emitSync, reportError } from "./bus";
 import { firePlatformTriggers } from "./scheduler";
 import { creditQuickRevive } from "./quickRevive";
-import { creditGiftedSubs } from "./mysterybox";
+import { creditGiftedSubs, spendDoubleTime } from "./mysterybox";
 import { rollForDrop } from "./drops";
 
 // tally a genuine (non-command) sub/membership for the /subcount browser sources. counts each gifted
@@ -73,10 +73,15 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         // in, including the flat and per-product bonuses a fourthwall order carries, because those ARE part
         // of what the purchase granted.
         const factor = isContribution(event) ? boostFactor(session) : 1;
-        const seconds = factor === 1 ? rated : Math.round(rated * factor);
-        const label = factor === 1
+        // a double time prize the giver is holding stacks on top. only spent when the time can actually land:
+        // a timer stopped at zero would eat it for nothing
+        const doubled = isContribution(event) && rated > 0 && !isStoppedAtZero(session) ? spendDoubleTime(session, event) : 1;
+        const seconds = factor * doubled === 1 ? rated : Math.round(rated * factor * doubled);
+        let label = factor === 1
             ? event.label
             : `${event.label} (x${factor} ${(session.timeBoost && session.timeBoost.reason) || "boost"})`;
+        if (doubled !== 1)
+            label += " (x2 double time)";
         // the command ceiling is checked on the BOOSTED number: it's a ceiling on how much time one typed
         // command may move the clock, and a boost that could carry it past would defeat the point of it
         if (event.manual && Math.abs(seconds) > CHAT_CMD_MAX_TIME){

@@ -118,7 +118,7 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
             case "donation": {
                 const usd = parseMoney(m.amount);
                 console.log(`(${watching}) STREAMLABS - Adding $${usd} to timer!`);
-                emit({ platform: "streamlabs", kind: "money", usd, unit: "donation", label: `Donation $${usd} from ${m.from}` });
+                emit({ platform: "streamlabs", kind: "money", usd, unit: "donation", from: String(m.from || ""), label: `Donation $${usd} from ${m.from}` });
                 break;
             }
             case "merch": {
@@ -144,7 +144,7 @@ export function connectStreamlabs(session: TimerUserSession, emit: (e: TimerEven
                 }
                 console.log(`(${watching}) - STREAMLABS - Adding $${merchValue} to timer!`);
                 whSend(`**MERCH SUCCESS!**\n${merchHookData}`);
-                emit({ platform: "streamlabs", kind: "money", usd: merchValue as number, unit: "merch", label: `Merch: ${m.product} ($${merchValue})` });
+                emit({ platform: "streamlabs", kind: "money", usd: merchValue as number, unit: "merch", from: String(m.from || ""), label: `Merch: ${m.product} ($${merchValue})` });
                 break;
             }
             // youtube + kick ride this socket but own their translation in their own adapter files; let them claim it

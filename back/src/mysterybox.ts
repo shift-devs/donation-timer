@@ -68,7 +68,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
 // "now playing" that never clears would be a lie on the tab.
@@ -129,6 +129,9 @@ export const DEFAULT_MYSTERYBOX = {
     giftSubsEnabled: false,
     giftSubsPerBox: 25,
     giftSubsMode: "batch",
+    // nudge somebody sitting on an unopened box when they talk in chat, at most once every remindEveryMin
+    remindUnopened: true,
+    remindEveryMin: 60,
     // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
     // one open, and looping it would have the tail of the last spin still going under the reveal.
     music: "",
@@ -306,6 +309,8 @@ export function normalizeMysteryBox(raw: any): any {
         giftSubsEnabled: r.giftSubsEnabled === undefined ? d.giftSubsEnabled : !!r.giftSubsEnabled,
         giftSubsPerBox: numIn(r.giftSubsPerBox, 1, MAX_GIFT_SUBS_PER_BOX, d.giftSubsPerBox),
         giftSubsMode: GIFT_SUB_MODES.includes(r.giftSubsMode) ? r.giftSubsMode : d.giftSubsMode,
+        remindUnopened: r.remindUnopened === undefined ? d.remindUnopened : !!r.remindUnopened,
+        remindEveryMin: numIn(r.remindEveryMin, 5, 24 * 60, d.remindEveryMin),
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
@@ -435,6 +440,9 @@ export function alreadyMintedFor(userId: number, rawKey: string): boolean {
 // hand someone boxes (or take them, with a negative n). returns what they hold afterwards.
 export function grantMysteryBox(session: TimerUserSession, login: any, displayName: any, n = 1, why = ""): number {
     const next = ledgerGrant(mbBoxes(session), login, displayName, n);
+    // they know they just got it, so the first reminder waits a full cooldown from here
+    if (n > 0)
+        markReminded(session.userId, ledgerKey(login));
     if (why && n > 0)
         emitTerminal(session.userId, `MYSTERYBOX — ${str(displayName, MAX_NAME) || ledgerKey(login)} earned ${n === 1 ? "a box" : `${n} boxes`} (${why}); they hold ${next}.`, true);
     emitSync(session.userId); // the tab lists the ledger, so it has to see this promptly
@@ -496,6 +504,48 @@ export function grantRaygun(session: TimerUserSession, login: any, displayName: 
     return next;
 }
 
+// double time: won from a box, spent automatically on the holder's next contribution. same wallet again.
+export function mbDoubleTime(session: TimerUserSession): Ledger {
+    return session.doubleTime || (session.doubleTime = {});
+}
+
+export function grantDoubleTime(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    const next = ledgerGrant(mbDoubleTime(session), login, displayName, n);
+    emitSync(session.userId);
+    return next;
+}
+
+// the last order a double was spent on, per user and holder, so its bonus pieces get doubled too
+const doubledRefs: { [userId: number]: { [login: string]: { ref: string, at: number } } } = {};
+const DOUBLED_REF_MS = 60 * 1000;
+
+// how much a contribution's time is multiplied by because its giver is holding a double. spends one when
+// it applies. 1 = no double. called from events.ts once the contribution is known to put time on.
+export function spendDoubleTime(session: TimerUserSession, event: TimerEvent): number {
+    if (event.manual || event.anonymous)
+        return 1;
+    const key = ledgerKey(event.from);
+    if (!key)
+        return 1;
+    const now = Date.now();
+    const mine = doubledRefs[session.userId] || (doubledRefs[session.userId] = {});
+    const last = mine[key];
+    // the rest of an order whose first piece already spent the double
+    if (event.ref && last && last.ref === event.ref && now - last.at < DOUBLED_REF_MS)
+        return 2;
+    const held = mbDoubleTime(session);
+    if (ledgerCount(held, key) < 1)
+        return 1;
+    const row = held[key];
+    const left = grantDoubleTime(session, key, row && row.name, -1);
+    if (event.ref)
+        mine[key] = { ref: event.ref, at: now };
+    else
+        delete mine[key];
+    emitTerminal(session.userId, `MYSTERYBOX — ${(row && row.name) || key}'s double time doubled ${event.label}${left ? ` (${left} more held)` : ""}.`, true);
+    return 2;
+}
+
 // merge one ledger row into another, for when fourthwall's gifter name isn't the login that spends the box
 export function renameOwner(session: TimerUserSession, from: any, to: any): { ok: boolean, message: string } {
     const moved = ledgerRename(mbBoxes(session), from, to);
@@ -503,6 +553,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
         return { ok: false, message: `Nobody called "${from}" is holding a box, or those are the same name.` };
     // charges follow the boxes: it's the same person being corrected to the same login
     ledgerRename(mbRayguns(session), from, to);
+    ledgerRename(mbDoubleTime(session), from, to);
     ledgerRename(mbGiftProgress(session), from, to);
     emitSync(session.userId);
     return { ok: true, message: `Moved ${moved} box${moved === 1 ? "" : "es"} from ${from} to ${to}.` };
@@ -1003,6 +1054,8 @@ export function speakChat(session: TimerUserSession, login: string, displayName:
 // tear down on logout so a phase timer can't fire against a detached session
 export function endMysteryBoxTimers(userId: number){
     delete toldAt[userId];
+    delete remindedAt[userId];
+    delete doubledRefs[userId];
     delete minted[userId];
     const t = slots(userId);
     clearTimeout(t.land);
@@ -1112,6 +1165,17 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const held = grantMysteryBox(session, who, r.name, e.boxes, prize.name || "a prize");
         const cfg = mbSettings(session);
         chatSay(session, `@${r.name || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
+        return;
+    }
+    if (e.kind === "doubleTime"){
+        // banked like the ray gun's shots: nothing happens now, their next sub/cheer/donation/order is doubled
+        const r = recipient(session, ctx);
+        const who = r.login;
+        if (!who || r.test)
+            return;
+        const held = grantDoubleTime(session, who, r.name, 1);
+        emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} will get double time on their next contribution${held > 1 ? ` (${held} held)` : ""}.`, true);
+        chatSay(session, `@${r.name || who} your next contribution is worth DOUBLE time!${held > 1 ? ` (${held} banked)` : ""}`);
         return;
     }
     if (e.kind === "chant" && Array.isArray(e.chants) && e.chants.length && e.rounds > 0){
@@ -1357,6 +1421,8 @@ export function describeEffect(effect: any): string {
         return e.charges > 0 && e.seconds > 0
             ? `gives the winner ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"}, ${mins(e.seconds)} each`
             : "gives nothing (set the shots and the seconds)";
+    if (e.kind === "doubleTime")
+        return "doubles the time of the winner's next contribution";
     if (e.kind === "extraBoxes")
         return e.boxes > 0 ? `gives the winner ${e.boxes} more box${e.boxes === 1 ? "" : "es"}` : "gives nothing (set the boxes)";
     if (e.kind === "chant"){
@@ -1583,6 +1649,45 @@ function tellNow(userId: number, login: string): boolean {
         return false;
     mine[login] = now;
     return true;
+}
+
+// how long ago each chatter was last reminded they're sitting on a box. transient: a restart just means
+// the next reminder can come a little early
+const remindedAt: { [userId: number]: { [login: string]: number } } = {};
+
+function markReminded(userId: number, login: string){
+    if (!login)
+        return;
+    const mine = remindedAt[userId] || (remindedAt[userId] = {});
+    mine[login] = Date.now();
+}
+
+// somebody talking in chat while holding an unopened box gets a nudge, once per remindEveryMin each.
+// command lines are skipped — "!mb open" is already them doing something about it.
+export function remindUnopened(session: TimerUserSession, login: string, displayName: string, text: string){
+    const cfg = mbSettings(session);
+    if (!cfg.enabled || !cfg.allowOpening || !cfg.remindUnopened)
+        return;
+    const key = boxKey(login);
+    if (!key || String(text || "").trim().charAt(0) === "!")
+        return;
+    const bot = String((session.connections && session.connections.twitchBot && session.connections.twitchBot.botLogin) || "").toLowerCase();
+    if (bot && key === bot)
+        return;
+    const n = boxCount(session, key);
+    if (n < 1)
+        return;
+    const mine = remindedAt[session.userId] || (remindedAt[session.userId] = {});
+    const now = Date.now();
+    const every = cfg.remindEveryMin * 60 * 1000;
+    // sweep the stale ones so a long stream can't grow this without bound
+    for (const k of Object.keys(mine))
+        if (now - mine[k] > every)
+            delete mine[k];
+    if (mine[key] !== undefined)
+        return;
+    mine[key] = now;
+    chatSay(session, `@${str(displayName, MAX_NAME) || key} you have ${n} unopened mystery box${n === 1 ? "" : "es"} — type !${cfg.command} open to open ${n === 1 ? "it" : "one"}!`);
 }
 
 // every twitch chat line gets offered here, the same way firesale does it. returns true if the line was

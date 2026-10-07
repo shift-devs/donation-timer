@@ -14,7 +14,7 @@ function emitSuperChat(m: any, unit: "superchat" | "supersticker", emit: (ev: Ti
     const usd = parseMoney(m.amount) / 1000000;
     const who = m.name || "someone";
     const shown = m.displayString || `$${usd}`;
-    emit({ platform: "youtube", kind: "money", usd, unit, label: `Super ${unit === "supersticker" ? "Sticker" : "Chat"} ${shown} from ${who}` });
+    emit({ platform: "youtube", kind: "money", usd, unit, from: String(m.name || ""), label: `Super ${unit === "supersticker" ? "Sticker" : "Chat"} ${shown} from ${who}` });
 }
 
 // the creator's three membership levels. streamlabs relays only the human-readable name
@@ -62,9 +62,9 @@ export function handleYoutubeStreamlabsEvent(session: TimerUserSession, e: any, 
             const tier = ytTier(level, watching);
             const lvl = level ? ` [${level}]` : "";
             if (isGift)
-                emit({ platform: "youtube", kind: "member", unit: `membership_gift_${tier}`, count, gifted: true, gifter: String(gifter || m.name || ""), label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
+                emit({ platform: "youtube", kind: "member", unit: `membership_gift_${tier}`, count, gifted: true, gifter: String(gifter || m.name || ""), from: String(gifter || m.name || ""), label: `${count}x gift membership${lvl} from ${gifter || m.name}` });
             else
-                emit({ platform: "youtube", kind: "member", unit: `membership_${tier}`, count: 1, label: `membership${lvl} from ${m.name}` });
+                emit({ platform: "youtube", kind: "member", unit: `membership_${tier}`, count: 1, from: String(m.name || ""), label: `membership${lvl} from ${m.name}` });
             return true;
         }
     }

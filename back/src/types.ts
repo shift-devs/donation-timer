@@ -74,6 +74,8 @@ export interface TimerUserSession {
     mysteryBoxes: any
     // the same again for unfired ray gun charges, won from a box and spent with "!raygun <name>"
     rayguns: any
+    // unspent double time prizes, same shape again: each one doubles the holder's next contribution
+    doubleTime: any
     // cumulative gift sub tallies toward the next box, same shape again. persisted: it's half-earned
     giftSubProgress: any
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
@@ -175,6 +177,11 @@ export interface TimerEvent {
     // a whole gift bomb arrives as one event, so count is how many subs the one gifter gave at once
     gifted?: boolean
     gifter?: string
+    // who gave it, when the platform says. a double time prize is spent on its holder's next contribution
+    from?: string
+    // ties the pieces of one contribution together (a fourthwall order and its bonuses), so a double time
+    // prize doubles the whole order rather than just whichever piece arrived first
+    ref?: string
     // a fourthwall order's product lines, so an event trigger can fire on a specific product being bought.
     // the time an order grants comes off its total (and the per-product bonuses), not from these.
     fwOffers?: { id: string, qty: number }[]

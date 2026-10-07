@@ -198,6 +198,11 @@ export function giveRaygun(ws: WebSocket, name: string, count: number) {
 	return 1;
 }
 
+export function giveDoubleTime(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveDoubleTime", name: name, count: count });
+	return 1;
+}
+
 // move one ledger row onto another name — for when Fourthwall's gifter name isn't the Twitch login that
 // later types !mb open
 export function renameMysteryBoxOwner(ws: WebSocket, from: string, to: string) {

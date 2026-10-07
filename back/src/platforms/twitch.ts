@@ -5,7 +5,7 @@ import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
-import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat } from "../mysterybox";
+import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, creditCount, creditScramble, spreadInfection } from "../quickRevive";
 import { runDropCommand } from "../drops";
@@ -121,6 +121,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // while a schizo prize runs, the source reads this out. the original message, capitals and all,
         // since it's about to be said
         speakChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
+        // holding a box they haven't opened? nudge them, at most once an hour (see remindUnopened)
+        remindUnopened(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)
@@ -224,7 +226,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
     client.on("submysterygift", safe("submysterygift", (ch, username, numbOfSubs, methods, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - ${username} is gifting ${numbOfSubs} tier ${tier} subs!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: numbOfSubs, anonymous: isAnon(username), gifted: true, gifter: String(username || ""), label: `${numbOfSubs}x Tier ${tier} gift sub from ${username}` });
+        emit({ platform: "twitch", kind: "sub", tier, count: numbOfSubs, anonymous: isAnon(username), gifted: true, gifter: String(username || ""), from: String((userstate && userstate.login) || username || ""), label: `${numbOfSubs}x Tier ${tier} gift sub from ${username}` });
     }));
 
     client.on("subgift", safe("subgift", (ch, username, streakMonths, recipient, methods, userstate) => {
@@ -232,7 +234,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             return;
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - subgift from ${username} to ${recipient} of tier ${tier}!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: 1, anonymous: isAnon(username), gifted: true, gifter: String(username || ""), label: `Tier ${tier} gift sub from ${username} -> ${recipient}` });
+        emit({ platform: "twitch", kind: "sub", tier, count: 1, anonymous: isAnon(username), gifted: true, gifter: String(username || ""), from: String((userstate && userstate.login) || username || ""), label: `Tier ${tier} gift sub from ${username} -> ${recipient}` });
     }));
 
     client.on("anongiftpaidupgrade", safe("anongiftpaidupgrade", (_ch, _username, userstate) => {
@@ -244,25 +246,25 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
     client.on("giftpaidupgrade", safe("giftpaidupgrade", (_ch, _username, sender, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - giftpaidupgrade from ${_username} to tier ${tier}!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Gift sub upgrade from ${_username} Tier ${tier}` });
+        emit({ platform: "twitch", kind: "sub", tier, count: 1, from: String((userstate && userstate.login) || _username || ""), label: `Gift sub upgrade from ${_username} Tier ${tier}` });
     }));
 
     client.on("resub", safe("resub", (_ch, _username, _months, _message, userstate, _methods) => {
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - ${_username} has resubscribed with tier ${tier}!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Tier ${tier} resub (${_username})` });
+        emit({ platform: "twitch", kind: "sub", tier, count: 1, from: String((userstate && userstate.login) || _username || ""), label: `Tier ${tier} resub (${_username})` });
     }));
 
     client.on("subscription", safe("subscription", (_ch, _username, _method, _message, userstate) => {
         const tier = calcTier(userstate);
         console.log(`(${channel}) TMI - ${_username} has subscribed with tier ${tier}!`);
-        emit({ platform: "twitch", kind: "sub", tier, count: 1, label: `Tier ${tier} sub (${_username})` });
+        emit({ platform: "twitch", kind: "sub", tier, count: 1, from: String((userstate && userstate.login) || _username || ""), label: `Tier ${tier} sub (${_username})` });
     }));
 
     client.on("cheer", safe("cheer", (_ch, userstate, _message) => {
         var bits: string = userstate["bits"] || "0";
         console.log(`(${channel}) TMI - cheer of ${bits} bits from ${userstate["display-name"]}`);
-        emit({ platform: "twitch", kind: "bits", bits: parseInt(bits,10), label: `Cheer ${bits} bits (${userstate["display-name"]})` });
+        emit({ platform: "twitch", kind: "bits", bits: parseInt(bits,10), from: String(userstate.username || userstate["display-name"] || ""), label: `Cheer ${bits} bits (${userstate["display-name"]})` });
     }));
 
     return client;
