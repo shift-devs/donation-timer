@@ -53,7 +53,6 @@ function resolveTarget(session: TimerUserSession, raw: any): string {
         return cleaned.toLowerCase();
     return chatterByDisplayName(session, cleaned);
 }
-const MAX_PRIZES = 30;
 const MAX_PRIZE_NAME = 60;
 const MAX_BLURB = 120;        // the line under the prize name on stream
 const MAX_PATH = 300;         // an image/sound filename, or a full url
@@ -276,7 +275,7 @@ export function normalizePrizes(raw: any): any[] {
         return [];
     const out: any[] = [];
     const seen = new Set<string>();
-    for (let i = 0; i < raw.length && out.length < MAX_PRIZES; i++){
+    for (let i = 0; i < raw.length; i++){
         const prize = normalizePrize(raw[i], i);
         if (!prize)
             continue;

@@ -77,7 +77,6 @@ export const DEFAULT_PRIZE = {
 	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
-export const MAX_PRIZES = 30;
 // how many prizes may fly past the marker on one spin. the spin always takes spinSec, so this is the reel's
 // speed rather than its length — more prizes over the same seconds is a faster reel.
 export const MIN_SPIN_TILES = 5;

@@ -35,7 +35,7 @@ import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
-import { canonMysteryBox, prizeImageSrc, prizeOdds, prizeProfiles, inActiveProfile, countdown, EFFECT_KINDS, MAX_PRIZES, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
+import { canonMysteryBox, prizeImageSrc, prizeOdds, prizeProfiles, inActiveProfile, countdown, EFFECT_KINDS, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
 import EffectFields, { PRIZE_IMAGES, SOUNDS } from "./EffectFields";
 
 
@@ -130,8 +130,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const patchRevive = (p: any, key?: string) => patch({ quickRevive: { ...draft.quickRevive, ...p } }, key);
 
 	const addPrize = () => {
-		if (draft.prizes.length >= MAX_PRIZES)
-			return;
 		// ids only have to be unique within the list, and a timestamp is the cheapest way to be sure of that
 		const id = `p${Date.now().toString(36)}`;
 		patch({ prizes: [...draft.prizes, { ...DEFAULT_PRIZE, id, name: `Prize ${draft.prizes.length + 1}`, effect: { ...DEFAULT_PRIZE.effect } }] });
@@ -576,7 +574,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					Rarity is a weight, not a percentage — the odds beside each one are what it works out to.
 				</Text>
 				<Box flex="1" />
-				<Button size="sm" onClick={addPrize} isDisabled={draft.prizes.length >= MAX_PRIZES}>Add prize</Button>
+				<Button size="sm" onClick={addPrize}>Add prize</Button>
 			</Flex>
 
 			{/* which set is in play. a prize with no profile is always in, so this only ever ADDS to the pile
