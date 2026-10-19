@@ -40,6 +40,9 @@ export interface TimerUserSession {
     // server; the ui only needs the short user code and the url.
     twitchSubsPending?: { deviceCode: string, userCode: string, verificationUri: string, expiresAt: number, interval: number }
     twitchSubsLogin?: string
+    // the channel points listener on that same authorization (see platforms/twitchPoints.ts). transient.
+    twitchPointsStatus?: boolean
+    twitchPointsError?: string
     // the bot account's live state. the credentials themselves live on connections.twitchBot; these are the
     // transient halves — whether it last worked, and an authorization the operator is mid-way through.
     twitchBotError?: string

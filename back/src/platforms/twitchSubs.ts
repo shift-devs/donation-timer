@@ -22,6 +22,11 @@ import { diag } from "../diag";
 const HELIX = "https://api.twitch.tv/helix";
 const OAUTH = "https://id.twitch.tv/oauth2";
 export const TWITCH_SUBS_SCOPE = "channel:read:subscriptions";
+// the same authorization also hears channel point redemptions (twitchPoints.ts). it's asked for alongside, but
+// not REQUIRED: a token granted before it was added still reads subs fine, and twitchPoints.ts says on the tab
+// that it needs a re-authorize.
+export const TWITCH_POINTS_SCOPE = "channel:read:redemptions";
+const ASK_SCOPES = `${TWITCH_SUBS_SCOPE} ${TWITCH_POINTS_SCOPE}`;
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
 export function normalizeTwitchSubs(raw: any): { clientId: string, clientSecret: string, refreshToken: string, broadcasterId: string } {
@@ -67,7 +72,7 @@ export async function startTwitchSubsDeviceAuth(session: TimerUserSession){
         throw new Error("Save the Client ID first.");
     const res = await axios.post(`${OAUTH}/device`, new URLSearchParams({
         client_id: t.clientId,
-        scopes: TWITCH_SUBS_SCOPE,
+        scopes: ASK_SCOPES,
     }).toString(), {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         timeout: FW_HTTP_TIMEOUT,
@@ -107,7 +112,7 @@ export async function pollTwitchSubsDeviceAuth(session: TimerUserSession): Promi
         client_id: t.clientId,
         device_code: p.deviceCode,
         grant_type: DEVICE_GRANT,
-        scopes: TWITCH_SUBS_SCOPE,
+        scopes: ASK_SCOPES,
     };
     // sending the secret keeps this a confidential client, whose refresh tokens are reusable — a public
     // client's are single-use, so one missed write would strand us with a dead token
@@ -153,7 +158,7 @@ export async function pollTwitchSubsDeviceAuth(session: TimerUserSession): Promi
 
 // mint a fresh access token from the stored refresh token. kept in memory only — there's no point
 // persisting something that dies in a few hours.
-async function freshAccessToken(session: TimerUserSession): Promise<string> {
+export async function freshAccessToken(session: TimerUserSession): Promise<string> {
     const t = session.connections.twitchSubs;
     const res = await axios.post(`${OAUTH}/token`, new URLSearchParams({
         client_id: t.clientId,

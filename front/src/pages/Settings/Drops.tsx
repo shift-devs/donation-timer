@@ -21,7 +21,7 @@ import MaskedUrl from "../../MaskedUrl";
 import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
 import { prizeImageSrc, countdown } from "../../mysterybox";
-import { canonDrops, rewardOdds, rewardLive, gamePlayable, gameArmed, secretReady, chanceOfAny, GAME_KINDS, REWARD_KINDS, DEFAULT_GAME, DEFAULT_PRIZE, DEFAULT_POOL, MAX_REWARDS, MAX_GAMES, MAX_POOLS, MAX_SECRETS } from "../../drops";
+import { canonDrops, rewardOdds, rewardLive, gamePlayable, gameArmed, gameOdds, secretReady, chanceOfAny, GAME_KINDS, REWARD_KINDS, DEFAULT_GAME, DEFAULT_PRIZE, DEFAULT_POOL, MAX_REWARDS, MAX_GAMES, MAX_POOLS, MAX_SECRETS } from "../../drops";
 import EffectFields, { PRIZE_IMAGES, SOUNDS } from "./EffectFields";
 
 const SEND_DEBOUNCE = 300;
@@ -467,7 +467,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 			{/* ---- the minigames ---- */}
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Minigames</Text>
-				<Text fontSize="sm" color="gray.600">Each drop picks one of the ones that are on, at random, then draws from its pool.</Text>
+				<Text fontSize="sm" color="gray.600">Each drop picks one of the ones that are ready by rarity, then draws from its pool. Give a hard game a lower rarity than an easy one to see it less.</Text>
 				<Badge colorScheme={liveGames.length ? "green" : "red"}>{liveGames.length} ready</Badge>
 				<Box flex="1" />
 				<Button size="sm" onClick={addGame} isDisabled={draft.games.length >= MAX_GAMES}>Add minigame</Button>
@@ -509,6 +509,12 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 									))}
 								</Select>
 								{g.enabled && ready && !stocked && <Badge colorScheme="red">nothing in that pool can drop</Badge>}
+								<Text fontSize="sm" color="gray.600" ml={2}>Rarity</Text>
+								<NumberField width="90px" min={0} max={1000} value={g.weight} onCommit={(n) => patchGame(g.id, { weight: n }, `gw${g.id}`)} />
+								{(() => {
+									const odds = gameOdds(draft.games, draft.rewards, g);
+									return <Badge colorScheme={odds > 0 ? "blue" : "gray"}>{odds > 0 ? `${odds.toFixed(1)}% of drops` : g.weight > 0 ? "can't go up" : "never (still testable)"}</Badge>;
+								})()}
 							</HStack>
 							<Text fontSize="xs" color="gray.500" mb={2}>{kind.hint}</Text>
 							{g.kind === "chant" && (

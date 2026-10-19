@@ -33,10 +33,15 @@
 // to type the phrase it points at gets it). a drop is a challenge with a
 // reward on the end, and the reward is paid through the onWin hook startChallenge takes — this file never has
 // to know what a drop is worth.
+//
+// ROLL CALL is a prize: for so many minutes the bot calls on one chatter at a time (anyone who has spoken in
+// the last ten minutes), and that person has so many seconds to say the phrase. answer or not, the next one is
+// called. when the clock runs out, every answer is worth so many seconds on the timer. nobody is called twice
+// until everyone who's around has had a turn, so a small chat still has a game and a big one spreads it out.
 
 import { TimerUserSession, TimerEvent } from "./types";
 import { emitQuickRevive, emitTerminal, reportError } from "./bus";
-import { chatAnnounce, chatSay, chatTimeoutMany, canTimeout, activeChatters, chatterName, chatters } from "./chat";
+import { chatAnnounce, chatSay, chatTimeoutMany, canTimeout, activeChatters, chatterName, chatters, ACTIVE_WINDOW_MS } from "./chat";
 import { addToEndTime } from "./timer";
 
 const MAX_PATH = 300;
@@ -133,7 +138,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "rollcall"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -182,6 +187,10 @@ export interface ChallengeSpec {
     startSound?: string
     startVolume?: number
     dropName?: string
+    // roll call only: the phrases one is drawn from per call (`phrase` is the one up now), and how long each
+    // person called gets to say it. `rewardSeconds` is what ONE answer is worth.
+    phrases?: string[]
+    answerSeconds?: number
 }
 
 // one thing chat can be asked to say: the phrase, how many lines have to say it, and how long they get
@@ -194,7 +203,7 @@ export interface Chant {
 // phase timers per user, off the session for the usual reason: a Timeout is not state anyone should serialize
 // or sync, and ending a run must never leave one behind.
 // `onWin` is the reward a drop pays, held here with the run's nonce so it can only ever pay the run it came with.
-const timers: { [userId: number]: { end?: any, done?: any, spread?: any, onWin?: { nonce: number, fn: (login: string, name: string) => void } } } = {};
+const timers: { [userId: number]: { end?: any, done?: any, spread?: any, call?: any, onWin?: { nonce: number, fn: (login: string, name: string) => void } } } = {};
 
 function slots(userId: number){
     return timers[userId] || (timers[userId] = {});
@@ -202,7 +211,7 @@ function slots(userId: number){
 
 export function getQuickRevive(session: TimerUserSession): any {
     if (!session.quickRevive || typeof session.quickRevive !== "object")
-        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "" };
+        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "", counters: [], called: "", calledName: "", callEndsAt: 0, callAt: 0, turns: {} };
     return session.quickRevive;
 }
 
@@ -267,6 +276,8 @@ function subtitleFor(spec: ChallengeSpec): string {
         return "UNSCRAMBLE IT!";
     if (spec.kind === "secret")
         return "GUESS THE SECRET PHRASE!";
+    if (spec.kind === "rollcall")
+        return `ANSWER WHEN YOU'RE CALLED — +${sayTime(spec.rewardSeconds).toUpperCase()} EACH`;
     return spec.subtitle;
 }
 
@@ -304,6 +315,15 @@ export function quickReviveView(session: TimerUserSession): any {
         answer: (spec.kind === "scramble" || spec.kind === "secret") && qr.phase !== "running" ? spec.answer || "" : "",
         // whoever finished it — the solver of a scramble, the last number of a count
         winner: qr.phase === "won" ? qr.lastByName || qr.lastBy || "" : "",
+        // a count that made it: everyone who said one of its numbers, in the order they first did
+        counters: spec.kind === "count" && qr.phase === "won" && Array.isArray(qr.counters) ? qr.counters.slice(0, 40) : [],
+        // roll call: who's up, what they have to say, when their turn runs out, and what each answer is worth.
+        // `names` (below) is everyone who has answered, newest last.
+        called: spec.kind === "rollcall" ? qr.calledName || qr.called || "" : "",
+        callAt: spec.kind === "rollcall" ? qr.callAt || 0 : 0,
+        callEndsAt: spec.kind === "rollcall" ? qr.callEndsAt || 0 : 0,
+        phrase: spec.kind === "rollcall" ? spec.phrase : "",
+        rewardSeconds: spec.kind === "rollcall" ? spec.rewardSeconds : 0,
         image: spec.image || "",
         kicker: spec.kicker || "",
         startSound: spec.startSound || "",
@@ -346,6 +366,8 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         return { ok: false, message: "That scramble has no word to unscramble." };
     if (spec.kind === "secret" && !spec.answer)
         return { ok: false, message: "That secret phrase has no phrase to guess." };
+    if (spec.kind === "rollcall" && !(spec.phrases && spec.phrases.length))
+        return { ok: false, message: "That roll call has no phrase to answer with — give it one." };
     const qr = getQuickRevive(session);
     const now = Date.now();
     qr.nonce = (qr.nonce || 0) + 1;
@@ -367,9 +389,17 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.lastBy = "";
     qr.lastByName = "";
     qr.lastCounter = "";
+    qr.counters = [];
+    qr.called = "";
+    qr.calledName = "";
+    qr.callEndsAt = 0;
+    qr.callAt = 0;
+    qr.turns = {};
     const t = slots(session.userId);
     clearTimeout(t.done);
     clearTimeout(t.spread);
+    clearTimeout(t.call);
+    t.call = undefined;
     t.onWin = onWin ? { nonce: qr.nonce, fn: onWin } : undefined;
     if (spec.dropName)
         return startDrop(session, qr, spec);
@@ -384,6 +414,15 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
             chatAnnounce(session, `${spec.title}! @${spec.patientZeroName || spec.patientZero} is PATIENT ZERO. Anyone infected can @ someone to infect them. When the clock runs out in ${spec.seconds} seconds, everyone infected gets timed out for ${sayTime(spec.timeoutSeconds)}!`, "orange");
         pushQuickRevive(session);
         return { ok: true, message: `${spec.title} started — ${spec.patientZeroName || spec.patientZero} is patient zero, ${spec.seconds}s to spread.` };
+    }
+    if (spec.kind === "rollcall"){
+        qr.goal = 0;
+        armClock(session, spec.seconds);
+        emitTerminal(session.userId, `${spec.title} — ${sayTime(spec.seconds)} of roll call; ${spec.answerSeconds}s to answer each, +${sayTime(spec.rewardSeconds)} per answer.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! For the next ${sayTime(spec.seconds)} I'll call on chatters one at a time — when it's you, say the phrase within ${spec.answerSeconds} seconds. Every answer puts ${sayTime(spec.rewardSeconds)} on the timer!`, "blue");
+        callNext(session, "");
+        return { ok: true, message: `${spec.title} started — ${sayTime(spec.seconds)}, +${sayTime(spec.rewardSeconds)} per answer.` };
     }
     if (spec.kind === "chant"){
         dealChant(session, qr, spec);
@@ -572,6 +611,11 @@ export function creditCount(session: TimerUserSession, text: string, login = "",
         if (who && who === qr.lastCounter)
             return;
         qr.lastCounter = who;
+        // who's in this run. a wrong number that starts it over clears the list, so what's shown at the
+        // end is the people who did the count that made it
+        const name = String(displayName || login || "");
+        if (name && !qr.counters.includes(name))
+            qr.counters.push(name);
         qr.next += (Number(spec.countTo) >= Number(spec.countFrom)) ? 1 : -1;
         credit(session, qr, 1, login, displayName);
         return;
@@ -580,6 +624,7 @@ export function creditCount(session: TimerUserSession, text: string, login = "",
         qr.points = 0;
         qr.next = Number(spec.countFrom) || 0;
         qr.lastCounter = "";
+        qr.counters = [];
         qr.resetAt = Date.now();
         pushQuickRevive(session);
     }
@@ -603,6 +648,98 @@ export function creditScramble(session: TimerUserSession, text: string, login = 
     const said = bare(text);
     if (want && (qr.spec.kind === "secret" ? said.includes(want) : said === want))
         credit(session, qr, 1, login, displayName);
+}
+
+// ---------------------------------------------------------------------------
+// roll call
+// ---------------------------------------------------------------------------
+
+// how often an empty room is checked again for somebody to call
+const ROLLCALL_RETRY_MS = 3000;
+
+// everyone who could be called: spoken in the last ten minutes, mods included (they're chatters too), but
+// not the bot, which can't answer, or the broadcaster, who is the one being entertained
+function rollCallable(session: TimerUserSession): string[] {
+    const list = chatters(session);
+    const cutoff = Date.now() - ACTIVE_WINDOW_MS;
+    const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
+    return Object.keys(list).filter((k) => list[k].t >= cutoff && k !== channel && !isBot(session, k));
+}
+
+// call on the next person: whoever has had the fewest turns, at random among them, and never the one just
+// called while there's anyone else. `lead` is a line about the last call to say before the new one, so a
+// turn is one chat message rather than two. an empty room is tried again every few seconds.
+function callNext(session: TimerUserSession, lead: string){
+    const qr = getQuickRevive(session);
+    const t = slots(session.userId);
+    clearTimeout(t.call);
+    t.call = undefined;
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "rollcall")
+        return;
+    const spec: ChallengeSpec = qr.spec;
+    const now = Date.now();
+    if (now >= qr.endsAt)
+        return;
+    const prev = qr.called;
+    let pool = rollCallable(session);
+    if (pool.length > 1)
+        pool = pool.filter((l) => l !== prev);
+    if (!pool.length){
+        qr.called = "";
+        qr.calledName = "";
+        qr.callAt = 0;
+        qr.callEndsAt = 0;
+        pushQuickRevive(session);
+        if (lead)
+            chatSay(session, lead);
+        t.call = setTimeout(() => callNext(session, ""), ROLLCALL_RETRY_MS);
+        return;
+    }
+    const fewest = Math.min(...pool.map((l) => qr.turns[l] || 0));
+    pool = pool.filter((l) => (qr.turns[l] || 0) === fewest);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const phrases = spec.phrases || [];
+    qr.turns[pick] = (qr.turns[pick] || 0) + 1;
+    qr.called = pick;
+    qr.calledName = chatterName(session, pick) || pick;
+    spec.phrase = phrases[Math.floor(Math.random() * phrases.length)] || "";
+    qr.callAt = now;
+    qr.callEndsAt = Math.min(qr.endsAt, now + (spec.answerSeconds || 30) * 1000);
+    pushQuickRevive(session);
+    const secs = Math.max(1, Math.round((qr.callEndsAt - now) / 1000));
+    chatSay(session, `${lead ? `${lead} ` : ""}ROLL CALL: @${qr.calledName} say "${spec.phrase}" in the next ${secs} seconds for +${sayTime(spec.rewardSeconds)}!`);
+    t.call = setTimeout(() => {
+        try {
+            if (qr.phase !== "running" || qr.called !== pick)
+                return;
+            emitTerminal(session.userId, `${spec.title} — ${qr.calledName} didn't answer.`);
+            callNext(session, `@${qr.calledName} missed it.`);
+        } catch (err) {
+            reportError(session.userId, "moving a roll call on", err);
+        }
+    }, qr.callEndsAt - now);
+}
+
+// a chat line during a roll call. only the person called can answer, and only with the phrase in the line;
+// matched loosely like a chant is, so "HERE!!" answers "here".
+export function creditRollCall(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "rollcall")
+        return;
+    const who = String(login || "").toLowerCase();
+    if (!who || who !== qr.called || Date.now() >= qr.callEndsAt)
+        return;
+    const spec: ChallengeSpec = qr.spec;
+    const want = String(spec.phrase || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (!want || !String(text || "").toLowerCase().replace(/\s+/g, " ").includes(want))
+        return;
+    const name = String(displayName || login);
+    qr.points += 1;
+    qr.names.push(name);
+    if (qr.names.length > 50)
+        qr.names.splice(0, qr.names.length - 50);
+    emitTerminal(session.userId, `${spec.title} — ${name} answered (${qr.points} so far, +${sayTime(qr.points * spec.rewardSeconds)}).`, true);
+    callNext(session, `@${name} is here! ${qr.points} answered (+${sayTime(qr.points * spec.rewardSeconds)}).`);
 }
 
 // a chat line from somebody. if they're infected, every @name in it catches it. names are taken as typed
@@ -719,6 +856,42 @@ function decide(session: TimerUserSession, won: boolean){
         }, spec.holdSec * 1000);
         return;
     }
+    if (spec.kind === "rollcall"){
+        // time's up: every answer pays. nobody answering is the "lost" result, so the fail sound plays
+        clearTimeout(t.call);
+        t.call = undefined;
+        const answers = qr.points;
+        const total = answers * spec.rewardSeconds;
+        qr.phase = answers > 0 ? "won" : "lost";
+        qr.resultAt = now;
+        qr.called = "";
+        qr.calledName = "";
+        qr.callEndsAt = 0;
+        if (total > 0)
+            spec.winText = `+${sayTime(total).toUpperCase()}`;
+        pushQuickRevive(session);
+        emitTerminal(session.userId, `${spec.title} — over. ${answers} answer${answers === 1 ? "" : "s"}${total > 0 ? `, +${sayTime(total)} on the timer` : ""}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, answers > 0
+                ? `Roll call's over! ${answers} answer${answers === 1 ? "" : "s"} — ${sayTime(total)} goes on the timer.`
+                : `${spec.failText} Nobody answered the roll call.`, answers > 0 ? "green" : "orange");
+        if (total > 0){
+            try {
+                addToEndTime(session, total, spec.label);
+            } catch (err) {
+                reportError(session.userId, "paying out a roll call", err);
+            }
+        }
+        clearTimeout(t.done);
+        t.done = setTimeout(() => {
+            try {
+                endQuickRevive(session);
+            } catch (err) {
+                reportError(session.userId, "clearing a finished roll call", err);
+            }
+        }, spec.holdSec * 1000);
+        return;
+    }
     qr.phase = won ? "won" : "lost";
     qr.resultAt = now;
     pushQuickRevive(session);
@@ -780,9 +953,12 @@ function decideDrop(session: TimerUserSession, qr: any, spec: ChallengeSpec, won
     const t = slots(session.userId);
     const tally = dropTally(qr, spec, won);
     if (won){
-        emitTerminal(session.userId, `DROP — ${spec.dropName}: ${tally} with ${spare}s to spare.${qr.lastBy ? ` Finished by ${qr.lastByName || qr.lastBy}.` : ""}`, true);
+        // a count is a group effort, so its result names the group
+        const crew: string[] = spec.kind === "count" && Array.isArray(qr.counters) ? qr.counters : [];
+        const crewWords = crew.length ? ` Counted by ${crew.slice(0, 15).map((n) => `@${n}`).join(", ")}${crew.length > 15 ? ` and ${crew.length - 15} more` : ""}.` : "";
+        emitTerminal(session.userId, `DROP — ${spec.dropName}: ${tally} with ${spare}s to spare.${crew.length ? ` Counted by ${crew.join(", ")}.` : qr.lastBy ? ` Finished by ${qr.lastByName || qr.lastBy}.` : ""}`, true);
         if (spec.announce)
-            chatAnnounce(session, `${spec.winText} ${tally} with ${spare} second${spare === 1 ? "" : "s"} to spare — ${spec.dropName} is chat's!`, "green");
+            chatAnnounce(session, `${spec.winText} ${tally} with ${spare} second${spare === 1 ? "" : "s"} to spare — ${spec.dropName} is chat's!${crewWords}`, "green");
         const hook = t.onWin;
         t.onWin = undefined;
         if (hook && hook.nonce === qr.nonce){
@@ -817,6 +993,8 @@ export function endQuickRevive(session: TimerUserSession){
     t.end = t.done = undefined;
     clearTimeout(t.spread);
     t.spread = undefined;
+    clearTimeout(t.call);
+    t.call = undefined;
     t.onWin = undefined;
     const wasRunning = qr.phase === "running";
     const tag = qr.spec && qr.spec.dropName ? `DROP — ${qr.spec.dropName}` : qr.spec && qr.spec.kind !== "subpoints" ? qr.spec.title : "QUICK REVIVE";
@@ -838,6 +1016,12 @@ export function endQuickRevive(session: TimerUserSession){
     qr.lastBy = "";
     qr.lastByName = "";
     qr.lastCounter = "";
+    qr.counters = [];
+    qr.called = "";
+    qr.calledName = "";
+    qr.callEndsAt = 0;
+    qr.callAt = 0;
+    qr.turns = {};
     if (wasRunning)
         emitTerminal(session.userId, `${tag} — called off.`, true);
     pushQuickRevive(session);
@@ -849,5 +1033,6 @@ export function endQuickReviveTimers(userId: number){
     clearTimeout(t.end);
     clearTimeout(t.done);
     clearTimeout(t.spread);
+    clearTimeout(t.call);
     delete timers[userId];
 }

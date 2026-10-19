@@ -7,7 +7,7 @@ import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
-import { creditChant, creditCount, creditScramble, spreadInfection } from "../quickRevive";
+import { creditChant, creditCount, creditScramble, creditRollCall, spreadInfection } from "../quickRevive";
 import { runDropCommand } from "../drops";
 import { modMay, eventPermission } from "../chatPermissions";
 
@@ -116,6 +116,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // a drop's count and scramble games read every line the same way
         creditCount(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         creditScramble(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        // a roll call's answer, from whoever is being called
+        creditRollCall(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // an infected chatter @-ing somebody passes it on
         spreadInfection(session, tags.username, String(message || ""));
         // while a schizo prize runs, the source reads this out. the original message, capitals and all,

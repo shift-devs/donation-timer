@@ -22,6 +22,11 @@
 // game first, from the ones that are on and have something in their pool, then draws the reward from that
 // game's pool. a reward's rarity is its weight against the rest of its own pool.
 //
+// GAME RARITY. a game has a weight too, and the game a drop picks is a weighted draw over the ones that are
+// ready — so a hard game (a long count, a big chant) can be set to come up less often than an easy one. it's
+// the same arithmetic as a reward's: its weight over the total of every ready game's, never a percentage the
+// tab has to make add up.
+//
 // ONE AT A TIME, like everything on that source. a drop that lands while the overlay is busy (a box opening,
 // a challenge, a firesale or raffle) waits in a queue and goes up as soon as it's free, and a queued drop
 // holds new box opens back so it can't be starved.
@@ -53,7 +58,7 @@ const PUMP_MS = 2000;
 
 // the rewards that ARE a minigame of their own. a drop is already a challenge, and the source runs one at a
 // time, so one of these as the prize would be turned away the moment it was won.
-const NOT_A_DROP = ["chant", "infection"];
+const NOT_A_DROP = ["chant", "infection", "rollcall"];
 
 export const GAME_KINDS = ["chant", "count", "subpoints", "scramble", "secret"];
 
@@ -93,6 +98,8 @@ export const DEFAULT_POOL = {
 export const DEFAULT_GAME = {
     name: "",
     enabled: true,
+    // how often this game comes up against the other ready ones. 0 = never drawn (it can still be named by hand).
+    weight: 10,
     kind: "chant",
     seconds: 60,
     // the pool it pays from. blank, or one that's gone, means the first pool.
@@ -160,6 +167,7 @@ function normalizeGame(raw: any, i: number, pools: any[]): any | null {
         id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 100) : `g${i + 1}`,
         name: str(raw.name, 60).trim(),
         enabled: raw.enabled === undefined ? d.enabled : !!raw.enabled,
+        weight: numIn(raw.weight, 0, 1000, d.weight),
         kind: GAME_KINDS.includes(raw.kind) ? raw.kind : d.kind,
         seconds: numIn(raw.seconds, 5, 3600, d.seconds),
         pool: poolIn(pools, raw.pool),
@@ -282,9 +290,10 @@ function playableGames(session: TimerUserSession): any[] {
     return dropSettings(session).games.filter(playable);
 }
 
-// a game that can be played AND has something in its pool to hand out
+// a game that can be played AND has something in its pool to hand out. a game weighted 0 is never DRAWN,
+// so it isn't armed either — but it can still be put up by hand, which goes through playable() alone.
 function armed(session: TimerUserSession, g: any): boolean {
-    return playable(g) && winnableRewards(session, g.pool).length > 0;
+    return playable(g) && g.weight > 0 && winnableRewards(session, g.pool).length > 0;
 }
 
 function armedGames(session: TimerUserSession): any[] {
@@ -302,6 +311,8 @@ function whyNothing(session: TimerUserSession): string {
         return "no reward is set up";
     if (!playableGames(session).length)
         return "no minigame is set up";
+    if (!playableGames(session).some((g: any) => g.weight > 0))
+        return "every minigame that's ready has its rarity at 0";
     return "no minigame that's ready pays from a pool with a reward in it";
 }
 
@@ -487,19 +498,25 @@ function oneOf<T>(list: T[]): T {
     return list[Math.floor(Math.random() * list.length)];
 }
 
+// a weighted draw over anything with a weight. all zeros (only reachable for a named reward's games) falls
+// back to an even draw rather than refusing — the operator asked for that reward by name.
+function byWeight<T extends { weight: number }>(list: T[]): T {
+    const total = list.reduce((sum, x) => sum + Math.max(0, x.weight), 0);
+    if (!(total > 0))
+        return oneOf(list);
+    let roll = Math.random() * total;
+    for (const x of list){
+        roll -= Math.max(0, x.weight);
+        if (roll < 0)
+            return x;
+    }
+    return list[list.length - 1];
+}
+
 // a weighted draw from one pool
 function drawReward(session: TimerUserSession, poolId: string): any | null {
     const pool = winnableRewards(session, poolId);
-    if (!pool.length)
-        return null;
-    const total = pool.reduce((sum, p) => sum + p.weight, 0);
-    let roll = Math.random() * total;
-    for (const p of pool){
-        roll -= p.weight;
-        if (roll < 0)
-            return p;
-    }
-    return pool[pool.length - 1];
+    return pool.length ? byWeight(pool) : null;
 }
 
 // shuffle each word's letters, keeping the spaces where they are, and never hand back the word as it was
@@ -618,7 +635,7 @@ export function startDrop(session: TimerUserSession, want: DropPick = {}, test =
         const games = cfg.games.filter((g: any) => named ? g.pool === poolId && playable(g) : poolId ? g.pool === poolId && armed(session, g) : armed(session, g));
         if (!games.length)
             return { ok: false, message: poolId ? `No minigame that's ready pays from the ${poolName(cfg, poolId)} pool.` : `Nothing can drop — ${whyNothing(session)}.` };
-        game = oneOf(games);
+        game = byWeight(games);
     }
     const reward = named || drawReward(session, game.pool);
     if (!reward)

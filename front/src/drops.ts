@@ -5,7 +5,7 @@
 import { canonPrize, DEFAULT_PRIZE, EFFECT_KINDS } from "./mysterybox";
 
 // the rewards that are a minigame of their own, which a drop — already a minigame — can't pay out
-export const NOT_A_DROP = ["chant", "infection"];
+export const NOT_A_DROP = ["chant", "infection", "rollcall"];
 export const REWARD_KINDS = EFFECT_KINDS.filter((k) => !NOT_A_DROP.includes(k.key));
 
 export const GAME_KINDS: { key: string; label: string; hint: string }[] = [
@@ -23,6 +23,7 @@ export const DEFAULT_POOL = {
 export const DEFAULT_GAME = {
 	name: "",
 	enabled: true,
+	weight: 10,
 	kind: "chant",
 	seconds: 60,
 	pool: "",
@@ -127,6 +128,7 @@ export function canonGame(raw: any, i: number, pools: any[]) {
 		id: typeof r.id === "string" && r.id ? r.id.slice(0, 100) : `g${i + 1}`,
 		name: typeof r.name === "string" ? r.name.slice(0, 60).trim() : "",
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
+		weight: numIn(r.weight, 0, 1000, d.weight),
 		kind: GAME_KINDS.some((k) => k.key === r.kind) ? r.kind : d.kind,
 		seconds: numIn(r.seconds, 5, 3600, d.seconds),
 		pool: poolIn(pools, r.pool),
@@ -230,9 +232,18 @@ export function gamePlayable(g: any): boolean {
 	return true;
 }
 
-// can this minigame go up: playable, and with something in its pool to hand out
+// can this minigame go up on its own: playable, a rarity above 0, and something in its pool to hand out
 export function gameArmed(g: any, rewards: any[]): boolean {
-	return gamePlayable(g) && rewards.some((p) => rewardLive(p) && p.pool === g.pool);
+	return gamePlayable(g) && g.weight > 0 && rewards.some((p) => rewardLive(p) && p.pool === g.pool);
+}
+
+// one minigame's share of the drops, as a percentage of every minigame that can go up — the server's
+// weighted draw (back/src/drops.ts), in the numbers the tab shows
+export function gameOdds(games: any[], rewards: any[], game: any): number {
+	const total = games.reduce((sum, g) => sum + (gameArmed(g, rewards) ? g.weight : 0), 0);
+	if (!total || !gameArmed(game, rewards))
+		return 0;
+	return (game.weight / total) * 100;
 }
 
 // how likely an hour is to see at least one rolled drop, for the tab to put the chance in terms that mean

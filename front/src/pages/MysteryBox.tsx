@@ -513,13 +513,24 @@ const MysteryBox: React.FC = () => {
 	const reviveHint = String((revive && revive.hint) || "");
 	const reviveHintFs = Math.max(40, Math.min(80, Math.floor((STAGE_W - 120) / (Math.max(10, reviveHint.length) * 0.5))));
 	const reviveWinner = String((revive && revive.winner) || "");
+	// a count that made it names everyone who said a number in the run that got there
+	const reviveCounters: string[] = revive && Array.isArray(revive.counters) ? revive.counters : [];
+	// roll call: who's up, what they have to say, how long they've got, and what the answers so far are worth
+	const reviveRollCall = !!(revive && revive.kind === "rollcall");
+	const rollCalled = String((revive && revive.called) || "");
+	const rollPhrase = String((revive && revive.phrase) || "");
+	const rollLeft = reviveRunning && rollCalled ? Math.max(0, Number(revive.callEndsAt || 0) - Date.now()) : 0;
+	const rollSecs = Math.ceil(rollLeft / 1000);
+	const rollEach = Math.max(0, Number((revive && revive.rewardSeconds) || 0));
+	const rollNameFs = Math.max(48, Math.min(96, Math.floor((STAGE_W - 120) / (Math.max(4, rollCalled.length + 1) * 0.55))));
 	const reviveTitleFs = Math.max(reviveDrop ? 48 : 56, Math.min(reviveDrop ? 90 : 110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
 	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
 	const reviveSub = String((revive && revive.subtitle) || "");
 	const reviveSubFs = Math.max(30, Math.min(46, Math.floor((STAGE_W - 120) / (Math.max(8, reviveSub.length) * 0.55))));
 	// the clock is smaller when it shares the frame with an instruction line, so the two fit
-	const reviveClockFs = reviveDrop ? (reviveArt ? 110 : 130) : reviveSub ? 150 : 200;
+	// a roll call shares it with the person being called, and runs minutes rather than seconds
+	const reviveClockFs = reviveDrop ? (reviveArt ? 110 : 130) : revive && revive.kind === "rollcall" ? 100 : reviveSub ? 150 : 200;
 	const reviveResult = revivePhase === "won" ? String(revive.winText || "") : revivePhase === "lost" ? String(revive.failText || "") : "";
 	const reviveResultFs = Math.max(56, Math.min(130, Math.floor((STAGE_W - 120) / (Math.max(4, reviveResult.length) * 0.55))));
 	const reviveResultSound = revivePhase === "won" ? revive.winSound : revivePhase === "lost" ? revive.failSound : "";
@@ -977,11 +988,47 @@ const MysteryBox: React.FC = () => {
 										: "mb-beat 1000ms ease-in-out infinite",
 								}}
 							>
-								{reviveSecs}
+								{reviveRollCall ? countdown(reviveLeft) : reviveSecs}
 							</div>
 							{/* a scramble's letters take the place of the count — they're what chat is staring at. a secret
 							    phrase puts its hint there, the same way */}
-							{reviveScramble || reviveSecret ? (
+							{reviveRollCall ? (
+								<div key={`call${rollCalled}${revive.callAt || 0}`} style={{ marginTop: 6, animation: "mb-pop 420ms ease-out both" }}>
+									{rollCalled ? (<>
+										<div style={{ color: cfg.nameColor, fontSize: 30, letterSpacing: "0.14em", textShadow: outline }}>NOW CALLING</div>
+										<div
+											style={{
+												color: cfg.titleColor,
+												fontSize: rollNameFs,
+												lineHeight: 1.05,
+												WebkitTextStrokeWidth: "4px",
+												WebkitTextStrokeColor: "#000",
+												paintOrder: "stroke fill",
+												textShadow: "0 0 40px rgba(255,212,0,0.8), 0 6px 0 rgba(0,0,0,0.55)",
+											}}
+										>
+											@{rollCalled}
+										</div>
+										<div style={{ color: cfg.nameColor, fontSize: 40, marginTop: 4, textShadow: outline }}>
+											SAY <span style={{ color: cfg.titleColor }}>&ldquo;{rollPhrase.toUpperCase()}&rdquo;</span>
+											<span style={{ color: rollLeft <= 5000 ? "#ff4b4b" : cfg.nameColor, marginLeft: 18 }}>{rollSecs}s</span>
+										</div>
+									</>) : (
+										<div style={{ color: cfg.nameColor, fontSize: 40, textShadow: outline, opacity: 0.85 }}>WAITING FOR CHATTERS…</div>
+									)}
+									<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.1em", marginTop: 14, textShadow: outline }}>
+										<span key={`ans${revivePts}`} style={{ display: "inline-block", color: cfg.titleColor, animation: "mb-pop 300ms ease-out both" }}>{revivePts}</span>
+										{" "}ANSWERED{rollEach > 0 ? ` · +${countdown(revivePts * rollEach * 1000)}` : ""}
+									</div>
+									{reviveNames.length > 0 && (
+										<div style={{ color: cfg.nameColor, fontSize: 26, lineHeight: 1.2, marginTop: 8, padding: "0 60px", textShadow: outline, opacity: 0.85 }}>
+											{reviveNames.slice(-6).map((n, i) => (
+												<span key={`${n}${i}`} style={{ marginRight: 14 }}>@{n}</span>
+											))}
+										</div>
+									)}
+								</div>
+							) : reviveScramble || reviveSecret ? (
 								<div
 									style={{
 										color: cfg.titleColor,
@@ -1089,10 +1136,28 @@ const MysteryBox: React.FC = () => {
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
 								{reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
-									: reviveInfection ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
+									: reviveInfection || reviveRollCall ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
+							{/* a count is everybody's: the names of the run that made it, all of them, wrapping and
+							    shrinking as the list grows */}
+							{reviveCount && revivePhase === "won" && reviveCounters.length > 0 && (
+								<div
+									style={{
+										color: cfg.titleColor,
+										fontSize: reviveCounters.length > 24 ? 22 : reviveCounters.length > 12 ? 28 : 36,
+										lineHeight: 1.25,
+										marginTop: 10,
+										padding: "0 50px",
+										textShadow: outline,
+									}}
+								>
+									{reviveCounters.map((n, i) => (
+										<span key={`${n}${i}`} style={{ display: "inline-block", marginRight: 16 }}>@{n}</span>
+									))}
+								</div>
+							)}
 							{/* who finished it, for a drop — the name is the payoff for whoever typed the last one */}
-							{reviveDrop && reviveWinner && revivePhase === "won" && (
+							{reviveDrop && reviveWinner && revivePhase === "won" && !(reviveCount && reviveCounters.length) && (
 								<div style={{ color: cfg.titleColor, fontSize: 40, marginTop: 8, textShadow: outline }}>
 									@{reviveWinner}
 								</div>

@@ -181,6 +181,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const profiles = prizeProfiles(draft.prizes, draft.activeProfile);
 	const inPlay = draft.prizes.filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(draft.activeProfile, p));
 	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
+	// the broadcaster authorization the channel points listener rides on
+	const pts: any = (settings.connections && settings.connections.twitchSubs) || {};
+	// what chat calls the double time prize ("Pack-a-Punch"), for the reminder's label
+	const dtPrize = draft.prizes.find((p: any) => p.effect.kind === "doubleTime" && p.name);
+	const dtName = dtPrize ? dtPrize.name : "double time";
 	const textBoxes: any[] = Array.isArray(settings.textBoxes) ? settings.textBoxes : [];
 
 	const badge = phase === "spinning"
@@ -315,12 +320,12 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{revivePhase === "running" && (
 						<Text fontSize="sm" color="gray.600">
 							{revive.kind !== "subpoints" ? <><b>{revive.title}</b> — </> : null}
-							<b>{revive.points}{revive.kind === "infection" ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()} — {countdown(revive.endsAt - Date.now())} left
+							<b>{revive.points}{revive.kind === "infection" || revive.kind === "rollcall" ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null} — {countdown(revive.endsAt - Date.now())} left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
 						<Text fontSize="sm" color="gray.600">
-							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : <>chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}</>}
+							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</> : <>chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}</>}
 						</Text>
 					)}
 					<Box flex="1" />
@@ -817,7 +822,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							isDisabled={!draft.enabled}
 							onChange={(e) => patch({ remindUnopened: e.target.checked })}
 						/>
-						<Text fontSize="sm">Remind people with unopened boxes when they chat</Text>
+						<Text fontSize="sm">Remind people with unopened boxes or an unspent {dtName} when they chat</Text>
 					</HStack>
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">at most once every</Text>
@@ -825,6 +830,47 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="sm" color="gray.600">min per person</Text>
 					</HStack>
 				</HStack>
+
+				{/* channel points: a redemption banks boxes, it never opens one — only one box runs at a time */}
+				<HStack spacing={3} wrap="wrap">
+					<HStack spacing={2}>
+						<Switch
+							isChecked={draft.pointsEnabled}
+							isDisabled={!draft.enabled}
+							onChange={(e) => patch({ pointsEnabled: e.target.checked })}
+						/>
+						<Text fontSize="sm">Channel points reward</Text>
+					</HStack>
+					<Input
+						size="sm"
+						maxW="240px"
+						placeholder="Reward title, exactly as on Twitch"
+						value={draft.pointsReward}
+						onChange={(e) => patch({ pointsReward: e.target.value }, "ptsr")}
+					/>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">gives</Text>
+						<NumberField width="70px" min={1} max={99} value={draft.pointsBoxes} onCommit={(n) => patch({ pointsBoxes: n }, "ptsb")} />
+						<Text fontSize="sm" color="gray.600">box{draft.pointsBoxes === 1 ? "" : "es"}</Text>
+					</HStack>
+					{draft.pointsEnabled && (
+						!pts.authorized
+							? <Badge colorScheme="red">authorize Twitch active subs first</Badge>
+							: pts.pointsOk
+								? <Badge colorScheme="green">listening</Badge>
+								: <Badge colorScheme="red">not listening</Badge>
+					)}
+				</HStack>
+				{draft.pointsEnabled && pts.authorized && !pts.pointsOk && pts.pointsError && (
+					<Text fontSize="xs" color="red.300">{pts.pointsError}</Text>
+				)}
+				<Text fontSize="xs" color="gray.500">
+					Make the reward on Twitch (Creator Dashboard → Viewer Rewards → Channel Points) and type its title here.
+					Redeeming it puts boxes in the viewer&apos;s wallet. It doesn&apos;t open one, so it never clashes with a box
+					that&apos;s already running; they open it with <Code fontSize="xs">!{draft.command} open</Code> when they like.
+					This uses the broadcaster authorization from <b>Twitch active subs</b> on the Connections tab. If you
+					authorized that before channel points were added, authorize it again.
+				</Text>
 
 				<HStack spacing={3} wrap="wrap">
 					<HStack spacing={1}>

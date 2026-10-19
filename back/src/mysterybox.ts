@@ -67,7 +67,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
 // "now playing" that never clears would be a lie on the tab.
@@ -81,6 +81,9 @@ const MAX_PHRASE = 60;
 const MAX_CHANT_TIMES = 10000;
 const MAX_CHANTS = 20;
 const MAX_ROUNDS = 50;
+// roll call: how many phrases one can draw from, and how long a person called may take to answer
+const MAX_ROLLCALL_PHRASES = 20;
+const MAX_ANSWER_SEC = 300;
 
 // one thing chat can be asked to say, inside a chant prize's list
 function normalizeChant(raw: any): { phrase: string, times: number, seconds: number } | null {
@@ -131,6 +134,13 @@ export const DEFAULT_MYSTERYBOX = {
     // nudge somebody sitting on an unopened box when they talk in chat, at most once every remindEveryMin
     remindUnopened: true,
     remindEveryMin: 60,
+    // twitch channel points: redeeming the custom reward with this title puts boxes in the redeemer's wallet.
+    // it never OPENS one — one box runs at a time, so the redeemer spends it with "!mb open" when they like.
+    // needs the broadcaster's own authorization (Connections tab, "Twitch active subs"), which carries the
+    // channel points scope.
+    pointsEnabled: false,
+    pointsReward: "",
+    pointsBoxes: 1,
     // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
     // one open, and looping it would have the tail of the last spin still going under the reveal.
     music: "",
@@ -166,7 +176,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -218,6 +228,15 @@ function normalizeEffect(raw: any): any {
             .slice(0, MAX_CHANTS),
         rounds: numIn(r.rounds, 1, MAX_ROUNDS, Array.isArray(r.chants) ? 3 : 1),
         rewardSeconds: numIn(r.rewardSeconds, 0, 24 * 3600, 300),
+        // roll call: the phrases a person called is asked to say (one drawn per call), and how long they get.
+        // the game's length is `seconds`, and what one answer is worth is `rewardSeconds`.
+        phrases: Array.isArray(r.phrases)
+            ? r.phrases
+                .map((v: any) => str(v, MAX_PHRASE).trim())
+                .filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
+                .slice(0, MAX_ROLLCALL_PHRASES)
+            : [],
+        answerSeconds: numIn(r.answerSeconds, 5, MAX_ANSWER_SEC, 30),
         // chant: the lines have to be back to back — anything else said in between resets the count
         streak: !!r.streak,
         // chant: the one-shots for making it and for running out of time. `loopSound` is the music under it.
@@ -310,6 +329,9 @@ export function normalizeMysteryBox(raw: any): any {
         giftSubsMode: GIFT_SUB_MODES.includes(r.giftSubsMode) ? r.giftSubsMode : d.giftSubsMode,
         remindUnopened: r.remindUnopened === undefined ? d.remindUnopened : !!r.remindUnopened,
         remindEveryMin: numIn(r.remindEveryMin, 5, 24 * 60, d.remindEveryMin),
+        pointsEnabled: r.pointsEnabled === undefined ? d.pointsEnabled : !!r.pointsEnabled,
+        pointsReward: str(r.pointsReward, 45).trim(),
+        pointsBoxes: numIn(r.pointsBoxes, 1, MAX_EXTRA_BOXES, d.pointsBoxes),
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
@@ -448,6 +470,25 @@ export function grantMysteryBox(session: TimerUserSession, login: any, displayNa
     return next;
 }
 
+// a channel points redemption came in (platforms/twitchPoints.ts). the reward is matched on its title, which is
+// what the streamer typed on twitch and what they'll type here. the box goes in the wallet — it doesn't open,
+// because only one box runs at a time and a redemption that landed mid-spin would have nowhere to go.
+// returns whether it earned anything, for the terminal.
+export function creditChannelPoints(session: TimerUserSession, login: any, displayName: any, rewardTitle: any): boolean {
+    const cfg = mbSettings(session);
+    if (!cfg.enabled || !cfg.pointsEnabled || !cfg.pointsReward)
+        return false;
+    if (matchable(rewardTitle) !== matchable(cfg.pointsReward))
+        return false;
+    const key = boxKey(login);
+    if (!key)
+        return false;
+    const who = str(displayName, MAX_NAME) || key;
+    const held = grantMysteryBox(session, key, who, cfg.pointsBoxes, "channel points");
+    chatSay(session, `@${who} redeemed ${cfg.pointsBoxes === 1 ? "a mystery box" : `${cfg.pointsBoxes} mystery boxes`}!${cfg.allowOpening ? ` Type !${cfg.command} open to open ${held === 1 ? "it" : "one"}` : " It's safe in your wallet until boxes can be opened"} — you have ${held}.`);
+    return true;
+}
+
 // gifted subs earn the gifter boxes. in batch mode it's judged per gift bomb — twitch sends a bomb as one
 // event with the whole count, which is the "gifted 25 subs" people mean. in cumulative mode every gift adds
 // to the gifter's tally and each full giftSubsPerBox is cashed in, the leftover carried to the next gift.
@@ -510,6 +551,9 @@ export function mbDoubleTime(session: TimerUserSession): Ledger {
 
 export function grantDoubleTime(session: TimerUserSession, login: any, displayName: any, n = 1): number {
     const next = ledgerGrant(mbDoubleTime(session), login, displayName, n);
+    // they were just told they won it, so the reminder waits a full cooldown, like a box's does
+    if (n > 0)
+        markReminded(session.userId, ledgerKey(login));
     emitSync(session.userId);
     return next;
 }
@@ -1256,6 +1300,43 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
         return;
     }
+    if (e.kind === "rollcall" && e.seconds > 0 && e.phrases.length){
+        // chat answers one at a time when called, and every answer is worth rewardSeconds — paid once the
+        // clock runs out (see quickRevive.ts). a rehearsal plays it for real, like a chant's does.
+        const cfg = mbSettings(session);
+        const res = startChallenge(session, {
+            kind: "rollcall",
+            title: prize.name || "ROLL CALL",
+            subtitle: "",
+            unit: "ANSWERED",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: "ROLL CALL!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "NOBODY ANSWERED",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: e.phrases[0],
+            rewardSeconds: e.rewardSeconds,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: 0,
+            label,
+            phrases: e.phrases.slice(),
+            answerSeconds: e.answerSeconds,
+        }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
     if (e.kind === "jukebox" && e.track){
         // background music, minutes long. deliberately holds no lock — see startJukebox.
         startJukebox(session, e.track, e.trackVolume, prize.name || "Jukebox");
@@ -1435,6 +1516,12 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0 && e.timeoutSeconds > 0
             ? `the opener is patient zero; @-ing spreads it for ${mins(e.seconds)}, then everyone infected is timed out ${mins(e.timeoutSeconds)}`
             : "infects nobody (set the spread time and the timeout)";
+    if (e.kind === "rollcall"){
+        const phrases: string[] = Array.isArray(e.phrases) ? e.phrases : [];
+        if (!(e.seconds > 0) || !phrases.length)
+            return "calls nobody (set how long it runs and a phrase)";
+        return `for ${mins(e.seconds)}, calls on chatters one at a time to say ${phrases.map((p) => `"${p}"`).join(" / ")} within ${e.answerSeconds}s — +${mins(e.rewardSeconds)} per answer`;
+    }
     if (e.kind === "jukebox")
         return e.track ? `plays "${e.track}" through in the background` : "plays nothing (pick a track)";
     if (e.kind === "schizo")
@@ -1661,11 +1748,19 @@ function markReminded(userId: number, login: string){
     mine[login] = Date.now();
 }
 
-// somebody talking in chat while holding an unopened box gets a nudge, once per remindEveryMin each.
+// what chat calls the double time prize — whatever the operator named it ("Pack-a-Punch"), so the reminder
+// uses the word chat saw on the reel
+function doubleTimeName(cfg: any): string {
+    const p = cfg.prizes.find((x: any) => x.effect && x.effect.kind === "doubleTime" && x.name);
+    return p ? p.name : "double time";
+}
+
+// somebody talking in chat while holding an unopened box — or a double time they haven't spent yet — gets a
+// nudge, once per remindEveryMin each. one line covers both, so holding both isn't two messages.
 // command lines are skipped — "!mb open" is already them doing something about it.
 export function remindUnopened(session: TimerUserSession, login: string, displayName: string, text: string){
     const cfg = mbSettings(session);
-    if (!cfg.enabled || !cfg.allowOpening || !cfg.remindUnopened)
+    if (!cfg.enabled || !cfg.remindUnopened)
         return;
     const key = boxKey(login);
     if (!key || String(text || "").trim().charAt(0) === "!")
@@ -1673,8 +1768,11 @@ export function remindUnopened(session: TimerUserSession, login: string, display
     const bot = String((session.connections && session.connections.twitchBot && session.connections.twitchBot.botLogin) || "").toLowerCase();
     if (bot && key === bot)
         return;
-    const n = boxCount(session, key);
-    if (n < 1)
+    // boxes chat is being held off from opening aren't worth a nudge yet; a double is spent by contributing,
+    // which nothing holds back
+    const n = cfg.allowOpening ? boxCount(session, key) : 0;
+    const doubles = ledgerCount(mbDoubleTime(session), key);
+    if (n < 1 && doubles < 1)
         return;
     const mine = remindedAt[session.userId] || (remindedAt[session.userId] = {});
     const now = Date.now();
@@ -1686,7 +1784,13 @@ export function remindUnopened(session: TimerUserSession, login: string, display
     if (mine[key] !== undefined)
         return;
     mine[key] = now;
-    chatSay(session, `@${str(displayName, MAX_NAME) || key} you have ${n} unopened mystery box${n === 1 ? "" : "es"} — type !${cfg.command} open to open ${n === 1 ? "it" : "one"}!`);
+    const who = str(displayName, MAX_NAME) || key;
+    const boxLine = n > 0 ? `you have ${n} unopened mystery box${n === 1 ? "" : "es"} — type !${cfg.command} open to open ${n === 1 ? "it" : "one"}!` : "";
+    const dtName = doubleTimeName(cfg);
+    const dtLine = doubles > 0
+        ? `${n > 0 ? "You also have" : "you have"} ${doubles > 1 ? `${doubles} ${dtName}` : dtName} ready — your next sub, cheer or donation is worth DOUBLE time!`
+        : "";
+    chatSay(session, `@${who} ${[boxLine, dtLine].filter((l) => l).join(" ")}`);
 }
 
 // every twitch chat line gets offered here, the same way firesale does it. returns true if the line was

@@ -18,6 +18,7 @@ import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
 import { connectTwitchSubs, twitchSubsReady } from "./platforms/twitchSubs";
+import { connectTwitchPoints } from "./platforms/twitchPoints";
 import { connectFourthwall, normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, normalizeFwActivity } from "./platforms/fourthwall";
 
 export const sessions: TimerUserSession[] = [];
@@ -65,9 +66,17 @@ export function connectFourthwallFor(session: TimerUserSession){
 }
 
 // read-only poller: it reports numbers for the browser sources and never grants time, so unlike the other
-// connectors it takes no emit
+// connectors it takes no emit. the channel points listener rides the same authorization, so it comes up and
+// goes down with it — every place that reconnects the subs reconnects this too.
 export function connectTwitchSubsFor(session: TimerUserSession){
-    return connectTwitchSubs(session);
+    const subs = connectTwitchSubs(session);
+    const points = connectTwitchPoints(session);
+    return {
+        disconnect(){
+            subs.disconnect();
+            points.disconnect();
+        }
+    };
 }
 
 export function loginUser(inObj: Object){

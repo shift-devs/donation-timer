@@ -15,6 +15,9 @@ export const DEFAULT_MYSTERYBOX = {
 	giftSubsMode: "batch",
 	remindUnopened: true,
 	remindEveryMin: 60,
+	pointsEnabled: false,
+	pointsReward: "",
+	pointsBoxes: 1,
 	music: "",
 	volume: 0.7,
 	spinSec: 6,
@@ -74,7 +77,7 @@ export const DEFAULT_PRIZE = {
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 // how many prizes may fly past the marker on one spin. the spin always takes spinSec, so this is the reel's
@@ -97,6 +100,7 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "doubleTime", label: "Double time (next contribution x2)", needs: [], hint: "Banks a double for the winner: the next sub, cheer, donation, membership or order they make is worth twice the time. Stacks with a bonfire sale. Matched by name, so it only works where the platform says who gave it — an anonymous gift can't spend it. Winning it twice banks two. A test spin credits nobody." },
 	{ key: "chant", label: "Chant rounds (say a phrase X times for time)", needs: ["chants", "rounds", "reward", "streak", "loopSound", "resultSounds"], hint: "WarioWare-style: each round draws one chant from the list at random — \"say movies 20 times in 60 seconds\" — and clearing it starts the next with a fresh clock. Clear every round and the time goes on the timer through the usual cap; run out of time in any round and it's over. Every chat line that contains the phrase counts once, whoever typed it. With \"in a row\" on, any line that doesn't say it puts the count back to zero (the bot's own lines don't). A test spin runs it for real." },
 	{ key: "infection", label: "Infection (@ to spread, then timeouts)", needs: ["seconds", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is patient zero, announced in chat. Anyone infected can @ someone to infect them, and the clock and the infected count show on the Mystery Box source. When the time runs out, everyone infected is timed out. Mods and the broadcaster can't catch it — the only way a mod is in it is by opening the box — and are never timed out. Needs a bot account with mod powers; a test spin picks a random recent chatter as patient zero." },
+	{ key: "rollcall", label: "Roll call (answer when called, time per answer)", needs: ["seconds", "answerSeconds", "reward", "phrases", "loopSound", "resultSounds"], hint: "For as long as it runs, the bot calls on one chatter at a time — anyone who has typed in the last 10 minutes, but not the bot or the broadcaster — and they have so many seconds to say the phrase (one drawn from the list per call). Answer or not, the next person is called; nobody gets a second turn until everyone around has had one. When it ends, every answer puts the time set here on the timer, through the usual cap. Box opens wait until it's over, like a chant. Needs a bot account to call names in chat; a test spin runs it for real." },
 	{ key: "jukebox", label: "Jukebox (a long track in the background)", needs: ["track"], hint: "Plays one clip through on the Mystery Box source — minutes long is fine — and gets out of the way: boxes keep opening over it, and it ends when the clip does. A second jukebox landing while one plays replaces it." },
 	{ key: "schizo", label: "Schizo (chat read aloud)", needs: ["seconds", "tts"], hint: "For this long, every chat line is read out loud on the Mystery Box source in the browser's own built-in voice — no service, no AI, just the machine's text-to-speech. Commands and the bot's own lines are skipped, long lines are cut short, and if chat outruns the voice the oldest lines are dropped so it stays live. Boxes keep opening over it; a second one landing extends the time. In OBS the voice comes out of the system's speech engine, so it lands on the desktop audio device rather than the browser source's own audio track. Testing in an ordinary browser tab? Click the page once first — browsers refuse to speak until they've been clicked; OBS's source has no such rule." },
 	{ key: "playEvent", label: "Play an event clip", needs: ["eventId"], hint: "Fires one of your configured events on its own /events source, its delayed command included." },
@@ -155,6 +159,13 @@ export function canonPrize(raw: any, i: number) {
 				.slice(0, 20),
 			rounds: numIn(e.rounds, 1, 50, Array.isArray(e.chants) ? 3 : 1),
 			rewardSeconds: numIn(e.rewardSeconds, 0, 24 * 3600, 300),
+			phrases: Array.isArray(e.phrases)
+				? e.phrases
+					.map((v: any) => (typeof v === "string" ? v.slice(0, 60).trim() : ""))
+					.filter((v: string, j: number, all: string[]) => v && all.indexOf(v) === j)
+					.slice(0, 20)
+				: [],
+			answerSeconds: numIn(e.answerSeconds, 5, 300, 30),
 			streak: !!e.streak,
 			winSound: typeof e.winSound === "string" ? e.winSound.slice(0, 300) : "",
 			winVolume: Math.min(1, Math.max(0, Number.isFinite(Number(e.winVolume)) ? Number(e.winVolume) : 1)),
@@ -205,6 +216,9 @@ export function canonMysteryBox(raw: any) {
 		giftSubsMode: r.giftSubsMode === "cumulative" ? "cumulative" : "batch",
 		remindUnopened: r.remindUnopened === undefined ? d.remindUnopened : !!r.remindUnopened,
 		remindEveryMin: numIn(r.remindEveryMin, 5, 24 * 60, d.remindEveryMin),
+		pointsEnabled: r.pointsEnabled === undefined ? d.pointsEnabled : !!r.pointsEnabled,
+		pointsReward: typeof r.pointsReward === "string" ? r.pointsReward.slice(0, 45).trim() : "",
+		pointsBoxes: numIn(r.pointsBoxes, 1, 99, d.pointsBoxes),
 		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
 		spinSec: numIn(r.spinSec, 1, 30, d.spinSec),

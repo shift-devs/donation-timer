@@ -330,6 +330,11 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 								there&apos;s no API key for it — so this needs a one-time approval on your channel.
 								Nothing here adds time to the timer.
 							</Text>
+							<Text fontSize="sm" color="gray.600">
+								The same approval also lets the Mystery Box tab hear <b>channel point redemptions</b>.
+								If you approved this before that was added, authorize again to turn it on.
+								{tsAuthorized && (ts.pointsOk ? " Channel points: listening." : ts.pointsError ? ` Channel points: ${ts.pointsError}` : "")}
+							</Text>
 							<ErrorBox show={tsAuthorized && !settings.twitchSubsStatus} text={tsError} />
 							<Box fontSize="sm" color="gray.600">
 								<Text>

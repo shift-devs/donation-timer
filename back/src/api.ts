@@ -179,6 +179,9 @@ function wsSync(ws: TimerWebSocket) {
                     error: curSession.twitchSubsError || "",
                     lastOkAt: curSession.twitchSubsLastOkAt || 0,
                     login: curSession.twitchSubsLogin || "",
+                    // channel points redemptions, heard on the same authorization (platforms/twitchPoints.ts)
+                    pointsOk: !!curSession.twitchPointsStatus,
+                    pointsError: curSession.twitchPointsError || "",
                     // the code the streamer still has to type in. deviceCode is deliberately not included —
                     // it's the credential half, and the browser has no use for it.
                     pending: curSession.twitchSubsPending ? {
@@ -608,6 +611,7 @@ export function startApi(){
                         curSession.conTwitchSubs = undefined;
                         curSession.twitchSubsStatus = false;
                         curSession.twitchSubsError = "";
+                        curSession.twitchPointsError = "";
                         curSession.twitchSubsPending = undefined; // a code for the old app is worthless
                         if (config.disconnect) {
                             curSession.connections.twitchSubs = normalizeTwitchSubs({});

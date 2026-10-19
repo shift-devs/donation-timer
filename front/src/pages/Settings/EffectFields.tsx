@@ -47,6 +47,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								: prize.effect.kind === "timeBoost" ? "for"
 								: prize.effect.kind === "infection" ? "Spreads for"
 								: prize.effect.kind === "schizo" ? "Reads chat for"
+								: prize.effect.kind === "rollcall" ? "Runs for"
 								: prize.effect.kind === "nuke" ? ""
 								: prize.effect.kind === "raygun" ? ""
 								: "Seconds"}
@@ -78,9 +79,22 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						</Text>
 					</HStack>
 				)}
+				{spec.needs.includes("answerSeconds") && (
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">each person called gets</Text>
+						<NumberField
+							width="80px"
+							min={5}
+							max={300}
+							value={prize.effect.answerSeconds}
+							onCommit={(n) => patchEffect(prize.id, { answerSeconds: n }, `as${prize.id}`)}
+						/>
+						<Text fontSize="sm" color="gray.500">sec to answer</Text>
+					</HStack>
+				)}
 				{spec.needs.includes("reward") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">for</Text>
+						<Text fontSize="sm" color="gray.600">{prize.effect.kind === "rollcall" ? "each answer adds" : "for"}</Text>
 						<NumberField
 							width="110px"
 							min={0}
@@ -264,6 +278,21 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							<Text fontSize="xs" color="gray.500">a chant with no words is dropped when it&apos;s saved</Text>
 						)}
 					</HStack>
+				</VStack>
+			)}
+			{spec.needs.includes("phrases") && (
+				<VStack align="stretch" spacing={1}>
+					<Text fontSize="sm" color="gray.600">What they have to say — one per line, one drawn for each person called</Text>
+					<Textarea
+						size="sm"
+						rows={2}
+						placeholder={"here\npresent"}
+						value={prize.effect.phrases.join("\n")}
+						onChange={(e) => patchEffect(prize.id, { phrases: e.target.value.split("\n") }, `ph${prize.id}`)}
+					/>
+					{prize.effect.phrases.filter((p: string) => p.trim()).length === 0 && (
+						<Text fontSize="xs" color="red.300">Nothing to answer with yet — add a phrase.</Text>
+					)}
 				</VStack>
 			)}
 			{spec.needs.includes("track") && (
