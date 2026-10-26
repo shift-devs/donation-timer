@@ -1,7 +1,7 @@
 // drops: power-ups that fall out of the timer, cod zombies style. every contribution that puts time on the
 // clock has a small chance (0.5% out of the box) of dropping one. a drop names its reward up front, then chat
 // has to clear a minigame to grab it — say a word so many times, count from one number to another, put up so
-// many sub points, or be first to unscramble a word. clear it in time and the reward fires, the same way a
+// many sub points, be first to unscramble a word, or be first to guess a number. clear it in time and the reward fires, the same way a
 // mystery box prize does (applyEffect). miss it and it's gone.
 //
 // it rides the quick revive's challenge engine and the /mysterybox browser source, so the overlay, the clock,
@@ -60,7 +60,7 @@ const PUMP_MS = 2000;
 // time, so one of these as the prize would be turned away the moment it was won.
 const NOT_A_DROP = ["chant", "infection", "rollcall"];
 
-export const GAME_KINDS = ["chant", "count", "subpoints", "scramble", "secret"];
+export const GAME_KINDS = ["chant", "count", "subpoints", "scramble", "secret", "guess"];
 
 export const DEFAULT_DROPS = {
     enabled: false,
@@ -111,9 +111,12 @@ export const DEFAULT_GAME = {
     secrets: [] as { phrase: string, hints: string[] }[],
     times: 20,
     streak: false,
+    // count: where it starts and ends. guess: the range the number is picked from, both ends included.
     from: 1,
     to: 50,
     resetOnMistake: true,
+    // guess: every miss closes the range in on the number (higher / lower on screen)
+    narrow: true,
     points: 10,
 };
 
@@ -196,6 +199,7 @@ function normalizeGame(raw: any, i: number, pools: any[]): any | null {
         from: numIn(raw.from, -100000, 100000, d.from),
         to: numIn(raw.to, -100000, 100000, d.to),
         resetOnMistake: raw.resetOnMistake === undefined ? d.resetOnMistake : !!raw.resetOnMistake,
+        narrow: raw.narrow === undefined ? d.narrow : !!raw.narrow,
         points: numIn(raw.points, 1, 100000, d.points),
     };
 }
@@ -276,7 +280,7 @@ function playable(g: any): boolean {
         return g.words.length > 0;
     if (g.kind === "secret")
         return g.secrets.some(hinted);
-    if (g.kind === "count")
+    if (g.kind === "count" || g.kind === "guess")
         return g.from !== g.to;
     return true;
 }
@@ -598,6 +602,14 @@ function gameSpec(cfg: any, reward: any, game: any, test: boolean): ChallengeSpe
         base.unit = "";
         base.answer = secret.phrase;
         base.phrase = oneOf(secret.hints) as string;
+    } else if (game.kind === "guess"){
+        // either way round on the tab; the number is drawn with both ends in play
+        const lo = Math.min(game.from, game.to), hi = Math.max(game.from, game.to);
+        base.unit = "";
+        base.guessLow = lo;
+        base.guessHigh = hi;
+        base.guessNumber = lo + Math.floor(Math.random() * (hi - lo + 1));
+        base.narrow = game.narrow;
     } else {
         base.unit = "SUB POINTS";
         base.goal = game.points;
@@ -629,7 +641,7 @@ export function startDrop(session: TimerUserSession, want: DropPick = {}, test =
         if (!game)
             return { ok: false, message: "That minigame isn't on the Drops tab any more." };
         if (!playable(game))
-            return { ok: false, message: `That minigame has nothing to play — give it ${game.kind === "secret" ? "a phrase with a hint" : game.kind === "count" ? "a range" : "some words"}.` };
+            return { ok: false, message: `That minigame has nothing to play — give it ${game.kind === "secret" ? "a phrase with a hint" : game.kind === "count" || game.kind === "guess" ? "a range" : "some words"}.` };
     } else {
         // a named reward only needs a game that's ready in its pool; otherwise the pool has to have something in it too
         const games = cfg.games.filter((g: any) => named ? g.pool === poolId && playable(g) : poolId ? g.pool === poolId && armed(session, g) : armed(session, g));

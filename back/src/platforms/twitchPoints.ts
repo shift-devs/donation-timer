@@ -88,9 +88,11 @@ export function connectTwitchPoints(session: TimerUserSession){
         const login = String((ev && ev.user_login) || "");
         const name = String((ev && ev.user_name) || login);
         const title = String((ev && ev.reward && ev.reward.title) || "");
+        // every redemption heard goes in the diag file, credited or not, so "it never arrived" and "it arrived
+        // and didn't match" can be told apart after the fact
+        diag(`TWITCHPOINTS ${watching}: ${login || "(no login)"} redeemed "${title}"`);
         try {
-            if (creditChannelPoints(session, login, name, title))
-                diag(`TWITCHPOINTS ${watching}: ${login} redeemed "${title}"`);
+            creditChannelPoints(session, login, name, title);
         } catch (err) {
             reportError(session.userId, "crediting a channel points redemption", err);
         }

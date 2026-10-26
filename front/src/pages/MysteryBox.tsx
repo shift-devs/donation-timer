@@ -513,6 +513,14 @@ const MysteryBox: React.FC = () => {
 	const reviveHint = String((revive && revive.hint) || "");
 	const reviveHintFs = Math.max(40, Math.min(80, Math.floor((STAGE_W - 120) / (Math.max(10, reviveHint.length) * 0.5))));
 	const reviveWinner = String((revive && revive.winner) || "");
+	// a number guess: where the number can still be, and the last miss with which way it was off
+	const reviveGuess = !!(revive && revive.kind === "guess");
+	const guessLow = Number((revive && revive.low) || 0);
+	const guessHigh = Number((revive && revive.high) || 0);
+	const guessLast = revive && revive.lastGuess !== null && revive.lastGuess !== undefined ? Number(revive.lastGuess) : null;
+	const guessWay = String((revive && revive.lastGuessWay) || "");
+	const guessBy = String((revive && revive.lastGuessBy) || "");
+	const guessRangeFs = Math.max(56, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(5, `${guessLow} – ${guessHigh}`.length) * 0.6))));
 	// a count that made it names everyone who said a number in the run that got there
 	const reviveCounters: string[] = revive && Array.isArray(revive.counters) ? revive.counters : [];
 	// roll call: who's up, what they have to say, how long they've got, and what the answers so far are worth
@@ -1028,6 +1036,31 @@ const MysteryBox: React.FC = () => {
 										</div>
 									)}
 								</div>
+							) : reviveGuess ? (
+								<div style={{ marginTop: 10 }}>
+									{/* the range pops each time a miss closes it in, so chat sees its guess land */}
+									<div
+										key={`rng${guessLow}_${guessHigh}`}
+										style={{
+											color: cfg.titleColor,
+											fontSize: guessRangeFs,
+											lineHeight: 1,
+											WebkitTextStrokeWidth: "4px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+											textShadow: "0 0 40px rgba(255,212,0,0.8), 0 6px 0 rgba(0,0,0,0.55)",
+											animation: "mb-pop 420ms ease-out both",
+										}}
+									>
+										{guessLow} – {guessHigh}
+									</div>
+									{guessLast !== null && (
+										<div key={`gs${revive.guessAt || 0}`} style={{ color: cfg.nameColor, fontSize: 40, marginTop: 10, textShadow: outline, animation: "mb-pop 300ms ease-out both" }}>
+											{guessLast} — <span style={{ color: cfg.titleColor }}>{guessWay === "higher" ? "HIGHER ▲" : "LOWER ▼"}</span>
+											{guessBy && <span style={{ fontSize: 28, opacity: 0.85, marginLeft: 14 }}>@{guessBy}</span>}
+										</div>
+									)}
+								</div>
 							) : reviveScramble || reviveSecret ? (
 								<div
 									style={{
@@ -1134,7 +1167,9 @@ const MysteryBox: React.FC = () => {
 								</div>
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
-								{reviveScramble || reviveSecret
+								{reviveGuess
+									? `IT WAS ${String(revive.answer || "")}`
+									: reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
 									: reviveInfection || reviveRollCall ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>

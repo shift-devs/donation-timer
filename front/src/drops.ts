@@ -14,6 +14,7 @@ export const GAME_KINDS: { key: string; label: string; hint: string }[] = [
 	{ key: "subpoints", label: "Sub points", hint: "Like the quick revive: Tier 1 and Prime count 1, Tier 2 counts 2, Tier 3 counts 6, a gift bomb counts every sub. A YouTube or Kick membership counts 1. Whoever gifted the last of them is who a personal reward goes to." },
 	{ key: "scramble", label: "Unscramble a word", hint: "The word goes up with its letters shuffled; the first chatter to type it gets it for chat. One word is drawn from the list for each drop. Punctuation and spaces don't matter." },
 	{ key: "secret", label: "Guess a secret phrase", hint: "A hint goes up and the first chatter to type the phrase it points at gets it for chat. Each phrase can have several hints: one phrase is drawn for each drop, then one of its hints. A guess counts if the phrase is anywhere in the line, so \"is it zombies?\" lands — capitals, spaces and punctuation don't matter. The phrase itself is never shown until it's been got or the clock runs out." },
+	{ key: "guess", label: "Guess a number", hint: "A number is picked between From and To — both ends included — and the first chatter to type it gets it for chat. Only a line that is just a number counts as a guess, and anyone can guess as often as they like. With \"higher / lower\" on, every miss closes the range in on screen so chat can work it down; off, it's pure luck. The number is never shown until it's been got or the clock runs out." },
 ];
 
 export const DEFAULT_POOL = {
@@ -34,6 +35,7 @@ export const DEFAULT_GAME = {
 	from: 1,
 	to: 50,
 	resetOnMistake: true,
+	narrow: true,
 	points: 10,
 };
 
@@ -157,6 +159,7 @@ export function canonGame(raw: any, i: number, pools: any[]) {
 		from: numIn(r.from, -100000, 100000, d.from),
 		to: numIn(r.to, -100000, 100000, d.to),
 		resetOnMistake: r.resetOnMistake === undefined ? d.resetOnMistake : !!r.resetOnMistake,
+		narrow: r.narrow === undefined ? d.narrow : !!r.narrow,
 		points: numIn(r.points, 1, 100000, d.points),
 	};
 }
@@ -219,7 +222,7 @@ export function secretReady(s: any): boolean {
 }
 
 // can this minigame actually be played — the word games need words, a count needs somewhere to go, a
-// secret needs a phrase with a hint
+// secret needs a phrase with a hint, a guess needs more than one number to pick from
 export function gamePlayable(g: any): boolean {
 	if (!g.enabled)
 		return false;
@@ -227,7 +230,7 @@ export function gamePlayable(g: any): boolean {
 		return g.words.length > 0;
 	if (g.kind === "secret")
 		return g.secrets.some(secretReady);
-	if (g.kind === "count")
+	if (g.kind === "count" || g.kind === "guess")
 		return g.from !== g.to;
 	return true;
 }

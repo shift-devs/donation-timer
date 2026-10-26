@@ -5,9 +5,9 @@ import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
-import { handleMysteryBoxChat, handleRaygunChat, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
+import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
-import { creditChant, creditCount, creditScramble, creditRollCall, spreadInfection } from "../quickRevive";
+import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection } from "../quickRevive";
 import { runDropCommand } from "../drops";
 import { modMay, eventPermission } from "../chatPermissions";
 
@@ -113,9 +113,10 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // a chant prize counts every line that says its phrase, whoever typed it. the original message, so a
         // phrase with punctuation or capitals in it matches what was actually said.
         creditChant(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
-        // a drop's count and scramble games read every line the same way
+        // a drop's count, scramble and number guess games read every line the same way
         creditCount(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         creditScramble(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        creditGuess(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // a roll call's answer, from whoever is being called
         creditRollCall(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // an infected chatter @-ing somebody passes it on
@@ -125,6 +126,9 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         speakChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
         // holding a box they haven't opened? nudge them, at most once an hour (see remindUnopened)
         remindUnopened(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
+        // the bingo app's bot announcing a winner (or a new game). nothing else wants its lines
+        if (handleBingoChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || "")))
+            return;
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)

@@ -141,6 +141,12 @@ export const DEFAULT_MYSTERYBOX = {
     pointsEnabled: false,
     pointsReward: "",
     pointsBoxes: 1,
+    // the bingo app on stream: its bot posts "WINNER: <name>" in chat, and the first, second and third winner
+    // of a game earn bingoBoxes[0], [1] and [2]. "Game Ended!" or "New Game Started!" starts the count over.
+    // bingoBot is the bot's twitch login — only its lines count, or anybody could paste "WINNER: me".
+    bingoEnabled: true,
+    bingoBot: "streambounty",
+    bingoBoxes: [3, 2, 1] as number[],
     // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
     // one open, and looping it would have the tail of the last spin still going under the reveal.
     music: "",
@@ -332,6 +338,9 @@ export function normalizeMysteryBox(raw: any): any {
         pointsEnabled: r.pointsEnabled === undefined ? d.pointsEnabled : !!r.pointsEnabled,
         pointsReward: str(r.pointsReward, 45).trim(),
         pointsBoxes: numIn(r.pointsBoxes, 1, MAX_EXTRA_BOXES, d.pointsBoxes),
+        bingoEnabled: r.bingoEnabled === undefined ? d.bingoEnabled : !!r.bingoEnabled,
+        bingoBot: (typeof r.bingoBot === "string" ? r.bingoBot.trim().replace(/^@/, "").replace(/\s+/g, "").toLowerCase().slice(0, 30) : "") || d.bingoBot,
+        bingoBoxes: d.bingoBoxes.map((n: number, i: number) => numIn(Array.isArray(r.bingoBoxes) ? r.bingoBoxes[i] : undefined, 0, MAX_EXTRA_BOXES, n)),
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
@@ -474,18 +483,77 @@ export function grantMysteryBox(session: TimerUserSession, login: any, displayNa
 // what the streamer typed on twitch and what they'll type here. the box goes in the wallet — it doesn't open,
 // because only one box runs at a time and a redemption that landed mid-spin would have nowhere to go.
 // returns whether it earned anything, for the terminal.
+//
+// a redemption that DOESN'T earn a box says why on the terminal, once the channel points reward is set up at
+// all — a title typed slightly differently from twitch's, or a switch left off, otherwise looks exactly like
+// the listener being down, and the viewer has already spent their points.
 export function creditChannelPoints(session: TimerUserSession, login: any, displayName: any, rewardTitle: any): boolean {
     const cfg = mbSettings(session);
-    if (!cfg.enabled || !cfg.pointsEnabled || !cfg.pointsReward)
+    const who = str(displayName, MAX_NAME) || boxKey(login) || "somebody";
+    const matches = !!cfg.pointsReward && matchable(rewardTitle) === matchable(cfg.pointsReward);
+    if (!cfg.pointsReward)
         return false;
-    if (matchable(rewardTitle) !== matchable(cfg.pointsReward))
+    if (!matches){
+        if (cfg.enabled && cfg.pointsEnabled)
+            emitTerminal(session.userId, `Channel points: ${who} redeemed "${str(rewardTitle, 60)}" — not the mystery box reward ("${cfg.pointsReward}"), so no box. If it should have been, make the title on the Mystery Box tab match Twitch's.`);
         return false;
+    }
+    if (!cfg.enabled || !cfg.pointsEnabled){
+        emitTerminal(session.userId, `Channel points: ${who} redeemed "${str(rewardTitle, 60)}", but ${!cfg.enabled ? "the mystery box is switched off" : "the channel points reward is switched off"} on the Mystery Box tab — no box given. Refund it on Twitch or grant one by hand.`);
+        return false;
+    }
     const key = boxKey(login);
-    if (!key)
+    if (!key){
+        emitTerminal(session.userId, `Channel points: "${str(rewardTitle, 60)}" was redeemed, but Twitch didn't say by whom — no box given.`);
         return false;
-    const who = str(displayName, MAX_NAME) || key;
+    }
     const held = grantMysteryBox(session, key, who, cfg.pointsBoxes, "channel points");
     chatSay(session, `@${who} redeemed ${cfg.pointsBoxes === 1 ? "a mystery box" : `${cfg.pointsBoxes} mystery boxes`}!${cfg.allowOpening ? ` Type !${cfg.command} open to open ${held === 1 ? "it" : "one"}` : " It's safe in your wallet until boxes can be opened"} — you have ${held}.`);
+    return true;
+}
+
+// the bingo app's bot announcing winners. who has already won THIS game, in order — the place they came in is
+// how many boxes they get. kept in memory only: a restart mid-game forgets the places, and the next winner is
+// treated as first, which is the lesser evil next to persisting a game the app may have long since ended.
+const bingoWinners: { [userId: number]: string[] } = {};
+
+// a line from chat. returns true when it was the bingo bot's (so nothing else needs to look at it).
+export function handleBingoChat(session: TimerUserSession, login: string, displayName: string, text: string): boolean {
+    const cfg = mbSettings(session);
+    const bot = cfg.bingoBot;
+    const from = String(login || "").toLowerCase();
+    if (!bot || (from !== bot && String(displayName || "").replace(/\s+/g, "").toLowerCase() !== bot))
+        return false;
+    const body = String(text || "").trim();
+    if (/^(new game started|game ended|game started)\b/i.test(body)){
+        if ((bingoWinners[session.userId] || []).length)
+            emitTerminal(session.userId, `BINGO — ${body.replace(/!+$/, "")}; winner places reset.`);
+        bingoWinners[session.userId] = [];
+        return true;
+    }
+    const m = /^winner\s*:\s*@?(\S.*)$/i.exec(body);
+    if (!m)
+        return true;
+    const name = str(m[1].trim(), MAX_NAME);
+    // the app names the winner by display name; credit the login behind it when they've talked, so the box
+    // lands where "!mb open" will look for it
+    const key = chatterByDisplayName(session, name) || boxKey(name);
+    const winners = bingoWinners[session.userId] || (bingoWinners[session.userId] = []);
+    if (winners.includes(key))
+        return true; // the same win announced twice
+    winners.push(key);
+    const place = winners.length;
+    const n = cfg.bingoBoxes[place - 1] || 0;
+    if (!cfg.enabled || !cfg.bingoEnabled){
+        emitTerminal(session.userId, `BINGO — ${name} won (#${place}), but ${!cfg.enabled ? "the mystery box is switched off" : "bingo boxes are switched off"} on the Mystery Box tab — no box given.`);
+        return true;
+    }
+    if (n <= 0){
+        emitTerminal(session.userId, `BINGO — ${name} won (#${place}); only the first ${cfg.bingoBoxes.filter((b: number) => b > 0).length} winners get boxes.`);
+        return true;
+    }
+    const held = grantMysteryBox(session, key, name, n, `bingo winner #${place}`);
+    chatSay(session, `@${name} won bingo${place > 1 ? ` (#${place})` : ""} and gets ${n === 1 ? "a mystery box" : `${n} mystery boxes`}!${cfg.allowOpening ? ` Type !${cfg.command} open to open ${held === 1 ? "it" : "one"}` : " It's safe in your wallet until boxes can be opened"} — you have ${held}.`);
     return true;
 }
 

@@ -28,9 +28,10 @@
 // random, clearing it starts the next straight away with a fresh clock, and only the last one pays. failing
 // any round fails the lot.
 //
-// DROPS (drops.ts) run on this too, and bring three more counters: COUNT (chat counts from one number to another,
-// one number per line), SCRAMBLE (first to type the unscrambled word gets it) and SECRET (a hint goes up, first
-// to type the phrase it points at gets it). a drop is a challenge with a
+// DROPS (drops.ts) run on this too, and bring four more counters: COUNT (chat counts from one number to another,
+// one number per line), SCRAMBLE (first to type the unscrambled word gets it), SECRET (a hint goes up, first
+// to type the phrase it points at gets it) and GUESS (a number is picked between two others, first to say it
+// gets it — with `narrow` on, every miss shrinks the range on screen). a drop is a challenge with a
 // reward on the end, and the reward is paid through the onWin hook startChallenge takes — this file never has
 // to know what a drop is worth.
 //
@@ -138,7 +139,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "rollcall"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -180,6 +181,12 @@ export interface ChallengeSpec {
     // scramble and secret only: the words as they have to be typed. `phrase` carries what's shown instead —
     // the letters shuffled for a scramble, the hint for a secret.
     answer?: string
+    // guess only: the range chat is told (both ends count), the number picked inside it, and whether a miss
+    // closes the range in on it — "higher" or "lower", shown on the source
+    guessLow?: number
+    guessHigh?: number
+    guessNumber?: number
+    narrow?: boolean
     // a drop's extras: the reward's art over the title, the heading above it, the sting as it appears, and
     // the reward's name for chat. blank on everything that isn't a drop.
     image?: string
@@ -211,7 +218,7 @@ function slots(userId: number){
 
 export function getQuickRevive(session: TimerUserSession): any {
     if (!session.quickRevive || typeof session.quickRevive !== "object")
-        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "", counters: [], called: "", calledName: "", callEndsAt: 0, callAt: 0, turns: {} };
+        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "", counters: [], called: "", calledName: "", callEndsAt: 0, callAt: 0, turns: {}, low: 0, high: 0, lastGuess: null, lastGuessBy: "", guessAt: 0, guesses: 0 };
     return session.quickRevive;
 }
 
@@ -276,6 +283,8 @@ function subtitleFor(spec: ChallengeSpec): string {
         return "UNSCRAMBLE IT!";
     if (spec.kind === "secret")
         return "GUESS THE SECRET PHRASE!";
+    if (spec.kind === "guess")
+        return `GUESS THE NUMBER FROM ${spec.guessLow} TO ${spec.guessHigh}!`;
     if (spec.kind === "rollcall")
         return `ANSWER WHEN YOU'RE CALLED — +${sayTime(spec.rewardSeconds).toUpperCase()} EACH`;
     return spec.subtitle;
@@ -312,7 +321,17 @@ export function quickReviveView(session: TimerUserSession): any {
         next: spec.kind === "count" ? qr.next : 0,
         scrambled: spec.kind === "scramble" ? spec.phrase : "",
         hint: spec.kind === "secret" ? spec.phrase : "",
-        answer: (spec.kind === "scramble" || spec.kind === "secret") && qr.phase !== "running" ? spec.answer || "" : "",
+        answer: (spec.kind === "scramble" || spec.kind === "secret") && qr.phase !== "running" ? spec.answer || ""
+            : spec.kind === "guess" && qr.phase !== "running" ? String(spec.guessNumber) : "",
+        // guess: where the number can still be (the whole range, unless misses have closed it in), the last
+        // miss and which way it was off, and how many tries chat has had. the number itself waits like an answer.
+        low: spec.kind === "guess" ? qr.low : 0,
+        high: spec.kind === "guess" ? qr.high : 0,
+        lastGuess: spec.kind === "guess" ? qr.lastGuess : null,
+        lastGuessBy: spec.kind === "guess" ? qr.lastGuessBy || "" : "",
+        lastGuessWay: spec.kind === "guess" && qr.lastGuess !== null ? (qr.lastGuess < Number(spec.guessNumber) ? "higher" : "lower") : "",
+        guessAt: spec.kind === "guess" ? qr.guessAt || 0 : 0,
+        guesses: spec.kind === "guess" ? qr.guesses || 0 : 0,
         // whoever finished it — the solver of a scramble, the last number of a count
         winner: qr.phase === "won" ? qr.lastByName || qr.lastBy || "" : "",
         // a count that made it: everyone who said one of its numbers, in the order they first did
@@ -366,6 +385,8 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         return { ok: false, message: "That scramble has no word to unscramble." };
     if (spec.kind === "secret" && !spec.answer)
         return { ok: false, message: "That secret phrase has no phrase to guess." };
+    if (spec.kind === "guess" && !Number.isFinite(Number(spec.guessNumber)))
+        return { ok: false, message: "That number guess has no number to guess." };
     if (spec.kind === "rollcall" && !(spec.phrases && spec.phrases.length))
         return { ok: false, message: "That roll call has no phrase to answer with — give it one." };
     const qr = getQuickRevive(session);
@@ -395,6 +416,12 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.callEndsAt = 0;
     qr.callAt = 0;
     qr.turns = {};
+    qr.low = 0;
+    qr.high = 0;
+    qr.lastGuess = null;
+    qr.lastGuessBy = "";
+    qr.guessAt = 0;
+    qr.guesses = 0;
     const t = slots(session.userId);
     clearTimeout(t.done);
     clearTimeout(t.spread);
@@ -463,6 +490,8 @@ function instruction(spec: ChallengeSpec): string {
         return `Unscramble "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
     if (spec.kind === "secret")
         return `Guess the secret phrase. Hint: "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
+    if (spec.kind === "guess")
+        return `Guess the number from ${spec.guessLow} to ${spec.guessHigh} — type just the number. First to get it within ${spec.seconds} seconds gets it for chat${spec.narrow ? " (watch the screen for higher or lower)" : ""}.`;
     return `Put up ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} within ${spec.seconds} seconds — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6.`;
 }
 
@@ -478,6 +507,11 @@ function startDrop(session: TimerUserSession, qr: any, spec: ChallengeSpec): { o
         }
         if (spec.kind === "scramble" || spec.kind === "secret")
             qr.goal = 1;
+        if (spec.kind === "guess"){
+            qr.goal = 1;
+            qr.low = Number(spec.guessLow);
+            qr.high = Number(spec.guessHigh);
+        }
         armClock(session, spec.seconds);
         pushQuickRevive(session);
     }
@@ -648,6 +682,40 @@ export function creditScramble(session: TimerUserSession, text: string, login = 
     const said = bare(text);
     if (want && (qr.spec.kind === "secret" ? said.includes(want) : said === want))
         credit(session, qr, 1, login, displayName);
+}
+
+// a chat line during a number guess. like a count, only a line that IS a number is a guess; anything else is
+// chat talking. the number wins it. a miss inside the range is noted for the source, and with `narrow` on it
+// closes the range in from that side — so chat can work it down, and a guess the range has already ruled
+// out is ignored rather than shown as if it were news. anyone may guess as often as they like.
+export function creditGuess(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "guess")
+        return;
+    if (isBot(session, login) || Date.now() >= qr.endsAt)
+        return;
+    const m = String(text || "").trim().match(/^(-?\d+)[!.?]*$/);
+    if (!m)
+        return;
+    const said = Number(m[1]);
+    const spec: ChallengeSpec = qr.spec;
+    if (said < qr.low || said > qr.high)
+        return;
+    qr.guesses = (qr.guesses || 0) + 1;
+    if (said === Number(spec.guessNumber)){
+        credit(session, qr, 1, login, displayName);
+        return;
+    }
+    qr.lastGuess = said;
+    qr.lastGuessBy = String(displayName || login || "");
+    qr.guessAt = Date.now();
+    if (spec.narrow){
+        if (said < Number(spec.guessNumber))
+            qr.low = said + 1;
+        else
+            qr.high = said - 1;
+    }
+    pushQuickRevive(session);
 }
 
 // ---------------------------------------------------------------------------
@@ -939,6 +1007,10 @@ function dropTally(qr: any, spec: ChallengeSpec, won: boolean): string {
         return won ? `${who ? `@${who}` : "Chat"} unscrambled "${spec.answer}"` : `Nobody got it — it was "${spec.answer}"`;
     if (spec.kind === "secret")
         return won ? `${who ? `@${who}` : "Chat"} guessed "${spec.answer}"` : `Nobody guessed it — it was "${spec.answer}"`;
+    if (spec.kind === "guess"){
+        const tries = `${qr.guesses} guess${qr.guesses === 1 ? "" : "es"}`;
+        return won ? `${who ? `@${who}` : "Chat"} guessed ${spec.guessNumber} after ${tries}` : `Nobody got it in ${tries} — it was ${spec.guessNumber}`;
+    }
     if (spec.kind === "count"){
         const step = Number(spec.countTo) >= Number(spec.countFrom) ? 1 : -1;
         return won ? `Chat counted ${spec.countFrom} to ${spec.countTo}` : qr.points ? `Chat only got to ${qr.next - step} of ${spec.countTo}` : "Chat never got counting";
@@ -1022,6 +1094,12 @@ export function endQuickRevive(session: TimerUserSession){
     qr.callEndsAt = 0;
     qr.callAt = 0;
     qr.turns = {};
+    qr.low = 0;
+    qr.high = 0;
+    qr.lastGuess = null;
+    qr.lastGuessBy = "";
+    qr.guessAt = 0;
+    qr.guesses = 0;
     if (wasRunning)
         emitTerminal(session.userId, `${tag} — called off.`, true);
     pushQuickRevive(session);

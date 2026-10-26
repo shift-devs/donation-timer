@@ -242,8 +242,8 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 				Power-ups that fall out of the timer. Every sub, cheer, donation and order that puts time on the clock
 				has a small chance of <b>dropping</b> one. The drop goes up on the <b>Mystery Box</b> source with its
 				reward named, and chat has to clear a minigame in time to grab it — say a word so many times, count
-				from one number to another, put up sub points, unscramble a word, or guess a secret phrase from a
-				hint. Make it and the reward fires,
+				from one number to another, put up sub points, unscramble a word, guess a secret phrase from a
+				hint, or guess a number. Make it and the reward fires,
 				exactly like a mystery box prize. Miss it and it&apos;s gone.
 			</Text>
 			<Text fontSize="sm" color="gray.600" mb={2}>
@@ -290,7 +290,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 						</Badge>
 						<Text fontSize="sm" color="gray.600">
 							<b>{revive.title}</b>
-							{phase === "running" ? ` — ${revive.points}${revive.kind === "scramble" || revive.kind === "secret" ? "" : ` / ${revive.goal}`} — ${countdown(revive.endsAt - Date.now())} left` : ""}
+							{phase === "running" ? ` — ${revive.kind === "guess" ? `${revive.low}–${revive.high}, ${revive.guesses} guessed` : `${revive.points}${revive.kind === "scramble" || revive.kind === "secret" ? "" : ` / ${revive.goal}`}`} — ${countdown(revive.endsAt - Date.now())} left` : ""}
 						</Text>
 						<Button size="xs" variant="ghost" onClick={() => stopDrop(ws)}>{phase === "running" ? "Call off" : "Clear"}</Button>
 					</Flex>
@@ -496,7 +496,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 									<Text fontSize="sm" color="gray.600">On</Text>
 									<Switch size="sm" isChecked={g.enabled} onChange={(e) => patchGame(g.id, { enabled: e.target.checked })} />
 								</HStack>
-								{g.enabled && !ready && <Badge colorScheme="red">needs {g.kind === "count" ? "a range" : g.kind === "secret" ? "a phrase with a hint" : "words"}</Badge>}
+								{g.enabled && !ready && <Badge colorScheme="red">needs {g.kind === "count" || g.kind === "guess" ? "a range" : g.kind === "secret" ? "a phrase with a hint" : "words"}</Badge>}
 								<Box flex="1" />
 								<Button size="xs" isDisabled={!ready || !draft.rewards.length} onClick={() => testDrop(ws, testReward, g.id)}>Test</Button>
 								<Button size="xs" variant="ghost" colorScheme="red" onClick={() => patch({ games: draft.games.filter((z: any) => z.id !== g.id) })}>Delete</Button>
@@ -537,6 +537,19 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 									<HStack spacing={1}>
 										<Switch size="sm" isChecked={g.resetOnMistake} onChange={(e) => patchGame(g.id, { resetOnMistake: e.target.checked })} />
 										<Text fontSize="sm" color="gray.600">a wrong number starts it over</Text>
+									</HStack>
+								</HStack>
+							)}
+							{g.kind === "guess" && (
+								<HStack spacing={2} wrap="wrap" mb={2}>
+									<Text fontSize="sm" color="gray.600">A number from</Text>
+									<NumberField width="100px" min={-100000} max={100000} value={g.from} onCommit={(n) => patchGame(g.id, { from: n }, `gf${g.id}`)} />
+									<Text fontSize="sm" color="gray.600">to</Text>
+									<NumberField width="100px" min={-100000} max={100000} value={g.to} onCommit={(n) => patchGame(g.id, { to: n }, `gto${g.id}`)} />
+									<Text fontSize="sm" color="gray.600">(both included)</Text>
+									<HStack spacing={1}>
+										<Switch size="sm" isChecked={g.narrow} onChange={(e) => patchGame(g.id, { narrow: e.target.checked })} />
+										<Text fontSize="sm" color="gray.600">higher / lower — each miss narrows the range</Text>
 									</HStack>
 								</HStack>
 							)}
@@ -614,7 +627,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 			<Text fontSize="xs" color="gray.500" mb={3}>
 				A reward that goes to one person (ray gun shots, more boxes, <Code fontSize="xs">{"{user}"}</Code> in a
 				command) goes to whoever finished the minigame: the last number counted, the last line of the chant, the
-				unscrambler, or the gifter of the last sub points. If nobody in chat finished it, that part is skipped.
+				unscrambler or guesser, or the gifter of the last sub points. If nobody in chat finished it, that part is skipped.
 			</Text>
 			{draft.rewards.length === 0 && (
 				<Text fontSize="sm" color="gray.500" mb={3}>

@@ -872,6 +872,45 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					authorized that before channel points were added, authorize it again.
 				</Text>
 
+				{/* bingo: the stream's bingo app announces winners in chat; places 1-3 earn boxes */}
+				<HStack spacing={3} wrap="wrap">
+					<HStack spacing={2}>
+						<Switch
+							isChecked={draft.bingoEnabled}
+							isDisabled={!draft.enabled}
+							onChange={(e) => patch({ bingoEnabled: e.target.checked })}
+						/>
+						<Text fontSize="sm">Bingo winners</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="gray.600">Bot</Text>
+						<Input
+							size="sm"
+							maxW="160px"
+							value={draft.bingoBot}
+							onChange={(e) => patch({ bingoBot: e.target.value }, "bbot")}
+						/>
+					</HStack>
+					{["1st", "2nd", "3rd"].map((label, i) => (
+						<HStack spacing={1} key={label}>
+							<Text fontSize="sm" color="gray.600">{label}</Text>
+							<NumberField
+								width="70px"
+								min={0}
+								max={99}
+								value={draft.bingoBoxes[i]}
+								onCommit={(n) => patch({ bingoBoxes: draft.bingoBoxes.map((b: number, j: number) => (j === i ? n : b)) }, `bbox${i}`)}
+							/>
+						</HStack>
+					))}
+				</HStack>
+				<Text fontSize="xs" color="gray.500">
+					When the bingo bot says <Code fontSize="xs">WINNER: name</Code> in chat, the first, second and third
+					winners of the game get that many boxes. <Code fontSize="xs">Game Ended!</Code> or{" "}
+					<Code fontSize="xs">New Game Started!</Code> resets the places. Only lines from the bot&apos;s Twitch
+					login count. 0 gives that place nothing.
+				</Text>
+
 				<HStack spacing={3} wrap="wrap">
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="gray.600">Spin for</Text>
