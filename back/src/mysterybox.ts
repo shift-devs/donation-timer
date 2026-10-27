@@ -141,12 +141,6 @@ export const DEFAULT_MYSTERYBOX = {
     pointsEnabled: false,
     pointsReward: "",
     pointsBoxes: 1,
-    // the bingo app on stream: its bot posts "WINNER: <name>" in chat, and the first, second and third winner
-    // of a game earn bingoBoxes[0], [1] and [2]. "Game Ended!" or "New Game Started!" starts the count over.
-    // bingoBot is the bot's twitch login — only its lines count, or anybody could paste "WINNER: me".
-    bingoEnabled: true,
-    bingoBot: "streambounty",
-    bingoBoxes: [3, 2, 1] as number[],
     // a file in public/media, played from the top of the spin. it isn't looped: it's a stinger the length of
     // one open, and looping it would have the tail of the last spin still going under the reveal.
     music: "",
@@ -338,9 +332,6 @@ export function normalizeMysteryBox(raw: any): any {
         pointsEnabled: r.pointsEnabled === undefined ? d.pointsEnabled : !!r.pointsEnabled,
         pointsReward: str(r.pointsReward, 45).trim(),
         pointsBoxes: numIn(r.pointsBoxes, 1, MAX_EXTRA_BOXES, d.pointsBoxes),
-        bingoEnabled: r.bingoEnabled === undefined ? d.bingoEnabled : !!r.bingoEnabled,
-        bingoBot: (typeof r.bingoBot === "string" ? r.bingoBot.trim().replace(/^@/, "").replace(/\s+/g, "").toLowerCase().slice(0, 30) : "") || d.bingoBot,
-        bingoBoxes: d.bingoBoxes.map((n: number, i: number) => numIn(Array.isArray(r.bingoBoxes) ? r.bingoBoxes[i] : undefined, 0, MAX_EXTRA_BOXES, n)),
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
         spinSec: numIn(r.spinSec, 1, 30, d.spinSec),
@@ -512,28 +503,34 @@ export function creditChannelPoints(session: TimerUserSession, login: any, displ
     return true;
 }
 
-// the bingo app's bot announcing winners. who has already won THIS game, in order — the place they came in is
-// how many boxes they get. kept in memory only: a restart mid-game forgets the places, and the next winner is
-// treated as first, which is the lesser evil next to persisting a game the app may have long since ended.
+// the bingo app on stream. it's a twitch extension ("Stream Bounty", puzzle-piece badge), not a chatter, so it
+// has no login of its own to match — the caller hands over every name the raw chat line carries and this
+// looks for the extension's among them. a real account can't put a space in its name, so nobody can pose as it.
+// "WINNER: name" earns the 1st/2nd/3rd winner of a game BINGO_BOXES boxes; "New Game Started!" (or "Game
+// Ended!") starts the places over. deliberately has no settings: it's a hidden extra.
+const BINGO_SENDER = "streambounty";
+const BINGO_BOXES = [3, 2, 1];
+
+// who has already won THIS game, in order — the place they came in is how many boxes they get. kept in memory
+// only: a restart mid-game forgets the places, and the next winner is treated as first.
 const bingoWinners: { [userId: number]: string[] } = {};
 
-// a line from chat. returns true when it was the bingo bot's (so nothing else needs to look at it).
-export function handleBingoChat(session: TimerUserSession, login: string, displayName: string, text: string): boolean {
+export function isBingoSender(names: any[]): boolean {
+    return names.some((n) => String(n || "").replace(/\\s|\s+/g, "").toLowerCase() === BINGO_SENDER);
+}
+
+// a line from the bingo extension. returns true when it was one of its announcements.
+export function handleBingoChat(session: TimerUserSession, text: string): boolean {
     const cfg = mbSettings(session);
-    const bot = cfg.bingoBot;
-    const from = String(login || "").toLowerCase();
-    if (!bot || (from !== bot && String(displayName || "").replace(/\s+/g, "").toLowerCase() !== bot))
-        return false;
-    const body = String(text || "").trim();
+    const body = String(text || "").replace(/^\u0001ACTION |\u0001$/g, "").trim();
     if (/^(new game started|game ended|game started)\b/i.test(body)){
-        if ((bingoWinners[session.userId] || []).length)
-            emitTerminal(session.userId, `BINGO — ${body.replace(/!+$/, "")}; winner places reset.`);
+        emitTerminal(session.userId, `BINGO — ${body.replace(/!+$/, "")}; winner places reset.`);
         bingoWinners[session.userId] = [];
         return true;
     }
     const m = /^winner\s*:\s*@?(\S.*)$/i.exec(body);
     if (!m)
-        return true;
+        return false;
     const name = str(m[1].trim(), MAX_NAME);
     // the app names the winner by display name; credit the login behind it when they've talked, so the box
     // lands where "!mb open" will look for it
@@ -543,13 +540,13 @@ export function handleBingoChat(session: TimerUserSession, login: string, displa
         return true; // the same win announced twice
     winners.push(key);
     const place = winners.length;
-    const n = cfg.bingoBoxes[place - 1] || 0;
-    if (!cfg.enabled || !cfg.bingoEnabled){
-        emitTerminal(session.userId, `BINGO — ${name} won (#${place}), but ${!cfg.enabled ? "the mystery box is switched off" : "bingo boxes are switched off"} on the Mystery Box tab — no box given.`);
+    const n = BINGO_BOXES[place - 1] || 0;
+    if (!cfg.enabled){
+        emitTerminal(session.userId, `BINGO — ${name} won (#${place}), but the mystery box is switched off — no box given.`);
         return true;
     }
     if (n <= 0){
-        emitTerminal(session.userId, `BINGO — ${name} won (#${place}); only the first ${cfg.bingoBoxes.filter((b: number) => b > 0).length} winners get boxes.`);
+        emitTerminal(session.userId, `BINGO — ${name} won (#${place}); only the first ${BINGO_BOXES.length} winners get boxes.`);
         return true;
     }
     const held = grantMysteryBox(session, key, name, n, `bingo winner #${place}`);

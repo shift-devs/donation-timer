@@ -5,7 +5,7 @@ import { parseCommand, isTextCommand } from "../commands";
 import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
-import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
+import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, isBingoSender, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection } from "../quickRevive";
 import { runDropCommand } from "../drops";
@@ -92,6 +92,22 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         return plan == "Prime" ? 1 : parseInt(plan,10) / 1000;
     }
 
+    // the bingo app is a twitch extension, and its lines can come through without the username every other
+    // handler here keys on — so it's picked out of the raw IRC line, by any name the line carries, before tmi
+    // gets the chance to drop it. anything that so much as mentions it is logged, for when it changes format.
+    client.on("raw_message", safe("raw_message", (_copy: any, msg: any) => {
+        if (!msg || (msg.command !== "PRIVMSG" && msg.command !== "USERNOTICE"))
+            return;
+        const tags = msg.tags || {};
+        const nick = String(msg.prefix || "").split("!")[0];
+        const text = String((msg.params && msg.params[1]) || tags["system-msg"] || "");
+        const names = [nick, tags["display-name"], tags.login];
+        if (isBingoSender(names) || /bounty/i.test(names.join(" ")))
+            console.log(`(${channel}) BINGO? ${msg.command} from ${JSON.stringify(names)}: ${text}`);
+        if (isBingoSender(names))
+            handleBingoChat(session, text.replace(/\\s/g, " "));
+    }));
+
     client.on("message", safe("message", (ch, tags, message, self) => {
         const filterMessage = message.toLowerCase().replaceAll(/[^ -~]/g,"").trim();
         console.log(`(${channel}) TWITCH MESSAGE - ${tags.username}: ${filterMessage}`);
@@ -126,9 +142,6 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         speakChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
         // holding a box they haven't opened? nudge them, at most once an hour (see remindUnopened)
         remindUnopened(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
-        // the bingo app's bot announcing a winner (or a new game). nothing else wants its lines
-        if (handleBingoChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || "")))
-            return;
         // firesale traffic first: !enter is open to every chatter, so it has to be seen before the mod gate
         // below drops the line. the ORIGINAL message is passed, not the filtered copy — the filter lowercases
         // and strips non-ascii, which would mangle a fourthwall announcement (its prize names carry em dashes)
