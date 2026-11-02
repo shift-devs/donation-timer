@@ -10,7 +10,7 @@ import { normalizeTimerEvents, normalizeEventLayers } from "./timerEvents";
 import { mergeTextBoxes, findTextBox, setTextBoxText } from "./textBoxes";
 import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopRaffle } from "./raffle";
 import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
-import { normalizeChatPermissions } from "./chatPermissions";
+import { normalizeChatPermissions, mergeChatPermissions } from "./chatPermissions";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
 import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantDoubleTime, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
@@ -743,11 +743,8 @@ export function startApi(){
                     break;
                 }
                 case "setChatPermissions": {
-                    // merged onto what's stored, so the tab can flip one switch on its own
-                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
-                        ? jData.settings
-                        : {};
-                    curSession.chatPermissions = normalizeChatPermissions({ ...(curSession.chatPermissions || {}), ...patch });
+                    // merged onto what's stored, so the tab can flip one switch or edit one mod list on its own
+                    curSession.chatPermissions = mergeChatPermissions(curSession.chatPermissions, jData.settings);
                     break;
                 }
                 case "resetBoxBoard":

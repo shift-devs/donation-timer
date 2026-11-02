@@ -9,7 +9,7 @@ import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, isBingoSender,
 import { recordChatter, pruneChatters } from "../chat";
 import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection } from "../quickRevive";
 import { runDropCommand } from "../drops";
-import { modMay, eventPermission } from "../chatPermissions";
+import { modRefusal, eventPermission, mbPermission } from "../chatPermissions";
 
 // chat keeps its !addsub/!addmoney/!addtime sugar, but everything resolves to one canonical command string ->
 // parseCommand, so chat and the terminal share the exact same logic. unknown verbs pass through as-is, so a mod can
@@ -116,10 +116,12 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         const isBroadcaster = tags.username.toLowerCase() == channel.toLowerCase();
         const isMod = !!(tags.mod || isBroadcaster);
         // the Permissions tab: a group switched off there is refused for mods, never for the broadcaster
+        // — or kept to the mods on that entry's list
         const may = (key: string) => {
-            if (isBroadcaster || modMay(session, key))
+            const why = isBroadcaster ? "" : modRefusal(session, key, tags.username || "");
+            if (!why)
                 return true;
-            emitTerminal(session.userId, `Chat (${tags.username}): "${filterMessage}" refused — mods can't use that in chat (Permissions tab).`, false);
+            emitTerminal(session.userId, `Chat (${tags.username}): "${filterMessage}" refused — ${why} (Permissions tab).`, false);
             return false;
         };
         // note who is talking, for the prizes that act on chat. recorded before anything below can return,
@@ -154,8 +156,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // "!mb open" is likewise open to every chatter — they're spending a box they earned — so it goes in
         // ahead of the mod gate too, and for the same reason it gets the ORIGINAL message: the display name
         // is what goes up on the overlay, capitals and all.
-        // a mod held back from the mystery box on the Permissions tab is treated like any other chatter here
-        if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod && (isBroadcaster || modMay(session, "mb"))))
+        // the mod-only actions (give, take, ...) each ask the Permissions tab through may()
+        if (handleMysteryBoxChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""), isMod, may))
             return;
         // "!raygun <name>" — open to everyone too, since the shots are a thing a viewer won
         if (handleRaygunChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || "")))
@@ -214,7 +216,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
             // "!mb ..." in the canonical grammar. only reachable when the configured chat command is
             // something OTHER than "mb" (handleMysteryBoxChat above consumes the configured one, whatever it
             // is) — so this is the escape hatch that keeps the documented command working after a rename.
-            if (!may("mb"))
+            if (!may(mbPermission(parsed.mb.action)))
                 return;
             const res = runMysteryBoxCommand(session, parsed.mb, { login: tags.username, displayName: String(tags["display-name"] || tags.username) });
             emitTerminal(session.userId, `Chat (${tags.username}): ${res.message}`, res.ok);

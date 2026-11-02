@@ -24,6 +24,7 @@ import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
 import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, ACTIVE_WINDOW_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
+import { MB_ACTIONS, mbPermission } from "./chatPermissions";
 import { testTimerEvent } from "./scheduler";
 import { runCommandLine } from "./runCommand";
 import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime, randomChatter } from "./quickRevive";
@@ -1862,7 +1863,9 @@ export function remindUnopened(session: TimerUserSession, login: string, display
 // consumed as mysterybox traffic and the caller should stop processing it.
 // "!mb open" and "!mb count" are open to EVERY chatter — they're spending their own box and asking about
 // their own wallet. the actions that name somebody else (give / take / stop / test) are mod-only.
-export function handleMysteryBoxChat(session: TimerUserSession, login: string, displayName: string, text: string, isMod: boolean): boolean {
+// `may` is the Permissions tab's say on the mod-only actions; it reports its own refusals
+export function handleMysteryBoxChat(session: TimerUserSession, login: string, displayName: string, text: string, isMod: boolean,
+    may: (key: string) => boolean = () => true): boolean {
     const cfg = mbSettings(session);
     const body = String(text || "").trim();
     if (!body.startsWith("!"))
@@ -1917,8 +1920,11 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
     }
     if (!isMod)
         return true; // consumed: a non-mod typing "!mb give" gets silence, not a passthrough to the parser
+    const known = MB_ACTIONS.includes(action) ? action : "count";
+    if (!may(mbPermission(known)))
+        return true; // consumed too: a mod kept off "give" mustn't fall through to the canonical parser
     const res = runMysteryBoxCommand(session, {
-        action: ["give", "take", "stop", "test", "revive"].includes(action) ? action : "count",
+        action: known,
         name: (parts[2] || "").replace(/^@/, ""),
         count: Number(parts[3]) || 1,
     }, self);
