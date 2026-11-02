@@ -126,6 +126,9 @@ export const DEFAULT_MYSTERYBOX = {
     // WHICH giveaways earn one. each entry is matched against the item fourthwall announced; empty means
     // every giveaway does, which is what this did before the list existed.
     firesaleItems: [] as string[],
+    // how many boxes each item put up earns. multiplied by the giveaway's quantity, so six of something at
+    // 2 per item is twelve boxes.
+    firesaleBoxes: 1,
     // gifting subs earns boxes too, one per giftSubsPerBox. counts subs, not tier points, across twitch,
     // youtube and kick alike. "batch" wants that many in ONE gift (a bomb of 50 against 25 earns two);
     // "cumulative" keeps a running tally per gifter (see giftSubProgress), so five gifts of five earn one.
@@ -325,6 +328,7 @@ export function normalizeMysteryBox(raw: any): any {
                 .filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
                 .slice(0, 50)
             : d.firesaleItems,
+        firesaleBoxes: numIn(r.firesaleBoxes, 1, MAX_EXTRA_BOXES, d.firesaleBoxes),
         giftSubsEnabled: r.giftSubsEnabled === undefined ? d.giftSubsEnabled : !!r.giftSubsEnabled,
         giftSubsPerBox: numIn(r.giftSubsPerBox, 1, MAX_GIFT_SUBS_PER_BOX, d.giftSubsPerBox),
         giftSubsMode: GIFT_SUB_MODES.includes(r.giftSubsMode) ? r.giftSubsMode : d.giftSubsMode,

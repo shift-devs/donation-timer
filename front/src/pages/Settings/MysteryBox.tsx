@@ -960,6 +960,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						{!draft.grantOnFiresale && <Badge>OFF</Badge>}
 					</HStack>
 					{draft.grantOnFiresale && (<>
+						<HStack spacing={1} mb={2}>
+							<Text fontSize="sm" color="gray.600">Each item put up earns the gifter</Text>
+							<NumberField width="70px" min={1} max={99} value={draft.firesaleBoxes} onCommit={(n) => patch({ firesaleBoxes: n }, "fsb")} />
+							<Text fontSize="sm" color="gray.600">box{draft.firesaleBoxes === 1 ? "" : "es"}</Text>
+						</HStack>
 						<Text fontSize="xs" color="gray.500" mb={2}>
 							{draft.firesaleItems.length === 0
 								? "Nothing ticked, so every Fourthwall giveaway earns the gifter a box. Tick some to narrow it down."

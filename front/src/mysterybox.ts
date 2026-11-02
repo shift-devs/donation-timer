@@ -10,6 +10,7 @@ export const DEFAULT_MYSTERYBOX = {
 	activeProfile: "",
 	grantOnFiresale: true,
 	firesaleItems: [] as string[],
+	firesaleBoxes: 1,
 	giftSubsEnabled: false,
 	giftSubsPerBox: 25,
 	giftSubsMode: "batch",
@@ -211,6 +212,7 @@ export function canonMysteryBox(raw: any) {
 				.filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
 				.slice(0, 50)
 			: d.firesaleItems,
+		firesaleBoxes: numIn(r.firesaleBoxes, 1, 99, d.firesaleBoxes),
 		giftSubsEnabled: r.giftSubsEnabled === undefined ? d.giftSubsEnabled : !!r.giftSubsEnabled,
 		giftSubsPerBox: numIn(r.giftSubsPerBox, 1, 1000, d.giftSubsPerBox),
 		giftSubsMode: r.giftSubsMode === "cumulative" ? "cumulative" : "batch",

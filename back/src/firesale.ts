@@ -409,15 +409,16 @@ export function startFiresale(session: TimerUserSession, opts: { seconds?: numbe
     // ...and only for the items the operator says are worth one. a giveaway of something cheap shouldn't
     // buy the same spin as a collector's edition.
     const mb = mbSettings(session);
-    // ONE BOX PER ITEM, not per giveaway: six of something announced at once is six items put up, and the
-    // box is payment for putting them up.
-    const boxes = Math.max(1, Math.trunc(Number(opts.qty) || 1));
+    // PER ITEM, not per giveaway: six of something announced at once is six items put up, and the box is
+    // payment for putting them up. each item earns the tab's "boxes per item" (1 unless it's been changed).
+    const items = Math.max(1, Math.trunc(Number(opts.qty) || 1));
+    const boxes = items * Math.max(1, Math.trunc(Number(mb.firesaleBoxes) || 1));
     if (gifter && mb.enabled && mb.grantOnFiresale && earnsBoxFor(session, prize)
         && !alreadyMintedFor(session.userId, `${gifter}\u0000${prize}`))
-        grantMysteryBox(session, gifter, gifter, boxes, `put ${boxes > 1 ? `${boxes}x ` : ""}"${prize || "an item"}" up for firesale`);
+        grantMysteryBox(session, gifter, gifter, boxes, `put ${items > 1 ? `${items}x ` : ""}"${prize || "an item"}" up for firesale`);
     // and on the box leaderboard, if it's one of the boxes
     if (gifter)
-        creditBoardFiresale(session, gifter, prize, boxes);
+        creditBoardFiresale(session, gifter, prize, items);
 
     emitTerminal(session.userId, `FIRESALE started — ${seconds}s to !${cfg.command}${prize ? ` for ${prize}` : ""}${boxes > 1 ? ` (read as ${boxes} items)` : ""}${f.runs.length > 1 ? ` (${f.runs.length} running at once)` : ""}`, true);
     pushFiresale(session);
