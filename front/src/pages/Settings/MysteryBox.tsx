@@ -20,6 +20,7 @@ import {
 	giveMysteryBox,
 	giveRaygun,
 	giveDoubleTime,
+	giveShield,
 	renameMysteryBoxOwner,
 	clearGiftSubProgress,
 	testMysteryBox,
@@ -170,6 +171,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const doublers = Object.keys(dbl)
 		.map((k) => ({ key: k, name: dbl[k].name || k, count: dbl[k].count || 0 }))
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// banked timeout shields, spent on the holder's next timeout from the bot
+	const shieldRows: { [key: string]: any } = settings.shields || {};
+	const shielded = Object.keys(shieldRows)
+		.map((k) => ({ key: k, name: shieldRows[k].name || k, count: shieldRows[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	const shPrize = draft.prizes.find((p: any) => p.effect.kind === "shield" && p.name);
+	const shName = shPrize ? shPrize.name : "Timeout shields";
 	// cumulative gift sub tallies, closest to their next box first
 	const tallies: { [key: string]: any } = settings.giftSubProgress || {};
 	const gifters = Object.keys(tallies)
@@ -320,12 +328,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{revivePhase === "running" && (
 						<Text fontSize="sm" color="gray.600">
 							{revive.kind !== "subpoints" ? <><b>{revive.title}</b> — </> : null}
-							<b>{revive.points}{revive.kind === "infection" || revive.kind === "rollcall" ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null} — {countdown(revive.endsAt - Date.now())} left
+							{revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "vote" && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — {countdown(revive.endsAt - Date.now())} left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
 						<Text fontSize="sm" color="gray.600">
-							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</> : <>chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}</>}
+							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</>
+								: revive.kind === "potato" ? <><b>@{revive.holder}</b> was holding it after <b>{revive.points}</b> passes</>
+								: revive.kind === "cup" ? <><b>@{revive.holder}</b> wins</>
+								: revive.kind === "vote" ? <>voted out: <b>{(revive.board || []).slice(0, revive.topCount || 1).map((v: any) => `@${v.name}`).join(", ") || "nobody"}</b></>
+								: revive.kind === "weenie" ? (revive.saidBy ? <><b>@{revive.saidBy}</b> said it</> : <>nobody said it</>) : <>chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}</>}
 						</Text>
 					)}
 					<Box flex="1" />
@@ -566,6 +578,27 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								<Badge colorScheme="green">{g.count}</Badge>
 								<Button size="xs" variant="ghost" onClick={() => giveDoubleTime(ws, g.key, 1)}>+1</Button>
 								<Button size="xs" variant="ghost" onClick={() => giveDoubleTime(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
+			{shielded.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">{shName}</Text>
+						<Text fontSize="sm" color="gray.600">
+							banked — each one blocks that person's next timeout from the bot
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{shielded.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="blue">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveShield(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveShield(ws, g.key, -1)}>−1</Button>
 							</Flex>
 						))}
 					</VStack>

@@ -477,6 +477,10 @@ const MysteryBox: React.FC = () => {
 		: Math.max(28, Math.min(52, Math.floor((STAGE_W - 150) / (Math.max(4, bombName.length) * 0.55))));
 	// whole seconds, rounded UP so a freeze with any time left never reads as 0
 	const bombSecs = Math.max(0, Math.ceil(bombLeft / 1000));
+	// a keep-it-alive reward: how much longer chat has to hold it, or that they already have
+	const bombGoalMs = bomb ? Number(bomb.goalMs || 0) : 0;
+	const bombGoalLeft = bombGoalMs > 0 ? Math.max(0, Number(bomb.goalFrom || 0) + bombGoalMs - Date.now()) : 0;
+	const bombGoalPaid = !!(bomb && bomb.goalPaid);
 	// how much room the whole banner takes, so the timebomb's can sit under it rather than through it.
 	// a name too long to fit on one line even at the smallest size WRAPS rather than running off the frame,
 	// so the line count is part of the height — otherwise a wordy prize name would push the timebomb's
@@ -531,6 +535,21 @@ const MysteryBox: React.FC = () => {
 	const rollSecs = Math.ceil(rollLeft / 1000);
 	const rollEach = Math.max(0, Number((revive && revive.rewardSeconds) || 0));
 	const rollNameFs = Math.max(48, Math.min(96, Math.floor((STAGE_W - 120) / (Math.max(4, rollCalled.length + 1) * 0.55))));
+	// hot potato / cup and ball: one name holds it, and it's the name chat is watching
+	const reviveHolderGame = !!(revive && (revive.kind === "potato" || revive.kind === "cup"));
+	const reviveHolder = String((revive && revive.holder) || "");
+	const holderFs = Math.max(48, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveHolder.length + 1) * 0.55))));
+	// vote 'em out: the standings, and how many of them go
+	const reviveVote = !!(revive && revive.kind === "vote");
+	const voteBoard: { name: string; votes: number }[] = revive && Array.isArray(revive.board) ? revive.board : [];
+	const voteTop = Math.max(1, Number((revive && revive.topCount) || 1));
+	// weenie hunt: the phrase nobody may say, and who said it if somebody did
+	const reviveWeenie = !!(revive && revive.kind === "weenie");
+	const weeniePhrase = String((revive && revive.phrase) || "");
+	const weenieFs = Math.max(44, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, weeniePhrase.length + 2) * 0.55))));
+	const weenieBy = String((revive && revive.saidBy) || "");
+	// these four can run for minutes, so their clock reads as one once it's over a minute
+	const reviveLongClock = reviveRollCall || ((reviveHolderGame || reviveVote || reviveWeenie) && reviveLeft > 60000);
 	const reviveTitleFs = Math.max(reviveDrop ? 48 : 56, Math.min(reviveDrop ? 90 : 110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
 	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
@@ -538,7 +557,7 @@ const MysteryBox: React.FC = () => {
 	const reviveSubFs = Math.max(30, Math.min(46, Math.floor((STAGE_W - 120) / (Math.max(8, reviveSub.length) * 0.55))));
 	// the clock is smaller when it shares the frame with an instruction line, so the two fit
 	// a roll call shares it with the person being called, and runs minutes rather than seconds
-	const reviveClockFs = reviveDrop ? (reviveArt ? 110 : 130) : revive && revive.kind === "rollcall" ? 100 : reviveSub ? 150 : 200;
+	const reviveClockFs = reviveDrop ? (reviveArt ? 110 : 130) : revive && revive.kind === "rollcall" ? 100 : reviveHolderGame || reviveVote || reviveWeenie ? 110 : reviveSub ? 150 : 200;
 	const reviveResult = revivePhase === "won" ? String(revive.winText || "") : revivePhase === "lost" ? String(revive.failText || "") : "";
 	const reviveResultFs = Math.max(56, Math.min(130, Math.floor((STAGE_W - 120) / (Math.max(4, reviveResult.length) * 0.55))));
 	const reviveResultSound = revivePhase === "won" ? revive.winSound : revivePhase === "lost" ? revive.failSound : "";
@@ -823,6 +842,23 @@ const MysteryBox: React.FC = () => {
 						>
 							{bombSecs}
 						</div>
+						{bombGoalMs > 0 && (
+							<div
+								key={bombGoalPaid ? "paid" : "goal"}
+								style={{
+									color: bombGoalPaid ? "#5bff8a" : cfg.nameColor,
+									fontSize: bombBig ? 36 : 24,
+									letterSpacing: "0.06em",
+									marginTop: bombBig ? 10 : 2,
+									textShadow: outline,
+									animation: bombGoalPaid ? "mb-pop 420ms ease-out both" : undefined,
+								}}
+							>
+								{bombGoalPaid
+									? `SURVIVED! ${String(bomb.goalWhat || "").toUpperCase()}`
+									: `KEEP IT ALIVE ${countdown(bombGoalLeft)} FOR ${String(bomb.goalWhat || "A REWARD").toUpperCase()}`}
+							</div>
+						)}
 					</div>
 				)}
 
@@ -996,7 +1032,7 @@ const MysteryBox: React.FC = () => {
 										: "mb-beat 1000ms ease-in-out infinite",
 								}}
 							>
-								{reviveRollCall ? countdown(reviveLeft) : reviveSecs}
+								{reviveLongClock ? countdown(reviveLeft) : reviveSecs}
 							</div>
 							{/* a scramble's letters take the place of the count — they're what chat is staring at. a secret
 							    phrase puts its hint there, the same way */}
@@ -1035,6 +1071,79 @@ const MysteryBox: React.FC = () => {
 											))}
 										</div>
 									)}
+								</div>
+							) : reviveHolderGame ? (
+								<div key={`hold${revive.holderAt || 0}`} style={{ marginTop: 6, animation: "mb-pop 420ms ease-out both" }}>
+									<div style={{ color: cfg.nameColor, fontSize: 30, letterSpacing: "0.14em", textShadow: outline }}>
+										{revive.kind === "potato" ? "HOLDING THE POTATO" : "IT"}
+									</div>
+									<div
+										style={{
+											color: revive.kind === "potato" ? "#ff8a3d" : cfg.titleColor,
+											fontSize: holderFs,
+											lineHeight: 1.05,
+											WebkitTextStrokeWidth: "4px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+											textShadow: "0 0 40px rgba(255,140,40,0.85), 0 6px 0 rgba(0,0,0,0.55)",
+											animation: revive.kind === "potato" && reviveLeft <= 5000 ? "mb-panic 380ms ease-in-out infinite" : undefined,
+										}}
+									>
+										@{reviveHolder}
+									</div>
+									<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.1em", marginTop: 10, textShadow: outline }}>
+										<span key={`p${revivePts}`} style={{ display: "inline-block", color: cfg.titleColor, animation: "mb-pop 300ms ease-out both" }}>{revivePts}</span>
+										{" "}{reviveUnit}
+										{revive.kind === "potato" && Number(revive.rewardSeconds) > 0 ? ` · +${countdown(revivePts * Number(revive.rewardSeconds) * 1000)}` : ""}
+									</div>
+									{reviveNames.length > 1 && (
+										<div style={{ color: cfg.nameColor, fontSize: 26, lineHeight: 1.2, marginTop: 8, padding: "0 60px", textShadow: outline, opacity: 0.85 }}>
+											{reviveNames.slice(-6, -1).map((n, i) => (
+												<span key={`${n}${i}`} style={{ marginRight: 14 }}>@{n} →</span>
+											))}
+										</div>
+									)}
+								</div>
+							) : reviveVote ? (
+								<div style={{ marginTop: 10, width: 640 }}>
+									{voteBoard.length === 0 ? (
+										<div style={{ color: cfg.nameColor, fontSize: 40, textShadow: outline, opacity: 0.85 }}>NO VOTES YET</div>
+									) : voteBoard.slice(0, 6).map((v, i) => (
+										<div
+											key={v.name}
+											style={{
+												display: "flex",
+												justifyContent: "space-between",
+												fontSize: i < voteTop ? 44 : 32,
+												lineHeight: 1.15,
+												color: i < voteTop ? "#ff4b4b" : cfg.nameColor,
+												textShadow: outline,
+												opacity: i < voteTop ? 1 : 0.8,
+											}}
+										>
+											<span>{i + 1}. @{v.name}</span>
+											<span key={`${v.name}${v.votes}`} style={{ display: "inline-block", animation: "mb-pop 300ms ease-out both" }}>{v.votes}</span>
+										</div>
+									))}
+								</div>
+							) : reviveWeenie ? (
+								<div style={{ marginTop: 10 }}>
+									<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", textShadow: outline }}>DON&apos;T SAY</div>
+									<div
+										style={{
+											color: cfg.titleColor,
+											fontSize: weenieFs,
+											lineHeight: 1.05,
+											padding: "0 40px",
+											WebkitTextStrokeWidth: "4px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+											textShadow: "0 0 40px rgba(255,212,0,0.8), 0 6px 0 rgba(0,0,0,0.55)",
+											animation: "mb-pop 420ms ease-out both",
+										}}
+									>
+										&ldquo;{weeniePhrase.toUpperCase()}&rdquo;
+									</div>
 								</div>
 							) : reviveGuess ? (
 								<div style={{ marginTop: 10 }}>
@@ -1167,12 +1276,25 @@ const MysteryBox: React.FC = () => {
 								</div>
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
-								{reviveGuess
+								{reviveHolderGame
+									? `@${reviveHolder} ${revive.kind === "potato" ? "GOT BURNED" : "WINS"}`
+									: reviveVote
+									? (voteBoard.length ? "VOTED OUT:" : "NOBODY GOT A VOTE")
+									: reviveWeenie
+									? (weenieBy ? `@${weenieBy} SAID "${weeniePhrase.toUpperCase()}"` : `NOBODY SAID "${weeniePhrase.toUpperCase()}"`)
+									: reviveGuess
 									? `IT WAS ${String(revive.answer || "")}`
 									: reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
 									: reviveInfection || reviveRollCall ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
+							{reviveVote && voteBoard.length > 0 && (
+								<div style={{ color: "#ff4b4b", fontSize: voteTop > 4 ? 32 : 42, lineHeight: 1.2, marginTop: 8, padding: "0 50px", textShadow: outline }}>
+									{voteBoard.slice(0, voteTop).map((v) => (
+										<span key={v.name} style={{ display: "inline-block", marginRight: 18 }}>@{v.name} ({v.votes})</span>
+									))}
+								</div>
+							)}
 							{/* a count is everybody's: the names of the run that made it, all of them, wrapping and
 							    shrinking as the list grows */}
 							{reviveCount && revivePhase === "won" && reviveCounters.length > 0 && (

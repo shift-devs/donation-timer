@@ -21,7 +21,7 @@
 import { TimerUserSession, TimerEvent } from "./types";
 import { emitMysteryBox, emitSchizoLine, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
-import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, ACTIVE_WINDOW_MS } from "./chat";
+import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, shieldLedger, ACTIVE_WINDOW_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { MB_ACTIONS, mbPermission } from "./chatPermissions";
@@ -68,7 +68,8 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "weenie"];
+const BOMB_REWARDS = ["time", "boxes"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
 // "now playing" that never clears would be a lie on the tab.
@@ -180,7 +181,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -243,6 +244,15 @@ function normalizeEffect(raw: any): any {
         answerSeconds: numIn(r.answerSeconds, 5, MAX_ANSWER_SEC, 30),
         // chant: the lines have to be back to back — anything else said in between resets the count
         streak: !!r.streak,
+        // chant: count each chatter once a round, so the goal is PEOPLE saying it rather than lines. on unless
+        // switched off — the client asked for this to be how it works, prizes saved before it existed included.
+        unique: r.unique === undefined ? true : !!r.unique,
+        // vote: how many of the most-@'d are timed out
+        topCount: numIn(r.topCount, 1, 50, 3),
+        // timebomb: keep it frozen this long (0 = no reward) and chat earns `bombReward` — `rewardSeconds` on
+        // the timer, or `boxes` for whoever opened it
+        bombGoalSec: numIn(r.bombGoalSec, 0, 24 * 3600, 0),
+        bombReward: BOMB_REWARDS.includes(r.bombReward) ? r.bombReward : "time",
         // chant: the one-shots for making it and for running out of time. `loopSound` is the music under it.
         winSound: str(r.winSound, MAX_PATH),
         winVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.winVolume)) ? Number(r.winVolume) : 1)),
@@ -628,6 +638,14 @@ export function grantDoubleTime(session: TimerUserSession, login: any, displayNa
     return next;
 }
 
+// timeout shields ("PHD Flopper"): won from a box, spent automatically by chat.ts on the next timeout the bot
+// would have given the holder. same wallet again.
+export function grantShield(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    const next = ledgerGrant(shieldLedger(session), login, displayName, n);
+    emitSync(session.userId);
+    return next;
+}
+
 // the last order a double was spent on, per user and holder, so its bonus pieces get doubled too
 const doubledRefs: { [userId: number]: { [login: string]: { ref: string, at: number } } } = {};
 const DOUBLED_REF_MS = 60 * 1000;
@@ -667,6 +685,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
     // charges follow the boxes: it's the same person being corrected to the same login
     ledgerRename(mbRayguns(session), from, to);
     ledgerRename(mbDoubleTime(session), from, to);
+    ledgerRename(shieldLedger(session), from, to);
     ledgerRename(mbGiftProgress(session), from, to);
     emitSync(session.userId);
     return { ok: true, message: `Moved ${moved} box${moved === 1 ? "" : "es"} from ${from} to ${to}.` };
@@ -899,7 +918,8 @@ export function openBlockedBy(session: TimerUserSession): string {
         return "a box is already being opened";
     if (isReviving(session)){
         const qr = session.quickRevive;
-        return qr && qr.spec && qr.spec.dropName ? "a drop is up" : "a quick revive is running";
+        return qr && qr.spec && qr.spec.dropName ? "a drop is up"
+            : qr && qr.spec && qr.spec.kind !== "subpoints" ? `${qr.spec.title} is still going` : "a quick revive is running";
     }
     // a drop that's waiting for the overlay goes first — otherwise a busy chat could keep it waiting forever
     if (Array.isArray(session.dropQueue) && session.dropQueue.length)
@@ -1214,6 +1234,49 @@ function recipient(session: TimerUserSession, ctx?: EffectFor): { login: string,
     return { login: mbState.opener, name: mbState.openerName || mbState.opener, test: !!mbState.isTest };
 }
 
+// a timebomb's reward for keeping it alive: what it pays and who to, fixed now — by the time the goal is
+// reached the next box may be opening, and the boxes belong to whoever opened THIS one.
+function timebombGoal(session: TimerUserSession, prize: any, ctx?: EffectFor): { ms: number, what: string, pay: () => void, miss: (heldMs: number) => void } | undefined {
+    const e = prize.effect || {};
+    if (!(e.bombGoalSec > 0))
+        return undefined;
+    const name = prize.name || "Timebomb";
+    const miss = (heldMs: number) => {
+        const short = Math.max(1, Math.round((e.bombGoalSec * 1000 - heldMs) / 1000));
+        chatSay(session, `${name} went off — ${sayTime(short)} short of the reward!`);
+    };
+    const label = `${ctx ? ctx.label : "mystery box"}: ${name} kept alive`;
+    if (e.bombReward === "boxes"){
+        const r = recipient(session, ctx);
+        const n = e.boxes;
+        const what = `${n} mystery box${n === 1 ? "" : "es"} for ${r.login && !r.test ? `@${r.name || r.login}` : "the opener"}`;
+        return {
+            ms: e.bombGoalSec * 1000,
+            what,
+            miss,
+            pay: () => {
+                if (!r.login || r.test){
+                    emitTerminal(session.userId, `${name} — kept alive ${sayTime(e.bombGoalSec)}; a test spin pays nobody the ${n} box${n === 1 ? "" : "es"}.`);
+                    return;
+                }
+                const held = grantMysteryBox(session, r.login, r.name, n, `${name} kept alive`);
+                chatAnnounce(session, `${name} survived ${sayTime(e.bombGoalSec)}! @${r.name || r.login} gets ${n} mystery box${n === 1 ? "" : "es"} — ${held} in hand.`, "green");
+            },
+        };
+    }
+    if (!(e.rewardSeconds > 0))
+        return undefined;
+    return {
+        ms: e.bombGoalSec * 1000,
+        what: `+${sayTime(e.rewardSeconds)} on the timer`,
+        miss,
+        pay: () => {
+            addToEndTime(session, e.rewardSeconds, label);
+            chatAnnounce(session, `${name} survived ${sayTime(e.bombGoalSec)}! ${sayTime(e.rewardSeconds)} goes on the timer.`, "green");
+        },
+    };
+}
+
 export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectFor){
     const e = prize.effect || {};
     const label = `${ctx ? ctx.label : "mystery box"}: ${prize.name || prize.id}`;
@@ -1232,13 +1295,17 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
     if (e.kind === "timebomb" && e.seconds > 0){
         // the same freeze as pauseTimer, but rolling: every contribution buys chat another e.seconds of it,
         // and it only lets go once they've gone that long without one
-        pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", {
+        const goal = timebombGoal(session, prize, ctx);
+        const goalTaken = pauseTimerFor(session, e.seconds * 1000, prize.name || "Timebomb", {
             rollMs: e.seconds * 1000,
             sound: e.loopSound,
             volume: e.loopVolume,
             color: e.freezeColor,
             pulse: e.freezePulse,
+            goal,
         });
+        if (goal && goalTaken)
+            chatAnnounce(session, `${prize.name || "Timebomb"}! Keep the timer frozen for ${sayTime(goal.ms / 1000)} — every contribution resets the fuse — and chat earns ${goal.what}!`, "blue");
         return;
     }
     if (e.kind === "timeBoost" && e.seconds > 0 && e.factor > 1){
@@ -1280,6 +1347,134 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         chatSay(session, `@${r.name || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
         return;
     }
+    if (e.kind === "shield" && e.charges > 0){
+        // banked like the ray gun's shots: chat.ts spends one on each timeout the bot would have given them
+        const r = recipient(session, ctx);
+        const who = r.login;
+        if (!who || r.test)
+            return;
+        const held = grantShield(session, who, r.name, e.charges);
+        emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} can now block ${held} timeout${held === 1 ? "" : "s"}.`, true);
+        chatSay(session, `@${r.name || who} the next ${held === 1 ? "timeout" : `${held} timeouts`} the bot gives you ${held === 1 ? "is" : "are"} blocked!`);
+        return;
+    }
+    if ((e.kind === "potato" || e.kind === "cup") && e.seconds > 0){
+        // the opener starts holding it — the potato, or being "it". a rehearsal hands it to somebody who has
+        // spoken lately, as the infection's does.
+        const cfg = mbSettings(session);
+        const r = recipient(session, ctx);
+        const real = !!r.login && !r.test;
+        const zero = real ? String(r.login).toLowerCase() : randomChatter(session);
+        const zeroName = real ? (r.name || zero) : (zero ? chatterName(session, zero) : "");
+        const potato = e.kind === "potato";
+        const boxes = e.boxes;
+        const res = startChallenge(session, {
+            kind: e.kind,
+            title: prize.name || (potato ? "HOT POTATO" : "CUP AND BALL"),
+            subtitle: "",
+            unit: potato ? "PASSES" : "STEALS",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: potato ? "" : "WINNER!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: potato ? "BURNED!" : "",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: "",
+            rewardSeconds: potato ? e.rewardSeconds : 0,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: zero,
+            patientZeroName: zeroName,
+            timeoutSeconds: Math.min(MAX_NUKE_SEC, e.timeoutSeconds),
+            label,
+            prizeBoxes: boxes,
+            test: !real,
+        }, true, potato ? undefined : (login: string, name: string) => {
+            // whoever is "it" at the end. a rehearsal must not mint currency for whoever happened to play.
+            if (!real || !login)
+                return;
+            grantMysteryBox(session, login, name, boxes, prize.name || "cup and ball");
+            chatSay(session, `@${name} you have ${boxCount(session, login)} mystery box${boxCount(session, login) === 1 ? "" : "es"} — !${cfg.command} open to open one.`);
+        });
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "vote" && e.seconds > 0 && e.timeoutSeconds > 0){
+        const cfg = mbSettings(session);
+        const res = startChallenge(session, {
+            kind: "vote",
+            title: prize.name || "VOTE 'EM OUT",
+            subtitle: "",
+            unit: "VOTES",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: "",
+            winVolume: 1,
+            winText: "",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "THE VOTES ARE IN!",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: "",
+            rewardSeconds: 0,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: Math.min(MAX_NUKE_SEC, e.timeoutSeconds),
+            label,
+            topCount: e.topCount,
+        }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "weenie" && e.seconds > 0 && e.phrases.length){
+        const cfg = mbSettings(session);
+        const res = startChallenge(session, {
+            kind: "weenie",
+            title: prize.name || "WEENIE HUNT",
+            subtitle: "",
+            unit: "",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: e.rewardSeconds > 0 ? `+${sayTime(e.rewardSeconds).toUpperCase()}` : "NOBODY SAID IT!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "SOMEBODY SAID IT!",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: "",
+            rewardSeconds: e.rewardSeconds,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: 0,
+            label,
+            phrases: e.phrases.slice(),
+        }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
     if (e.kind === "doubleTime"){
         // banked like the ray gun's shots: nothing happens now, their next sub/cheer/donation/order is doubled
         const r = recipient(session, ctx);
@@ -1303,7 +1498,7 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             kind: "chant",
             title: prize.name || "SAY IT!",
             subtitle: "", // built per round from the chant drawn — see quickRevive.ts
-            unit: e.streak ? "IN A ROW" : "TIMES SAID",
+            unit: e.unique ? (e.streak ? "PEOPLE IN A ROW" : "PEOPLE SAID IT") : e.streak ? "IN A ROW" : "TIMES SAID",
             // placeholders: the first round's draw overwrites these before anything is shown
             seconds: first.seconds,
             goal: first.times,
@@ -1320,6 +1515,7 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             phrase: first.phrase,
             rewardSeconds: e.rewardSeconds,
             streak: !!e.streak,
+            unique: e.unique !== false,
             rounds: e.rounds,
             chants: e.chants.map((c: any) => ({ phrase: String(c.phrase), times: c.times, seconds: c.seconds })),
             patientZero: "",
@@ -1558,7 +1754,28 @@ export function describeEffect(effect: any): string {
     if (e.kind === "timebomb")
         return e.seconds > 0
             ? `freezes the timer, and every contribution keeps it frozen another ${mins(e.seconds)}`
+                + (e.bombGoalSec > 0 ? ` — keep it alive ${mins(e.bombGoalSec)} for ${e.bombReward === "boxes" ? `${e.boxes} box${e.boxes === 1 ? "" : "es"}` : `+${mins(e.rewardSeconds)}`}` : "")
             : "freezes nothing (set the seconds)";
+    if (e.kind === "shield")
+        return e.charges > 0 ? `blocks the winner's next ${e.charges} timeout${e.charges === 1 ? "" : "s"} from the bot` : "blocks nothing (set how many)";
+    if (e.kind === "potato")
+        return e.seconds > 0
+            ? `the opener holds a hot potato; @ passes it (+${mins(e.rewardSeconds)} each); holder at ${mins(e.seconds)} is timed out ${mins(e.timeoutSeconds)}`
+            : "passes nothing (set how long it runs)";
+    if (e.kind === "cup")
+        return e.seconds > 0
+            ? `the opener is "it"; @-ing whoever is it steals it; it at ${mins(e.seconds)} wins ${e.boxes} box${e.boxes === 1 ? "" : "es"}`
+            : "plays nothing (set how long it runs)";
+    if (e.kind === "vote")
+        return e.seconds > 0 && e.timeoutSeconds > 0
+            ? `chat @s for ${mins(e.seconds)}; the top ${e.topCount} are timed out ${mins(e.timeoutSeconds)}`
+            : "votes on nothing (set how long it runs and the timeout)";
+    if (e.kind === "weenie"){
+        const phrases: string[] = Array.isArray(e.phrases) ? e.phrases : [];
+        if (!(e.seconds > 0) || !phrases.length)
+            return "hunts nothing (set how long it runs and a phrase)";
+        return `nobody can say ${phrases.map((p) => `"${p}"`).join(" / ")} for ${mins(e.seconds)}${e.rewardSeconds > 0 ? ` — +${mins(e.rewardSeconds)} if nobody does` : ""}`;
+    }
     if (e.kind === "timeBoost")
         return e.seconds > 0 && e.factor > 1
             ? `every contribution is worth x${e.factor} for ${mins(e.seconds)}`
@@ -1580,7 +1797,7 @@ export function describeEffect(effect: any): string {
         if (!chants.length)
             return "asks nothing (add a chant)";
         const list = chants.map((c) => `"${c.phrase}" x${c.times} in ${mins(c.seconds)}`).join(", ");
-        return `${e.rounds > 1 ? `${e.rounds} rounds, each drawn from` : "chat has to say"} ${list}${e.streak ? ", in a row" : ""}${e.rewardSeconds > 0 ? ` — for +${mins(e.rewardSeconds)}` : ""}`;
+        return `${e.rounds > 1 ? `${e.rounds} rounds, each drawn from` : "chat has to say"} ${list}${e.unique !== false ? ", one per person" : ""}${e.streak ? ", in a row" : ""}${e.rewardSeconds > 0 ? ` — for +${mins(e.rewardSeconds)}` : ""}`;
     }
     if (e.kind === "infection")
         return e.seconds > 0 && e.timeoutSeconds > 0
@@ -1742,6 +1959,12 @@ export async function shootRaygun(session: TimerUserSession, shooter: any, shoot
 
     grantRaygun(session, key, who, -1);
     const res = await chatTimeoutOne(session, at, secs, `ray gun — ${who}`);
+    if (res.blocked){
+        // it hit — it just hit a shield. the shot is spent, the same as if it had landed; the block itself
+        // has already been said in chat.
+        emitTerminal(session.userId, `RAYGUN — ${who} shot ${at}, who blocked it; ${raygunCount(session, key)} shot(s) left.`, true);
+        return { ok: true, message: "" };
+    }
     if (!res.ok){
         // it didn't land, so they keep the shot. a charge silently eaten by a typo'd name would be the
         // worst possible outcome for something won from a prize.

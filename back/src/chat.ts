@@ -13,7 +13,8 @@
 // none of the above is visible from the prizes that use it.
 
 import { TimerUserSession } from "./types";
-import { emitTerminal } from "./bus";
+import { emitTerminal, emitSync } from "./bus";
+import { Ledger, ledgerCount, ledgerGrant } from "./ledger";
 import { twitchBotReady, botSay, botAnnounce, botTimeout, resolveUserIds, reportBotError, describeError } from "./platforms/twitchBot";
 
 const MAX_CHATTERS = 2000;       // roster ceiling; the oldest are dropped past it
@@ -52,6 +53,47 @@ export function chatAnnounce(session: TimerUserSession, message: string, color =
     botAnnounce(session, text, color).catch((err) => reportBotError(session, "announcing in chat", err));
 }
 
+// ---------------------------------------------------------------------------
+// timeout shields (the "PHD Flopper" prize)
+// ---------------------------------------------------------------------------
+//
+// a viewer holding a shield shrugs off the next timeout the bot would have given them — a nuke, a ray gun
+// shot, an infection, a hot potato, a vote. it lives HERE, at the one door every timeout goes through, so a
+// game added later is covered without having to know shields exist.
+//
+// only spent when the timeout would really have happened: no bot connected means nothing was going to land,
+// and a mod can't be timed out anyway (twitch refuses), so neither costs a shield.
+
+export function shieldLedger(session: TimerUserSession): Ledger {
+    return session.shields || (session.shields = {});
+}
+
+// what chat calls it — the prize's own name, so the line in chat matches the word on the reel
+function shieldName(session: TimerUserSession): string {
+    const mb = session.mysteryBoxSettings;
+    const prizes: any[] = mb && Array.isArray(mb.prizes) ? mb.prizes : [];
+    const p = prizes.find((x: any) => x && x.effect && x.effect.kind === "shield" && x.name);
+    return p ? p.name : "timeout shield";
+}
+
+// spend one of their shields if they have one. true = the timeout is blocked; the block is said in chat.
+function spendShield(session: TimerUserSession, login: string): boolean {
+    const held = shieldLedger(session);
+    if (ledgerCount(held, login) < 1)
+        return false;
+    const roster = chatters(session)[login];
+    if (roster && roster.mod)
+        return false; // twitch was going to refuse it anyway — don't burn their shield on nothing
+    const row = held[login];
+    const name = (row && row.name) || (roster && roster.name) || login;
+    const left = ledgerGrant(held, login, row && row.name, -1);
+    emitSync(session.userId);
+    const what = shieldName(session);
+    emitTerminal(session.userId, `SHIELD — ${name}'s ${what} blocked a timeout${left ? ` (${left} left)` : ""}.`, true);
+    chatSay(session, `${what}! @${name} shrugged off the timeout.${left ? ` ${left} more block${left === 1 ? "" : "s"} left.` : " That was their last one."}`);
+    return true;
+}
+
 // time a batch of people out. taken as a batch rather than one at a time because helix works in user IDS,
 // not logins — resolving them is one request for up to a hundred people, against one per person.
 // returns what was attempted; the caller does the reporting, since one terminal line per person during a
@@ -65,6 +107,8 @@ export async function chatTimeoutMany(session: TimerUserSession, logins: string[
     try {
         const ids = await resolveUserIds(session, clean);
         for (const login of clean){
+            if (ids[login] && spendShield(session, login))
+                continue;
             const id = ids[login];
             if (!id)
                 continue; // renamed, deleted, or never existed — drop them rather than fail the batch
@@ -87,7 +131,8 @@ export async function chatTimeoutMany(session: TimerUserSession, logins: string[
 // one person, with a reason when it doesn't work. the batch version above swallows refusals because a nuke
 // has thirty of them and nobody wants thirty lines; a ray gun shot is a single deliberate act by a viewer
 // who spent something on it, so it owes them an answer — and lets the caller hand the charge back.
-export async function chatTimeoutOne(session: TimerUserSession, login: string, seconds: number, reason: string): Promise<{ ok: boolean, message: string }> {
+// `blocked` = it would have landed, but they spent a shield on it.
+export async function chatTimeoutOne(session: TimerUserSession, login: string, seconds: number, reason: string): Promise<{ ok: boolean, message: string, blocked?: boolean }> {
     const who = String(login || "").replace(/^@/, "").trim().toLowerCase();
     const secs = Math.min(MAX_TIMEOUT_SEC, Math.max(1, Math.trunc(seconds)));
     if (!who)
@@ -98,6 +143,8 @@ export async function chatTimeoutOne(session: TimerUserSession, login: string, s
         const ids = await resolveUserIds(session, [who]);
         if (!ids[who])
             return { ok: false, message: `there's nobody on Twitch called ${who}` };
+        if (spendShield(session, who))
+            return { ok: false, message: `${who} blocked it`, blocked: true };
         await botTimeout(session, ids[who], secs, reason);
         return { ok: true, message: "" };
     } catch (err: any) {

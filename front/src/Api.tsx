@@ -198,6 +198,10 @@ export function giveRaygun(ws: WebSocket, name: string, count: number) {
 	return 1;
 }
 
+export function giveShield(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveShield", name: name, count: count });
+}
+
 export function giveDoubleTime(ws: WebSocket, name: string, count: number) {
 	send(ws, { event: "giveDoubleTime", name: name, count: count });
 	return 1;

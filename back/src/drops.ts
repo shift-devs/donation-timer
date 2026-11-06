@@ -58,7 +58,7 @@ const PUMP_MS = 2000;
 
 // the rewards that ARE a minigame of their own. a drop is already a challenge, and the source runs one at a
 // time, so one of these as the prize would be turned away the moment it was won.
-const NOT_A_DROP = ["chant", "infection", "rollcall"];
+const NOT_A_DROP = ["chant", "infection", "rollcall", "potato", "cup", "vote", "weenie"];
 
 export const GAME_KINDS = ["chant", "count", "subpoints", "scramble", "secret", "guess"];
 

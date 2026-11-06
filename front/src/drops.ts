@@ -5,7 +5,7 @@
 import { canonPrize, DEFAULT_PRIZE, EFFECT_KINDS } from "./mysterybox";
 
 // the rewards that are a minigame of their own, which a drop — already a minigame — can't pay out
-export const NOT_A_DROP = ["chant", "infection", "rollcall"];
+export const NOT_A_DROP = ["chant", "infection", "rollcall", "potato", "cup", "vote", "weenie"];
 export const REWARD_KINDS = EFFECT_KINDS.filter((k) => !NOT_A_DROP.includes(k.key));
 
 export const GAME_KINDS: { key: string; label: string; hint: string }[] = [

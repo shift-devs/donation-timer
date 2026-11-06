@@ -74,6 +74,9 @@ const PAUSE_TICK = 250;  // ms; small enough that the drag is invisible in the d
 // the one that started it: a logout and a fresh login replace the session object entirely, and a tick still
 // pushing the old one's deadline forward would be holding a timer nobody can see.
 const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, expected: number } } = {};
+// a timebomb's reward for being kept alive, per user: paid once, the first tick the freeze has lasted goalMs.
+// held off the session for the usual reason — a closure is not state anyone should serialize or sync.
+const bombGoals: { [userId: number]: { pay: () => void, miss?: (heldMs: number) => void } } = {};
 
 // freeze the countdown for `ms`. pausing something already paused EXTENDS it to whichever end is later,
 // rather than restarting it — two prizes landing close together shouldn't cut the first one short.
@@ -82,18 +85,21 @@ const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, 
 // can keep it alive by chaining subs and donations and it only lapses once they stop for that long. it's the
 // same freeze underneath — the only difference is that something else moves the deadline (see
 // refreshTimebomb, called from events.ts).
+// returns whether `opts.goal` was taken on — false when the timer wasn't running, or when the freeze it landed
+// on already carries a goal of its own (that one is kept).
 export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string,
-    opts: { rollMs?: number, sound?: string, volume?: number, color?: string, pulse?: boolean } = {}){
+    opts: { rollMs?: number, sound?: string, volume?: number, color?: string, pulse?: boolean,
+        goal?: { ms: number, what: string, pay: () => void, miss?: (heldMs: number) => void } } = {}): boolean {
     const rollMs = opts.rollMs || 0;
     const now = Date.now();
     const duration = Math.max(0, Math.trunc(ms));
     if (!duration)
-        return;
+        return false;
     // a timer that isn't running has nothing to hold still, and dragging its deadline forward would quietly
     // un-expire it (or revive one that stopped at zero)
     if (session.endTime <= now){
         emitTerminal(session.userId, `Timer isn't running — nothing to pause (${reason}).`);
-        return;
+        return false;
     }
     const cur = session.timerPause;
     // extending an existing pause keeps the remaining time it's already holding — re-reading it here would
@@ -118,7 +124,16 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
         color: cur && cur.color ? cur.color : (HEX_COLOR.test(String(opts.color || "").trim()) ? String(opts.color).trim() : ""),
         // whether the digits beat between their normal colour and that one, rather than just turning it
         pulse: cur && cur.color ? cur.pulse : !!opts.pulse,
+        // a timebomb's keep-it-alive reward. the one already running keeps its own; a bomb landing on a freeze
+        // with no goal brings one, counted from now rather than from when the freeze began.
+        goalMs: cur && cur.goalMs ? cur.goalMs : (opts.goal ? Math.max(0, Math.trunc(opts.goal.ms)) : 0),
+        goalFrom: cur && cur.goalMs ? cur.goalFrom : now,
+        goalWhat: cur && cur.goalMs ? cur.goalWhat : (opts.goal ? String(opts.goal.what || "") : ""),
+        goalPaid: cur && cur.goalMs ? cur.goalPaid : false,
     };
+    const goalTaken = !!(opts.goal && !(cur && cur.goalMs) && session.timerPause.goalMs);
+    if (goalTaken && opts.goal)
+        bombGoals[session.userId] = { pay: opts.goal.pay, miss: opts.goal.miss };
     const slot = pauseTicks[session.userId];
     if (slot){
         slot.session = session;
@@ -147,6 +162,22 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
                     // either — the remaining time is being held where it was, not grown.
                     live.endTime = t + p.remainingMs;
                     cell.expected = live.endTime;
+                    // kept alive long enough: pay the reward, once. any time it adds lands on endTime and is
+                    // folded into the held total on the next tick, like any other contribution during a freeze.
+                    if (p.goalMs && !p.goalPaid && t - p.goalFrom >= p.goalMs){
+                        p.goalPaid = true;
+                        const goal = bombGoals[live.userId];
+                        delete bombGoals[live.userId];
+                        emitTerminal(live.userId, `${p.reason} — kept alive ${Math.round(p.goalMs / 1000)}s: ${p.goalWhat || "reward"} paid.`, true);
+                        emitSync(live.userId);
+                        if (goal){
+                            try {
+                                goal.pay();
+                            } catch (err) {
+                                reportError(live.userId, "paying a timebomb's reward", err);
+                            }
+                        }
+                    }
                 } catch (err) {
                     reportError(cell.session.userId, "holding the timer paused", err);
                     resumeTimer(cell.session);
@@ -158,6 +189,7 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
         ? `${reason} — the timer is frozen, and every contribution buys another ${Math.round(session.timerPause.rollMs / 1000)}s of it.`
         : `Timer paused for ${Math.round(duration / 1000)}s — ${reason}.`, true);
     emitSync(session.userId);
+    return goalTaken;
 }
 
 // a contribution landed while a timebomb is running: push the freeze back out to its full length. this is
@@ -177,6 +209,21 @@ export function refreshTimebomb(session: TimerUserSession){
 
 export function resumeTimer(session: TimerUserSession){
     const wasPaused = !!session.timerPause;
+    const p = session.timerPause;
+    const goal = bombGoals[session.userId];
+    delete bombGoals[session.userId];
+    // went off short of its goal: say how close they got
+    if (p && p.goalMs && !p.goalPaid && !session.loggedOut){
+        const held = Math.max(0, Date.now() - p.goalFrom);
+        emitTerminal(session.userId, `${p.reason} — went off after ${Math.round(held / 1000)}s, short of the ${Math.round(p.goalMs / 1000)}s goal.`);
+        if (goal && goal.miss){
+            try {
+                goal.miss(held);
+            } catch (err) {
+                reportError(session.userId, "reporting a timebomb that went off", err);
+            }
+        }
+    }
     endPauseTimer(session.userId);
     session.timerPause = undefined;
     if (wasPaused){
@@ -216,11 +263,17 @@ export function timerPauseView(session: TimerUserSession): any {
         // what the timer's digits turn while it's held; blank leaves them as they were
         color: p.color || "",
         pulse: !!p.pulse,
+        // a timebomb's keep-it-alive goal: how long, since when, what it pays, and whether it already has
+        goalMs: p.goalMs || 0,
+        goalFrom: p.goalFrom || 0,
+        goalWhat: p.goalWhat || "",
+        goalPaid: !!p.goalPaid,
     };
 }
 
 // tear down on logout so the tick can't keep dragging a detached session's deadline forward
 export function endPauseTimer(userId: number){
+    delete bombGoals[userId];
     const slot = pauseTicks[userId];
     if (slot)
         clearInterval(slot.handle);

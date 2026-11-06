@@ -132,6 +132,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // unspent timeout shields, same shape as the box ledger (see migration add-shields)
+    shields: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // gift subs counted toward a box in cumulative mode (see migration add-gift-sub-progress)
     giftSubProgress: {
         type: DataTypes.JSONB,
@@ -283,6 +289,7 @@ export async function dbCreate(inObj: Object){
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
         doubleTime: lvObj.doubleTime,
+        shields: lvObj.shields,
         giftSubProgress: lvObj.giftSubProgress,
         dropSettings: lvObj.dropSettings,
         dropState: lvObj.dropState,
@@ -336,6 +343,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,
                 doubleTime: curSession.doubleTime,
+                shields: curSession.shields,
                 giftSubProgress: curSession.giftSubProgress,
                 dropSettings: curSession.dropSettings,
                 dropState: curSession.dropState,

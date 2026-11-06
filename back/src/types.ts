@@ -79,6 +79,8 @@ export interface TimerUserSession {
     rayguns: any
     // unspent double time prizes, same shape again: each one doubles the holder's next contribution
     doubleTime: any
+    // unspent timeout shields ("PHD Flopper"), same shape again: each one blocks one timeout from the bot
+    shields: any
     // cumulative gift sub tallies toward the next box, same shape again. persisted: it's half-earned
     giftSubProgress: any
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like
@@ -118,7 +120,7 @@ export interface TimerUserSession {
     // time being held — that one is authoritative, and endTime is re-derived from it by the tick in timer.ts.
     // `rollMs` marks a ROLLING pause (the timebomb): every contribution pushes `until` back out to this far
     // ahead, so the freeze lasts as long as chat keeps feeding it. 0/absent = a plain pause that just expires.
-    timerPause?: { until: number, reason: string, remainingMs: number, rollMs: number, startedAt: number, sound: string, volume: number, color: string, pulse: boolean }
+    timerPause?: { until: number, reason: string, remainingMs: number, rollMs: number, startedAt: number, sound: string, volume: number, color: string, pulse: boolean, goalMs: number, goalFrom: number, goalWhat: string, goalPaid: boolean }
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any

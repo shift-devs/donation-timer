@@ -35,6 +35,16 @@
 // reward on the end, and the reward is paid through the onWin hook startChallenge takes — this file never has
 // to know what a drop is worth.
 //
+// FOUR MORE PRIZES are played by @-ing people, like the infection:
+//   HOT POTATO — the opener holds it, and the holder passes it on by @-ing somebody. every pass puts so many
+//     seconds on the donation timer; whoever is holding it when the clock runs out is timed out.
+//   CUP AND BALL — the opener is "it". @-ing whoever is it STEALS it: the pinger becomes it. whoever is it
+//     when the clock runs out wins so many boxes (paid through the onWin hook, like a drop's reward).
+//   VOTE 'EM OUT — chat @s people for the length of the clock; the most-@'d (by how many different people
+//     @'d them) are timed out at the end.
+//   WEENIE HUNT — a phrase goes up on screen; if NOBODY says it before the clock runs out, chat gets the
+//     time. the first person to say it loses it for everybody.
+//
 // ROLL CALL is a prize: for so many minutes the bot calls on one chatter at a time (anyone who has spoken in
 // the last ten minutes), and that person has so many seconds to say the phrase. answer or not, the next one is
 // called. when the clock runs out, every answer is worth so many seconds on the timer. nobody is called twice
@@ -139,7 +149,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall" | "potato" | "cup" | "vote" | "weenie"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -198,6 +208,14 @@ export interface ChallengeSpec {
     // person called gets to say it. `rewardSeconds` is what ONE answer is worth.
     phrases?: string[]
     answerSeconds?: number
+    // chant only: count PEOPLE rather than lines — each chatter counts once per round however often they say it
+    unique?: boolean
+    // vote only: how many of the most-@'d are timed out
+    topCount?: number
+    // cup only: how many boxes whoever is "it" at the end wins
+    prizeBoxes?: number
+    // a rehearsal from the dashboard: plays for real, but credits nobody with currency
+    test?: boolean
 }
 
 // one thing chat can be asked to say: the phrase, how many lines have to say it, and how long they get
@@ -218,7 +236,7 @@ function slots(userId: number){
 
 export function getQuickRevive(session: TimerUserSession): any {
     if (!session.quickRevive || typeof session.quickRevive !== "object")
-        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "", counters: [], called: "", calledName: "", callEndsAt: 0, callAt: 0, turns: {}, low: 0, high: 0, lastGuess: null, lastGuessBy: "", guessAt: 0, guesses: 0 };
+        session.quickRevive = { nonce: 0, phase: "idle", startedAt: 0, endsAt: 0, goal: 0, points: 0, resultAt: 0, resetAt: 0, round: 0, roundAt: 0, lastChant: -1, spec: null, infected: {}, names: [], pendingNames: [], next: 0, lastBy: "", lastByName: "", lastCounter: "", counters: [], called: "", calledName: "", callEndsAt: 0, callAt: 0, turns: {}, low: 0, high: 0, lastGuess: null, lastGuessBy: "", guessAt: 0, guesses: 0, holder: "", holderName: "", holderAt: 0, passedBy: "", votes: {}, sayers: {} };
     return session.quickRevive;
 }
 
@@ -269,7 +287,9 @@ export function sayTime(seconds: number): string {
 
 // the instruction line for a chant round, rebuilt each time because the round changes what it says
 function chantSubtitle(spec: ChallengeSpec): string {
-    return `SAY "${String(spec.phrase).toUpperCase()}" ${spec.goal} TIME${spec.goal === 1 ? "" : "S"}${spec.streak ? " IN A ROW" : ""}`
+    return (spec.unique
+        ? `${spec.goal} ${spec.goal === 1 ? "PERSON" : "PEOPLE"} SAY "${String(spec.phrase).toUpperCase()}"${spec.streak ? " IN A ROW" : ""}`
+        : `SAY "${String(spec.phrase).toUpperCase()}" ${spec.goal} TIME${spec.goal === 1 ? "" : "S"}${spec.streak ? " IN A ROW" : ""}`)
         + (spec.rewardSeconds > 0 && spec.rounds <= 1 ? ` FOR +${sayTime(spec.rewardSeconds).toUpperCase()}` : "");
 }
 
@@ -287,6 +307,14 @@ function subtitleFor(spec: ChallengeSpec): string {
         return `GUESS THE NUMBER FROM ${spec.guessLow} TO ${spec.guessHigh}!`;
     if (spec.kind === "rollcall")
         return `ANSWER WHEN YOU'RE CALLED — +${sayTime(spec.rewardSeconds).toUpperCase()} EACH`;
+    if (spec.kind === "potato")
+        return `@ SOMEONE TO PASS IT${spec.rewardSeconds > 0 ? ` — +${sayTime(spec.rewardSeconds).toUpperCase()} PER PASS` : ""}`;
+    if (spec.kind === "cup")
+        return `@ WHOEVER IS IT TO STEAL IT — ${spec.prizeBoxes} BOX${spec.prizeBoxes === 1 ? "" : "ES"} AT THE END`;
+    if (spec.kind === "vote")
+        return `@ SOMEONE TO VOTE — THE TOP ${spec.topCount} GET TIMED OUT`;
+    if (spec.kind === "weenie")
+        return `NOBODY SAY IT${spec.rewardSeconds > 0 ? ` FOR +${sayTime(spec.rewardSeconds).toUpperCase()}` : ""}`;
     return spec.subtitle;
 }
 
@@ -341,8 +369,16 @@ export function quickReviveView(session: TimerUserSession): any {
         called: spec.kind === "rollcall" ? qr.calledName || qr.called || "" : "",
         callAt: spec.kind === "rollcall" ? qr.callAt || 0 : 0,
         callEndsAt: spec.kind === "rollcall" ? qr.callEndsAt || 0 : 0,
-        phrase: spec.kind === "rollcall" ? spec.phrase : "",
-        rewardSeconds: spec.kind === "rollcall" ? spec.rewardSeconds : 0,
+        phrase: spec.kind === "rollcall" || spec.kind === "weenie" ? spec.phrase : "",
+        rewardSeconds: spec.kind === "rollcall" || spec.kind === "potato" ? spec.rewardSeconds : 0,
+        // hot potato / cup and ball: who has it now, and when they got it (the source pops the name on that)
+        holder: spec.kind === "potato" || spec.kind === "cup" ? qr.holderName || qr.holder || "" : "",
+        holderAt: spec.kind === "potato" || spec.kind === "cup" ? qr.holderAt || 0 : 0,
+        // vote: the standings, most votes first, and how many of them go
+        board: spec.kind === "vote" ? voteBoard(qr).slice(0, 10).map((v) => ({ name: v.name, votes: v.votes })) : [],
+        topCount: spec.kind === "vote" ? spec.topCount || 1 : 0,
+        // weenie hunt: whoever said it (when somebody did)
+        saidBy: spec.kind === "weenie" && qr.phase === "lost" ? qr.lastByName || qr.lastBy || "" : "",
         image: spec.image || "",
         kicker: spec.kicker || "",
         startSound: spec.startSound || "",
@@ -389,6 +425,10 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         return { ok: false, message: "That number guess has no number to guess." };
     if (spec.kind === "rollcall" && !(spec.phrases && spec.phrases.length))
         return { ok: false, message: "That roll call has no phrase to answer with — give it one." };
+    if ((spec.kind === "potato" || spec.kind === "cup") && !spec.patientZero)
+        return { ok: false, message: "Nobody to start it — nobody has said anything in chat lately." };
+    if (spec.kind === "weenie" && !(spec.phrases && spec.phrases.length))
+        return { ok: false, message: "That weenie hunt has no phrase — give it one." };
     const qr = getQuickRevive(session);
     const now = Date.now();
     qr.nonce = (qr.nonce || 0) + 1;
@@ -422,6 +462,12 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.lastGuessBy = "";
     qr.guessAt = 0;
     qr.guesses = 0;
+    qr.holder = "";
+    qr.holderName = "";
+    qr.holderAt = 0;
+    qr.passedBy = "";
+    qr.votes = {};
+    qr.sayers = {};
     const t = slots(session.userId);
     clearTimeout(t.done);
     clearTimeout(t.spread);
@@ -442,6 +488,46 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
         pushQuickRevive(session);
         return { ok: true, message: `${spec.title} started — ${spec.patientZeroName || spec.patientZero} is patient zero, ${spec.seconds}s to spread.` };
     }
+    if (spec.kind === "potato" || spec.kind === "cup"){
+        qr.goal = 0;
+        qr.holder = spec.patientZero;
+        qr.holderName = spec.patientZeroName || spec.patientZero;
+        qr.holderAt = now;
+        qr.names = [qr.holderName];
+        armClock(session, spec.seconds);
+        const who = qr.holderName;
+        if (spec.kind === "potato"){
+            emitTerminal(session.userId, `${spec.title} — ${who} has it. ${spec.seconds}s on the clock; +${spec.rewardSeconds}s per pass; whoever holds it at the end is timed out for ${sayTime(spec.timeoutSeconds)}.`, true);
+            if (spec.announce)
+                chatAnnounce(session, `${spec.title}! @${who} is holding it — @ somebody to pass it on.${spec.rewardSeconds > 0 ? ` Every pass puts ${sayTime(spec.rewardSeconds)} on the timer.` : ""} Whoever's holding it when the ${spec.seconds} seconds run out gets timed out for ${sayTime(spec.timeoutSeconds)}!`, "orange");
+        } else {
+            emitTerminal(session.userId, `${spec.title} — ${who} is it. ${spec.seconds}s on the clock; whoever is it at the end wins ${spec.prizeBoxes} box${spec.prizeBoxes === 1 ? "" : "es"}${spec.test ? " (test: nobody is paid)" : ""}.`, true);
+            if (spec.announce)
+                chatAnnounce(session, `${spec.title}! @${who} is IT. @ whoever is it to steal it — whoever is it when the ${spec.seconds} seconds run out wins ${spec.prizeBoxes} mystery box${spec.prizeBoxes === 1 ? "" : "es"}!`, "purple");
+        }
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — ${who} ${spec.kind === "potato" ? "has it" : "is it"}, ${spec.seconds}s.` };
+    }
+    if (spec.kind === "vote"){
+        qr.goal = 0;
+        armClock(session, spec.seconds);
+        emitTerminal(session.userId, `${spec.title} — ${spec.seconds}s of voting; the top ${spec.topCount} are timed out for ${sayTime(spec.timeoutSeconds)}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! For the next ${spec.seconds} seconds, @ who you want gone. The ${spec.topCount === 1 ? "most-voted person gets" : `top ${spec.topCount} get`} timed out for ${sayTime(spec.timeoutSeconds)}! One vote per person per name.`, "orange");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — ${spec.seconds}s, top ${spec.topCount} go.` };
+    }
+    if (spec.kind === "weenie"){
+        const pool = spec.phrases || [];
+        spec.phrase = pool[Math.floor(Math.random() * pool.length)] || "";
+        qr.goal = 0;
+        armClock(session, spec.seconds);
+        emitTerminal(session.userId, `${spec.title} — nobody can say "${spec.phrase}" for ${spec.seconds}s${spec.rewardSeconds > 0 ? `, for +${sayTime(spec.rewardSeconds)}` : ""}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! Nobody say "${spec.phrase}" for the next ${spec.seconds} seconds${spec.rewardSeconds > 0 ? ` and ${sayTime(spec.rewardSeconds)} goes on the timer` : ""}. One slip and it's gone for everyone!`, "blue");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — don't say "${spec.phrase}" for ${spec.seconds}s.` };
+    }
     if (spec.kind === "rollcall"){
         qr.goal = 0;
         armClock(session, spec.seconds);
@@ -454,7 +540,7 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     if (spec.kind === "chant"){
         dealChant(session, qr, spec);
         const rounds = spec.rounds > 1 ? ` (${spec.rounds} rounds)` : "";
-        emitTerminal(session.userId, `${spec.title}${rounds} — round 1: chat has ${spec.seconds}s to say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"}${spec.rewardSeconds > 0 ? `; clear ${spec.rounds > 1 ? "them all" : "it"} for +${sayTime(spec.rewardSeconds)}` : ""}.`, true);
+        emitTerminal(session.userId, `${spec.title}${rounds} — round 1: chat has ${spec.seconds}s to say "${spec.phrase}" ${spec.goal} ${spec.unique ? "different people" : `time${spec.goal === 1 ? "" : "s"}`}${spec.rewardSeconds > 0 ? `; clear ${spec.rounds > 1 ? "them all" : "it"} for +${sayTime(spec.rewardSeconds)}` : ""}.`, true);
         if (spec.announce)
             chatAnnounce(session, `${spec.title}!${spec.rounds > 1 ? ` ${spec.rounds} rounds —` : ""} ${roundWords(spec)}${spec.rewardSeconds > 0 ? ` Clear ${spec.rounds > 1 ? "every round" : "it"} and ${sayTime(spec.rewardSeconds)} goes on the timer.` : ""} Go!`, "blue");
         return { ok: true, message: `${spec.title} started — ${spec.rounds} round${spec.rounds === 1 ? "" : "s"}, first up "${spec.phrase}" x${spec.goal} in ${spec.seconds}s.` };
@@ -477,6 +563,8 @@ export function randomChatter(session: TimerUserSession): string {
 
 // the instruction for the current round, as chat is told it
 function roundWords(spec: ChallengeSpec): string {
+    if (spec.unique)
+        return `Get ${spec.goal} different ${spec.goal === 1 ? "person" : "people"} to say "${spec.phrase}"${spec.streak ? " in a row (anything else resets it)" : ""} within ${spec.seconds} seconds — each person only counts once.`;
     return `Say "${spec.phrase}" ${spec.goal} time${spec.goal === 1 ? "" : "s"}${spec.streak ? " in a row (anything else resets it)" : ""} within ${spec.seconds} seconds.`;
 }
 
@@ -549,6 +637,7 @@ function dealChant(session: TimerUserSession, qr: any, spec: ChallengeSpec){
     qr.goal = c.times;
     qr.points = 0;
     qr.resetAt = 0;
+    qr.sayers = {};
     qr.endsAt = Date.now() + c.seconds * 1000;
     armClock(session, c.seconds);
     pushQuickRevive(session);
@@ -610,11 +699,20 @@ export function creditChant(session: TimerUserSession, text: string, login = "",
         return;
     const said = String(text || "").toLowerCase().replace(/\s+/g, " ");
     if (said.includes(want)){
+        // with `unique` on, each chatter counts once a round — so "20 people said it", not one person
+        // pasting it twenty times. a repeat is neither a count nor a break in the streak: they DID say it.
+        if (spec.unique){
+            const who = String(login || "").toLowerCase();
+            if (!who || qr.sayers[who])
+                return;
+            qr.sayers[who] = 1;
+        }
         credit(session, qr, 1, login, displayName);
         return;
     }
     if (spec.streak && qr.points > 0 && Date.now() < qr.endsAt){
         qr.points = 0;
+        qr.sayers = {};
         qr.resetAt = Date.now();
         pushQuickRevive(session);
     }
@@ -863,6 +961,260 @@ export function spreadInfection(session: TimerUserSession, login: string, text: 
     }
 }
 
+// ---------------------------------------------------------------------------
+// hot potato, cup and ball, vote 'em out, weenie hunt
+// ---------------------------------------------------------------------------
+
+// the @names in a line, as typed (so chat sees "@Bob" said back as "@Bob") and as the login underneath
+function mentionsIn(text: string): { key: string, typed: string }[] {
+    const out: { key: string, typed: string }[] = [];
+    let m: RegExpExecArray | null;
+    MENTION.lastIndex = 0;
+    while ((m = MENTION.exec(String(text || ""))))
+        out.push({ key: m[1].toLowerCase(), typed: m[1] });
+    return out;
+}
+
+// who can't be handed a potato or voted out: the broadcaster and mods (twitch won't time them out, so they'd
+// be a safe place to dump it) and the bot itself
+function untouchable(session: TimerUserSession, key: string): boolean {
+    const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
+    const roster = chatters(session);
+    return key === channel || !!(roster[key] && roster[key].mod) || isBot(session, key);
+}
+
+// the standings, most different voters first; a tie goes to whoever got there first
+function voteBoard(qr: any): { key: string, name: string, votes: number, at: number }[] {
+    const votes = qr.votes || {};
+    return Object.keys(votes)
+        .map((k) => ({ key: k, name: votes[k].name || k, votes: Object.keys(votes[k].voters || {}).length, at: votes[k].at || 0 }))
+        .filter((v) => v.votes > 0)
+        .sort((a, b) => b.votes - a.votes || a.at - b.at);
+}
+
+// one chat line for a burst of hand-offs, a couple of seconds after the last — a potato flying round chat
+// would otherwise have the bot saying a line per pass, past its own rate limit
+function sayHolderSoon(session: TimerUserSession){
+    const t = slots(session.userId);
+    if (t.spread)
+        return;
+    t.spread = setTimeout(() => {
+        t.spread = undefined;
+        const qr = getQuickRevive(session);
+        if (qr.phase !== "running" || !qr.spec || !qr.holder)
+            return;
+        const left = Math.max(0, Math.ceil((qr.endsAt - Date.now()) / 1000));
+        chatSay(session, qr.spec.kind === "potato"
+            ? `@${qr.holderName} has the potato! @ someone to pass it — ${left}s left.`
+            : `@${qr.holderName} is IT! @${qr.holderName} to steal it — ${left}s left.`);
+    }, 2000);
+}
+
+// a chat line during one of the @ games
+export function creditPing(session: TimerUserSession, login: string, displayName: string, text: string){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec)
+        return;
+    const spec: ChallengeSpec = qr.spec;
+    if (spec.kind !== "potato" && spec.kind !== "cup" && spec.kind !== "vote")
+        return;
+    const now = Date.now();
+    if (now >= qr.endsAt)
+        return;
+    const from = String(login || "").toLowerCase();
+    if (!from || isBot(session, from))
+        return;
+    const pings = mentionsIn(text);
+    if (!pings.length)
+        return;
+    if (spec.kind === "potato"){
+        // only the holder can pass it, to the first somebody in the line who can take it — not themselves, not
+        // straight back to whoever just gave it to them (two people batting it back and forth would farm the
+        // timer), and not a mod
+        if (from !== qr.holder)
+            return;
+        const to = pings.find((p) => p.key !== from && p.key !== qr.passedBy && !untouchable(session, p.key));
+        if (!to)
+            return;
+        qr.passedBy = from;
+        qr.holder = to.key;
+        qr.holderName = chatterName(session, to.key) !== to.key ? chatterName(session, to.key) : to.typed;
+        qr.holderAt = now;
+        qr.points += 1;
+        qr.names.push(qr.holderName);
+        if (qr.names.length > 50)
+            qr.names.splice(0, qr.names.length - 50);
+        pushQuickRevive(session);
+        if (spec.rewardSeconds > 0){
+            try {
+                addToEndTime(session, spec.rewardSeconds, spec.label);
+            } catch (err) {
+                reportError(session.userId, "paying a hot potato pass", err);
+            }
+        }
+        sayHolderSoon(session);
+        return;
+    }
+    if (spec.kind === "cup"){
+        // @-ing whoever is it steals it. being it already, there's nothing to steal.
+        if (from === qr.holder || !pings.some((p) => p.key === qr.holder))
+            return;
+        qr.passedBy = qr.holder;
+        qr.holder = from;
+        qr.holderName = String(displayName || login);
+        qr.holderAt = now;
+        qr.points += 1;
+        qr.names.push(qr.holderName);
+        if (qr.names.length > 50)
+            qr.names.splice(0, qr.names.length - 50);
+        pushQuickRevive(session);
+        sayHolderSoon(session);
+        return;
+    }
+    // vote: every name in the line gets this voter's vote, once each. counted by DIFFERENT voters, so
+    // spamming one name is worth no more than saying it once.
+    let changed = false;
+    for (const p of pings){
+        if (p.key === from || untouchable(session, p.key))
+            continue;
+        const row = qr.votes[p.key] || (qr.votes[p.key] = { name: chatterName(session, p.key) !== p.key ? chatterName(session, p.key) : p.typed, voters: {}, at: 0 });
+        if (row.voters[from])
+            continue;
+        row.voters[from] = 1;
+        row.at = now;
+        qr.points += 1;
+        changed = true;
+    }
+    if (changed)
+        pushQuickRevive(session);
+}
+
+// a chat line during a weenie hunt: the phrase anywhere in it, by anyone but the bot (which announced it),
+// ends it there and then
+export function creditWeenie(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "weenie")
+        return;
+    if (isBot(session, login) || Date.now() >= qr.endsAt)
+        return;
+    const want = String(qr.spec.phrase || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (!want || !String(text || "").toLowerCase().replace(/\s+/g, " ").includes(want))
+        return;
+    qr.lastBy = String(login || "").toLowerCase();
+    qr.lastByName = String(displayName || login || "");
+    decide(session, false);
+}
+
+// the result stays up for holdSec, then the source goes back to nothing
+function holdThenEnd(session: TimerUserSession, spec: ChallengeSpec, what: string){
+    const t = slots(session.userId);
+    clearTimeout(t.done);
+    t.done = setTimeout(() => {
+        try {
+            endQuickRevive(session);
+        } catch (err) {
+            reportError(session.userId, `clearing a finished ${what}`, err);
+        }
+    }, spec.holdSec * 1000);
+}
+
+// time some people out at the end of a game, saying on the terminal how it went (a shield, a mod, or no bot
+// account can each mean it didn't land)
+function timeOutAtEnd(session: TimerUserSession, spec: ChallengeSpec, logins: string[], why: string){
+    const secs = spec.timeoutSeconds;
+    if (!logins.length)
+        return;
+    if (!canTimeout(session)){
+        emitTerminal(session.userId, `${spec.title} WOULD have timed out ${logins.join(", ")} for ${secs}s, but no bot account is connected.`);
+        return;
+    }
+    chatTimeoutMany(session, logins, secs, `${spec.title} — ${why}`).then((done) => {
+        emitTerminal(session.userId, `${spec.title} — timed out ${done} of ${logins.length} for ${secs}s.`, true);
+    }).catch((err) => reportError(session.userId, `timing out at the end of ${spec.title}`, err));
+}
+
+function decidePingGame(session: TimerUserSession, qr: any, spec: ChallengeSpec, won: boolean, now: number){
+    const t = slots(session.userId);
+    clearTimeout(t.spread);
+    t.spread = undefined;
+    qr.resultAt = now;
+    if (spec.kind === "potato"){
+        qr.phase = "lost";
+        pushQuickRevive(session);
+        const who = qr.holderName || qr.holder;
+        const total = qr.points * spec.rewardSeconds;
+        const safe = untouchable(session, qr.holder);
+        emitTerminal(session.userId, `${spec.title} — over. ${who} was holding it after ${qr.points} pass${qr.points === 1 ? "" : "es"}${total > 0 ? ` (+${sayTime(total)} on the timer)` : ""}${safe ? " — but they can't be timed out" : ""}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.failText} @${who} was holding it${safe ? " — and got away with it" : ` and is timed out for ${sayTime(spec.timeoutSeconds)}`}. ${qr.points} pass${qr.points === 1 ? "" : "es"}${total > 0 ? ` put ${sayTime(total)} on the timer` : ""}.`, "orange");
+        if (!safe)
+            timeOutAtEnd(session, spec, [qr.holder], "holding the potato");
+        holdThenEnd(session, spec, "hot potato");
+        return;
+    }
+    if (spec.kind === "cup"){
+        qr.phase = "won";
+        qr.lastBy = qr.holder;
+        qr.lastByName = qr.holderName;
+        pushQuickRevive(session);
+        const who = qr.holderName || qr.holder;
+        emitTerminal(session.userId, `${spec.title} — over. ${who} is it after ${qr.points} steal${qr.points === 1 ? "" : "s"} and wins ${spec.prizeBoxes} box${spec.prizeBoxes === 1 ? "" : "es"}${spec.test ? " (test: not given)" : ""}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.winText} @${who} was IT when time ran out and wins ${spec.prizeBoxes} mystery box${spec.prizeBoxes === 1 ? "" : "es"}!`, "green");
+        const hook = t.onWin;
+        t.onWin = undefined;
+        if (hook && hook.nonce === qr.nonce){
+            try {
+                hook.fn(qr.holder, who);
+            } catch (err) {
+                reportError(session.userId, `paying out ${spec.title}`, err);
+            }
+        }
+        holdThenEnd(session, spec, "cup and ball");
+        return;
+    }
+    if (spec.kind === "vote"){
+        qr.phase = "lost";
+        pushQuickRevive(session);
+        const out = voteBoard(qr).slice(0, Math.max(1, spec.topCount || 1));
+        const list = out.map((v) => `@${v.name} (${v.votes})`).join(", ");
+        emitTerminal(session.userId, `${spec.title} — over. ${qr.points} vote${qr.points === 1 ? "" : "s"}; voted out: ${list || "nobody"}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, out.length
+                ? `${spec.failText} Chat voted out ${list} — timed out for ${sayTime(spec.timeoutSeconds)}.`
+                : `${spec.failText} Nobody got a single vote.`, "orange");
+        timeOutAtEnd(session, spec, out.map((v) => v.key), "voted out");
+        holdThenEnd(session, spec, "vote");
+        return;
+    }
+}
+
+// weenie hunt: the clock running out with nobody having said it is the win. somebody saying it is the only
+// way to lose, and creditWeenie notes who before calling this — so `lastBy` is what tells the two apart.
+function decideWeenie(session: TimerUserSession, qr: any, spec: ChallengeSpec, now: number){
+    const by = qr.lastByName || qr.lastBy;
+    qr.phase = by ? "lost" : "won";
+    qr.resultAt = now;
+    pushQuickRevive(session);
+    if (by){
+        emitTerminal(session.userId, `${spec.title} — ${by} said "${spec.phrase}". No time for chat.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.failText} @${by} said "${spec.phrase}"${spec.rewardSeconds > 0 ? ` — there goes the ${sayTime(spec.rewardSeconds)}` : ""}!`, "orange");
+    } else {
+        emitTerminal(session.userId, `${spec.title} — nobody said "${spec.phrase}".${spec.rewardSeconds > 0 ? ` +${sayTime(spec.rewardSeconds)} on the timer.` : ""}`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.winText} Nobody said "${spec.phrase}"!${spec.rewardSeconds > 0 ? ` ${sayTime(spec.rewardSeconds)} goes on the timer.` : ""}`, "green");
+        if (spec.rewardSeconds > 0){
+            try {
+                addToEndTime(session, spec.rewardSeconds, spec.label);
+            } catch (err) {
+                reportError(session.userId, "paying out a weenie hunt", err);
+            }
+        }
+    }
+    holdThenEnd(session, spec, "weenie hunt");
+}
+
 // the clock stops, one way or the other. the sound and the words are the source's job; this says which, and
 // pays out a chant's reward — the one thing a challenge does to the rest of the app.
 function decide(session: TimerUserSession, won: boolean){
@@ -885,6 +1237,14 @@ function decide(session: TimerUserSession, won: boolean){
         emitTerminal(session.userId, `${spec.title} — ${cleared} cleared with ${spare}s to spare. Round ${qr.round}: "${spec.phrase}" x${spec.goal} in ${spec.seconds}s.`, true);
         if (spec.announce)
             chatAnnounce(session, `Round ${qr.round - 1} cleared! Round ${qr.round} of ${spec.rounds}: ${roundWords(spec)}`, "blue");
+        return;
+    }
+    if (spec.kind === "potato" || spec.kind === "cup" || spec.kind === "vote"){
+        decidePingGame(session, qr, spec, won, now);
+        return;
+    }
+    if (spec.kind === "weenie"){
+        decideWeenie(session, qr, spec, now);
         return;
     }
     if (spec.kind === "infection"){
@@ -969,7 +1329,7 @@ function decide(session: TimerUserSession, won: boolean){
     }
     const tag = spec.kind === "chant" ? spec.title : "QUICK REVIVE";
     const tally = spec.kind === "chant"
-        ? `"${spec.phrase}" ${qr.points} of ${qr.goal} time${qr.goal === 1 ? "" : "s"}${spec.rounds > 1 ? ` in round ${qr.round} of ${spec.rounds}` : ""}`
+        ? `"${spec.phrase}" — ${qr.points} of ${qr.goal} ${spec.unique ? (qr.goal === 1 ? "person" : "people") : `time${qr.goal === 1 ? "" : "s"}`}${spec.rounds > 1 ? ` in round ${qr.round} of ${spec.rounds}` : ""}`
         : `${qr.points} of ${qr.goal} sub point${qr.goal === 1 ? "" : "s"}`;
     if (won){
         // the reward goes through the timer's own path — cap, stop-at-zero and the log all apply, exactly as
@@ -1100,6 +1460,12 @@ export function endQuickRevive(session: TimerUserSession){
     qr.lastGuessBy = "";
     qr.guessAt = 0;
     qr.guesses = 0;
+    qr.holder = "";
+    qr.holderName = "";
+    qr.holderAt = 0;
+    qr.passedBy = "";
+    qr.votes = {};
+    qr.sayers = {};
     if (wasRunning)
         emitTerminal(session.userId, `${tag} — called off.`, true);
     pushQuickRevive(session);
