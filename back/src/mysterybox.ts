@@ -1028,7 +1028,9 @@ export function mysteryBoxView(session: TimerUserSession): any {
         title: kind === "wonder" ? "WONDER BOX" : "MYSTERY BOX",
         // why "!mb open" is being turned away, if it is — the dashboard shows it so the operator isn't left
         // wondering why chat is complaining
-        blocked: openBlockedBy(session),
+        blocked: openBlockedBy(session, "mystery"),
+        // the wonder box's own answer — the same, except an EMP doesn't stop it
+        blockedWonder: openBlockedBy(session, "wonder"),
         // the jukebox track playing in the background, if one is — the source plays it, the tab names it
         jukebox: session.jukebox || null,
         // the schizo prize, while chat is being read aloud — the source speaks, the tab shows how long is left
@@ -1195,7 +1197,7 @@ function buildReel(session: TimerUserSession, winnerId: string, kind: BoxKind = 
 // that has already run, and the people it hit don't stop anyone else opening a box.
 // a firesale counts too: that overlay owns the screen and the music while it runs.
 // the reason is written to be said out loud in chat, so it names the prize rather than the mechanism.
-export function openBlockedBy(session: TimerUserSession): string {
+export function openBlockedBy(session: TimerUserSession, kind: BoxKind = "mystery"): string {
     if (isOpening(session))
         return "a box is already being opened";
     if (isReviving(session)){
@@ -1217,10 +1219,11 @@ export function openBlockedBy(session: TimerUserSession): string {
     const boost = session.timeBoost;
     if (boost && boost.until > Date.now())
         return `${boost.reason} is still going`;
-    // an EMP says how long is left, since it's a wait chat is meant to sit through rather than a prize playing
+    // an EMP says how long is left, since it's a wait chat is meant to sit through rather than a prize playing.
+    // it only knocks out the MYSTERY box — wonder boxes can still be opened through one.
     const emp = session.emp;
-    if (emp && emp.until > Date.now())
-        return `${emp.what} has boxes knocked out — back in ${fmtWait(emp.until - Date.now())}`;
+    if (kind === "mystery" && emp && emp.until > Date.now())
+        return `${emp.what} has mystery boxes knocked out — back in ${fmtWait(emp.until - Date.now())}`;
     const eff = session.mbEffect;
     if (eff && eff.until > Date.now())
         return `${eff.what} is still going`;
@@ -1245,7 +1248,7 @@ export function openMysteryBox(session: TimerUserSession, login: any, displayNam
     if (boxCount(session, key, kind) < 1)
         return { ok: false, message: `@${who} you have no ${boxWord(kind)}es to open.` };
     // checked BEFORE the box is spent, so somebody turned away still has theirs
-    const blocked = openBlockedBy(session);
+    const blocked = openBlockedBy(session, kind);
     if (blocked)
         return { ok: false, message: `@${who} you can't open a box right now — ${blocked}.` };
     const prize = drawPrize(session, kind);
@@ -1639,7 +1642,7 @@ export function resumeChatModes(session: TimerUserSession){
 // the EMP
 // ---------------------------------------------------------------------------
 //
-// knocks out every box — mystery and wonder — for a while. it's a lock in openBlockedBy, so chat is told
+// knocks out the mystery box (not the wonder box) for a while. it's a lock in openBlockedBy, so chat is told
 // why (and how long) when it tries, and the dashboard shows it. a second EMP while one is up pushes the end
 // out to whichever is later. not persisted: a restart brings the boxes straight back, which errs the safe way.
 
@@ -1658,15 +1661,15 @@ function startEmp(session: TimerUserSession, seconds: number, what: string){
         if (!session.emp || session.emp.until > Date.now() + 500)
             return;
         session.emp = undefined;
-        emitTerminal(session.userId, "EMP — over; boxes can be opened again.", true);
-        chatSay(session, "The EMP has worn off — mystery boxes and wonder boxes are back online!");
+        emitTerminal(session.userId, "EMP — over; mystery boxes can be opened again.", true);
+        chatSay(session, "The EMP has worn off — mystery boxes are back online!");
         pushMysteryBox(session);
     }, Math.max(0, end - Date.now()));
     const left = shotLength(Math.round((end - Date.now()) / 1000));
-    emitTerminal(session.userId, `EMP — ${what}: no boxes can be opened for ${left}.`, true);
+    emitTerminal(session.userId, `EMP — ${what}: no mystery boxes can be opened for ${left} (wonder boxes still can).`, true);
     chatAnnounce(session, extending
-        ? `${what}! Another EMP — boxes stay offline, now for ${left}.`
-        : `${what}! Mystery boxes and wonder boxes are knocked offline for ${left}.`, "orange");
+        ? `${what}! Another EMP — mystery boxes stay offline, now for ${left}.`
+        : `${what}! Mystery boxes are knocked offline for ${left}.`, "orange");
     pushMysteryBox(session);
 }
 
@@ -2370,7 +2373,7 @@ export function describeEffect(effect: any): string {
     if (e.kind === "removeTime")
         return e.seconds > 0 ? `takes ${mins(e.seconds)}` : "takes nothing (set the seconds)";
     if (e.kind === "emp")
-        return e.seconds > 0 ? `stops anybody opening a mystery or wonder box for ${mins(e.seconds)}` : "disables nothing (set the seconds)";
+        return e.seconds > 0 ? `stops anybody opening a mystery box for ${mins(e.seconds)} (wonder boxes still open)` : "disables nothing (set the seconds)";
     if (e.kind === "emoteOnly")
         return e.seconds > 0 ? `turns chat emote-only for ${mins(e.seconds)}` : "does nothing (set the seconds)";
     if (e.kind === "subOnly")
@@ -2618,6 +2621,13 @@ export async function shootGun(session: TimerUserSession, gun: GunKind, shooter:
         return { ok: false, message: `@${who} ${g.heal ? "heal" : "shoot"} who? Try !${g.command(session)} someone.` };
     if (gunCount(session, gun, key) < 1)
         return { ok: false, message: `@${who} you have no ${g.name} ${g.unit}s left.` };
+    // somebody hit by the fuck you gun stays down: no first aid on them for a day after the hit. checked
+    // before the charge is spent, so the medic keeps theirs.
+    if (g.heal){
+        const hitAt = fuckedRecently(session, at);
+        if (hitAt)
+            return { ok: false, message: `@${who} @${at} got hit with the ${GUNS.fuckyougun.name} — no first aid for them for another ${fmtWait(hitAt + FUCKED_MS - Date.now())}. You keep yours.` };
+    }
     const secs = gunSeconds(session, gun);
 
     grantGun(session, gun, key, who, -1);
@@ -2635,6 +2645,8 @@ export async function shootGun(session: TimerUserSession, gun: GunKind, shooter:
         return { ok: false, message: `@${who} that ${g.heal ? "didn't work" : "shot missed"} — ${res.message}. You keep it.` };
     }
     const left = gunCount(session, gun, key);
+    if (gun === "fuckyougun")
+        fuckedYou(session)[at.toLowerCase()] = Date.now();
     if (g.heal){
         emitTerminal(session.userId, `${g.tag} — ${who} healed ${at}; ${charges(g, left)} left.`, true);
         return { ok: true, message: `@${who} used first aid on @${at} — back on their feet! ${charges(g, left)} left.` };
@@ -2649,6 +2661,25 @@ export async function shootGun(session: TimerUserSession, gun: GunKind, shooter:
 // ---------------------------------------------------------------------------
 // chat
 // ---------------------------------------------------------------------------
+
+// who the fuck you gun landed on, and when (ms), keyed by login. first aid won't work on them for a day
+// after. saved with the session, so a restart doesn't hand out a loophole; entries older than a day are
+// dropped whenever it's read.
+const FUCKED_MS = 24 * 3600 * 1000;
+
+function fuckedYou(session: TimerUserSession): { [login: string]: number } {
+    const m = session.fuckedYou || (session.fuckedYou = {});
+    const cutoff = Date.now() - FUCKED_MS;
+    for (const k of Object.keys(m))
+        if (!(m[k] > cutoff))
+            delete m[k];
+    return m;
+}
+
+// when they were hit, if it was in the last day; 0 if not
+function fuckedRecently(session: TimerUserSession, login: string): number {
+    return fuckedYou(session)[String(login || "").toLowerCase()] || 0;
+}
 
 // "!raygun <name>" / "!thundergun <name>" fires one; the command on its own says how many are left. open to
 // every chatter, since the whole point is that a viewer won them. returns true if the line was consumed.

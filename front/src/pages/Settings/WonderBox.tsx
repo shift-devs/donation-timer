@@ -76,9 +76,9 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 						test from here.
 					</Text>
 				)}
-				{run && run.blocked && (
+				{run && (run.blockedWonder ?? run.blocked) && (
 					<Text fontSize="sm" color="orange.300" mb={2}>
-						Chat can&apos;t open a box right now — {run.blocked}.
+						Chat can&apos;t open a box right now — {run.blockedWonder ?? run.blocked}.
 					</Text>
 				)}
 				<HStack spacing={2} wrap="wrap">

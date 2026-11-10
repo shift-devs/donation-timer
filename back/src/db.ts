@@ -151,6 +151,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // who the fuck you gun hit in the last day, so first aid can refuse them (see migration add-fucked-you)
+    fuckedYou: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // unspent double time prizes, same shape as the box ledger (see migration add-double-time)
     doubleTime: {
         type: DataTypes.JSONB,
@@ -328,6 +334,7 @@ export async function dbCreate(inObj: Object){
         firstAid: lvObj.firstAid,
         fuckYouGuns: lvObj.fuckYouGuns,
         chatModes: lvObj.chatModes,
+        fuckedYou: lvObj.fuckedYou,
         doubleTime: lvObj.doubleTime,
         shields: lvObj.shields,
         wonderBoxSettings: lvObj.wonderBoxSettings,
@@ -388,6 +395,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 firstAid: curSession.firstAid,
                 fuckYouGuns: curSession.fuckYouGuns,
                 chatModes: curSession.chatModes,
+                fuckedYou: curSession.fuckedYou,
                 doubleTime: curSession.doubleTime,
                 shields: curSession.shields,
                 wonderBoxSettings: curSession.wonderBoxSettings,

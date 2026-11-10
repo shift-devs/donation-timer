@@ -86,6 +86,8 @@ export interface TimerUserSession {
     // while an emote-only / sub-only prize runs: when each mode ends, ms ({ emote, subscriber }). persisted,
     // so a restart still switches them back off.
     chatModes: { [mode: string]: number }
+    // who the fuck you gun hit and when (ms), by login — first aid won't heal them for 24h. persisted.
+    fuckedYou: { [login: string]: number }
     // unspent double time prizes, same shape again: each one doubles the holder's next contribution
     doubleTime: any
     // unspent timeout shields ("PHD Flopper"), same shape again: each one blocks one timeout from the bot

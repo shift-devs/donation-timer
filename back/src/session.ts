@@ -126,6 +126,13 @@ export function loginUser(inObj: Object){
     for (const m of ["emote", "subscriber"])
         if (cm && typeof cm === "object" && Number(cm[m]) > 0)
             lvObj.chatModes[m] = Number(cm[m]);
+    // the fuck you gun's victims: { login: ms }, anything malformed dropped (stale ones go when it's read)
+    const fy: any = (lvObj as any).fuckedYou;
+    lvObj.fuckedYou = {};
+    if (fy && typeof fy === "object" && !Array.isArray(fy))
+        for (const k of Object.keys(fy))
+            if (Number(fy[k]) > 0)
+                lvObj.fuckedYou[k.toLowerCase()] = Number(fy[k]);
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);
