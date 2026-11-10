@@ -235,6 +235,8 @@ export const DEFAULT_WONDERBOX = {
 	firesaleBoxes: 1,
 	music: "",
 	volume: 0.7,
+	titleColor: "#c77dff",
+	pulseColor: "#b14bff",
 };
 
 export function canonWonderBox(raw: any) {
@@ -256,6 +258,8 @@ export function canonWonderBox(raw: any) {
 		firesaleBoxes: numIn(r.firesaleBoxes, 1, 99, d.firesaleBoxes),
 		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
+		titleColor: hexOr(r.titleColor, d.titleColor),
+		pulseColor: hexOr(r.pulseColor, d.pulseColor),
 	};
 }
 

@@ -419,6 +419,10 @@ export const DEFAULT_WONDERBOX = {
     // blank = play the mystery box's spin music
     music: "",
     volume: 0.7,
+    // how a wonder box looks on the overlay while it spins: its own title colour, and the colour the title
+    // and the winning tile pulse in — so the two boxes can be told apart at a glance
+    titleColor: "#c77dff",
+    pulseColor: "#b14bff",
 };
 
 // `seed` is the mystery box's settings. a channel that has never saved a wonder box gets the firesale rules
@@ -444,6 +448,8 @@ export function normalizeWonderBox(raw: any, seed?: any): any {
         firesaleBoxes: numIn(r.firesaleBoxes, 1, MAX_EXTRA_BOXES, d.firesaleBoxes),
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
+        titleColor: hexOr(r.titleColor, d.titleColor),
+        pulseColor: hexOr(r.pulseColor, d.pulseColor),
     };
 }
 
@@ -1035,7 +1041,9 @@ export function mysteryBoxView(session: TimerUserSession): any {
         spinTiles: cfg.spinTiles,
         revealHoldSec: cfg.revealHoldSec,
         bgColor: cfg.bgColor,
-        titleColor: cfg.titleColor,
+        // a wonder box spins in its own colours; the mystery box pulses in its title colour, as it always has
+        titleColor: kind === "wonder" ? kcfg.titleColor : cfg.titleColor,
+        pulseColor: kind === "wonder" ? kcfg.pulseColor : cfg.titleColor,
         nameColor: cfg.nameColor,
     };
 }

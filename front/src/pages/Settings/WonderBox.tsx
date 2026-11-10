@@ -217,6 +217,19 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 						<input type="range" min={0} max={1} step={0.05} value={draft.volume} onChange={(e) => patch({ volume: Number(e.target.value) }, "vol")} />
 					</>)}
 				</HStack>
+				<HStack spacing={4} wrap="wrap">
+					<HStack spacing={2}>
+						<Text fontSize="sm" color="muted">Title colour</Text>
+						<input type="color" value={draft.titleColor} onChange={(e) => patch({ titleColor: e.target.value }, "wbtitle")} />
+					</HStack>
+					<HStack spacing={2}>
+						<Text fontSize="sm" color="muted">Pulse colour</Text>
+						<input type="color" value={draft.pulseColor} onChange={(e) => patch({ pulseColor: e.target.value }, "wbpulse")} />
+					</HStack>
+					<Text fontSize="xs" color="subtle">
+						while a wonder box spins, its title is drawn in this colour and it and the winning tile pulse
+					</Text>
+				</HStack>
 				<Text fontSize="xs" color="subtle">
 					People holding an unopened wonder box get the same chat reminder as mystery boxes, on the Mystery Box
 					tab&apos;s schedule.

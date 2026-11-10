@@ -52,8 +52,12 @@ const CSS = `
 	100% { transform: scale(1);    opacity: 1; }
 }
 @keyframes mb-glow {
-	0%, 100% { box-shadow: 0 0 30px 6px rgba(255,212,0,0.55); }
-	50%      { box-shadow: 0 0 60px 18px rgba(255,212,0,0.95); }
+	0%, 100% { box-shadow: 0 0 30px 6px var(--mb-pulse-soft, rgba(255,212,0,0.55)); }
+	50%      { box-shadow: 0 0 60px 18px var(--mb-pulse, rgba(255,212,0,0.95)); }
+}
+@keyframes mb-title-pulse {
+	0%, 100% { text-shadow: 0 0 20px var(--mb-pulse-soft), 0 6px 0 rgba(0,0,0,0.55); filter: brightness(1); }
+	50%      { text-shadow: 0 0 60px var(--mb-pulse), 0 0 90px var(--mb-pulse), 0 6px 0 rgba(0,0,0,0.55); filter: brightness(1.25); }
 }
 @keyframes mb-beat {
 	0%, 100% { transform: scale(1); }
@@ -681,7 +685,13 @@ const MysteryBox: React.FC = () => {
 		justifyContent: "center",
 	};
 
+	// the colour the title and the winning tile pulse in: the wonder box has its own, the mystery box uses
+	// its title colour (the yellow it always glowed). handed to the keyframes as css variables.
+	const pulseHex = /^#[0-9a-f]{6}$/i.test(String((state && state.pulseColor) || "")) ? String(state.pulseColor) : cfg.titleColor;
+	const isWonder = !!(state && state.kind === "wonder" && active);
 	const stage: React.CSSProperties = {
+		["--mb-pulse" as any]: `${pulseHex}f2`,
+		["--mb-pulse-soft" as any]: `${pulseHex}8c`,
 		position: "relative",
 		width: STAGE_W,
 		height: STAGE_H,
@@ -1471,8 +1481,12 @@ const MysteryBox: React.FC = () => {
 						WebkitTextStrokeWidth: "5px",
 						WebkitTextStrokeColor: "#000",
 						paintOrder: "stroke fill",
-						textShadow: "0 0 40px rgba(255,212,0,0.8), 0 6px 0 rgba(0,0,0,0.55)",
-						animation: revealed ? undefined : "mb-bob 1200ms ease-in-out infinite",
+						textShadow: `0 0 40px ${pulseHex}cc, 0 6px 0 rgba(0,0,0,0.55)`,
+						// the wonder box's title pulses in its own colour the whole time it's up
+						animation: [
+							revealed ? "" : "mb-bob 1200ms ease-in-out infinite",
+							isWonder ? "mb-title-pulse 900ms ease-in-out infinite" : "",
+						].filter((a) => a).join(", ") || undefined,
 					}}
 				>
 					{/* the wonder box spins here too, under its own name */}
