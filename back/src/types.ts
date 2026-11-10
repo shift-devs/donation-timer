@@ -77,6 +77,15 @@ export interface TimerUserSession {
     mysteryBoxes: any
     // the same again for unfired ray gun charges, won from a box and spent with "!raygun <name>"
     rayguns: any
+    // and again for the thunder gun, spent with "!thundergun <name>" (20 minute shots)
+    thunderguns: any
+    // and first aid kits, spent with "!firstaid <name>" to cut somebody's timeout to 1 second
+    firstAid: any
+    // and fuck you gun charges, spent with "!fuckyougun <name>" (24 hour shots)
+    fuckYouGuns: any
+    // while an emote-only / sub-only prize runs: when each mode ends, ms ({ emote, subscriber }). persisted,
+    // so a restart still switches them back off.
+    chatModes: { [mode: string]: number }
     // unspent double time prizes, same shape again: each one doubles the holder's next contribution
     doubleTime: any
     // unspent timeout shields ("PHD Flopper"), same shape again: each one blocks one timeout from the bot
@@ -96,6 +105,8 @@ export interface TimerUserSession {
     // words). the freezes and the bonfire sale are visible in timerPause/timeBoost instead.
     // what it's for: knowing whether the last box is still playing out, so the next one can't start on top.
     mbEffect?: { until: number, what: string }
+    // an EMP prize: no mystery or wonder box can be opened until `until`. transient, like mbEffect.
+    emp?: { until: number, what: string }
     // the drops tab's config: the odds, the hourly cap and the hidden floor, the rewards and the minigames
     // (persisted — see drops.ts)
     dropSettings: any

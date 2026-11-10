@@ -139,18 +139,18 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 	const colorRow = (label: string, key: string) => (
 		<Flex align="center" gap={2}>
 			<Input type="color" w="42px" p={1} cursor="pointer" value={draft[key]} onChange={(e) => patch({ [key]: e.currentTarget.value }, key)} />
-			<Text color="gray.500">{label}</Text>
+			<Text color="subtle">{label}</Text>
 		</Flex>
 	);
 
 	return (
 		<Box maxW="900px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				One OBS <b>Browser</b> source ranking who has bought the most boxes from your Fourthwall shop. Buying a box
 				for yourself counts, and so does putting one up for firesale — both by how many were bought, so an order of
 				4 is 4 boxes. Tick which products are boxes below. The standings carry on until you press <b>Reset</b>.
 			</Text>
-			<Text fontSize="sm" color="gray.600" mb={3}>
+			<Text fontSize="sm" color="muted" mb={3}>
 				Size the source to fit — around 500 wide and 60px a place is a good start at the default text size.
 			</Text>
 
@@ -171,7 +171,7 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 					<Text>Boxes put up for firesale (credited to the gifter)</Text>
 					{!draft.countFiresales && <Badge colorScheme="orange">off</Badge>}
 				</Flex>
-				<Text fontSize="xs" color="gray.500" mt={2}>
+				<Text fontSize="xs" color="subtle" mt={2}>
 					A firesale is read off Fourthwall&apos;s giveaway announcement in chat, so it counts even with the Firesale
 					overlay turned off. The winner claiming their box isn&apos;t counted — that one was bought by the gifter.
 					If a firesale ever lands on the board twice for the same boxes, turn this off — the gifter&apos;s purchase
@@ -191,7 +191,7 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 					</Button>
 				</Flex>
 				{!rows.length && (
-					<Text fontSize="sm" color="gray.500">Nobody yet — boxes bought from here on will show up as they happen.</Text>
+					<Text fontSize="sm" color="subtle">Nobody yet — boxes bought from here on will show up as they happen.</Text>
 				)}
 				<VStack align="stretch" spacing={0} maxH="320px" overflowY="auto">
 					{ranked.map((r, i) => (
@@ -209,7 +209,7 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 							bg={i < draft.top ? "blackAlpha.50" : undefined}
 							opacity={i < draft.top ? 1 : 0.6}
 						>
-							<Text w="36px" textAlign="right" fontWeight="bold" color={i < draft.top ? "gray.600" : "gray.400"}>
+							<Text w="36px" textAlign="right" fontWeight="bold" color={i < draft.top ? "muted" : "faint"}>
 								#{r.place}
 							</Text>
 							<Text flex="1">{r.name}</Text>
@@ -218,11 +218,11 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 					))}
 				</VStack>
 				{rows.length > draft.top && (
-					<Text fontSize="xs" color="gray.500" mt={1}>Faded rows are below the top {draft.top}, so they aren&apos;t on the source.</Text>
+					<Text fontSize="xs" color="subtle" mt={1}>Faded rows are below the top {draft.top}, so they aren&apos;t on the source.</Text>
 				)}
 
 				<Divider my={3} />
-				<Text fontSize="sm" color="gray.600" mb={2}>
+				<Text fontSize="sm" color="muted" mb={2}>
 					Fix a count by hand — click someone above to load them, type the right number and hit <b>Set to</b>. Set
 					0 to take them off the board. Add / Take away change it by that much instead, e.g. for a firesale that
 					was missed. Same as <Code fontSize="xs">board set &lt;name&gt; &lt;n&gt;</Code> in the Terminal (quote a
@@ -245,9 +245,9 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 						? <Badge colorScheme="orange">none picked — nothing counts yet</Badge>
 						: <Badge colorScheme="green">{draft.products.length} picked</Badge>}
 				</Flex>
-				{products === null && <Text fontSize="xs" color="gray.500">Loading your Fourthwall products…</Text>}
+				{products === null && <Text fontSize="xs" color="subtle">Loading your Fourthwall products…</Text>}
 				{products !== null && products.length === 0 && (
-					<Text fontSize="xs" color="gray.500">No products loaded — connect Fourthwall on the Connections tab.</Text>
+					<Text fontSize="xs" color="subtle">No products loaded — connect Fourthwall on the Connections tab.</Text>
 				)}
 				<VStack align="stretch" spacing={1}>
 					{(products || []).map((p: any) => (
@@ -258,7 +258,7 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 					{/* picked earlier but no longer in the shop's list — kept, so a product coming back still counts */}
 					{draft.products.filter((x: any) => !(products || []).some((p: any) => p.id === x.id)).map((x: any) => (
 						<Checkbox key={x.id} size="sm" isChecked onChange={() => toggleProduct(x, false)}>
-							{x.name || x.id} <Text as="span" color="gray.500">(not in the shop right now)</Text>
+							{x.name || x.id} <Text as="span" color="subtle">(not in the shop right now)</Text>
 						</Checkbox>
 					))}
 				</VStack>
@@ -269,20 +269,20 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 				<Text fontWeight="bold" mb={2}>On stream</Text>
 				<Flex align="center" gap={2} mb={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="90px">Show the top</Text>
+					<Text color="subtle" w="90px">Show the top</Text>
 					<Select size="sm" w="100px" value={draft.top} onChange={(e) => patch({ top: Number(e.currentTarget.value) })}>
 						{TOP_CHOICES.filter((n) => n <= MAX_BOARD_TOP).map((n) => <option key={n} value={n}>{n}</option>)}
 						{!TOP_CHOICES.includes(draft.top) && <option value={draft.top}>{draft.top}</option>}
 					</Select>
 				</Flex>
 				<Flex align="center" gap={2} mb={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="90px">Title</Text>
+					<Text color="subtle" w="90px">Title</Text>
 					<Input size="sm" w="320px" maxLength={60} value={draft.title} placeholder="blank = no title" onChange={(e) => patch({ title: e.currentTarget.value }, "title")} />
 				</Flex>
 				<Flex align="center" gap={2} mb={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="90px">Text size</Text>
+					<Text color="subtle" w="90px">Text size</Text>
 					<NumberField value={draft.fontSize} min={12} max={120} onCommit={(n) => patch({ fontSize: n }, "fontSize")} width="80px" />
-					<Text color="gray.500">px</Text>
+					<Text color="subtle">px</Text>
 					<Box w={4} />
 					<Switch isChecked={draft.showCounts} onChange={(e) => patch({ showCounts: e.target.checked })} />
 					<Text>Show how many</Text>
@@ -301,13 +301,13 @@ const BoxBoard: React.FC<{ ws: any; token: string | null; settings: any; product
 							value={draft.bgColor === "transparent" ? "#000000" : draft.bgColor}
 							onChange={(e) => patch({ bgColor: e.currentTarget.value }, "bgColor")}
 						/>
-						<Text color="gray.500">fill</Text>
+						<Text color="subtle">fill</Text>
 						<Button size="xs" isDisabled={draft.bgColor === "transparent"} onClick={() => patch({ bgColor: "transparent" })}>
 							transparent
 						</Button>
 					</Flex>
 				</Flex>
-				<Text fontSize="xs" color="gray.500" mt={2}>
+				<Text fontSize="xs" color="subtle" mt={2}>
 					The top three places are gold, silver and bronze. A tie shares a place.
 				</Text>
 			</Box>

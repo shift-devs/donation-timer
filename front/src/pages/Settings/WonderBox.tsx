@@ -2,9 +2,8 @@ import React, { useCallback, useState } from "react";
 import { Badge, Box, Button, Checkbox, Code, Flex, HStack, Input, Select, Switch, Text, VStack } from "@chakra-ui/react";
 import { setWonderBoxSettings, giveMysteryBox, testMysteryBox, stopMysteryBox } from "../../Api";
 import NumberField from "../../NumberField";
-import { canonWonderBox } from "../../mysterybox";
+import { canonWonderBox, canonMysteryBox, prizeProfiles, inActiveProfile } from "../../mysterybox";
 import { SOUNDS } from "./EffectFields";
-import PrizeList from "./PrizeList";
 import { useSyncedDraft } from "./useSyncedDraft";
 
 // The wonder box: a mystery box with its own prizes and its own wallet, earned by FIRESALES (the mystery box
@@ -14,7 +13,6 @@ import { useSyncedDraft } from "./useSyncedDraft";
 const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | null }> = ({ ws, settings, run, products }) => {
 	const send = useCallback((next: any) => setWonderBoxSettings(ws, next), [ws]);
 	const { draft, patch } = useSyncedDraft(settings.wonderBoxSettings, canonWonderBox, send);
-	const onTest = useCallback((id: string) => testMysteryBox(ws, id, "wonder"), [ws]);
 	const [giveName, setGiveName] = useState("");
 	const [giveCount, setGiveCount] = useState(1);
 	const [openPrize, setOpenPrize] = useState("");
@@ -37,13 +35,18 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 		.map((k) => ({ key: k, name: boxes[k].name || k, count: boxes[k].count || 0 }))
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 	const outstanding = owners.reduce((sum, o) => sum + o.count, 0);
-	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
-	const textBoxes: any[] = Array.isArray(settings.textBoxes) ? settings.textBoxes : [];
+	// the prizes live on the Mystery Box tab; this box reads them at their Wonder rarity
+	const prizes: any[] = canonMysteryBox(settings.mysteryBoxSettings).prizes;
+	const liveW = (p: any) => p.enabled && p.wonderWeight > 0 && inActiveProfile(draft.activeProfile, p);
+	const inPlay = prizes.filter(liveW);
+	const total = inPlay.reduce((sum, p) => sum + p.wonderWeight, 0);
+	const profiles = prizeProfiles(prizes, draft.activeProfile);
 
 	return (
 		<Box maxW="960px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={3}>
-				A second mystery box with its own prizes and its own wallet. <b>Firesales earn wonder boxes</b> (bingo,
+			<Text fontSize="sm" color="muted" mb={3}>
+				A second mystery box with its own wallet, drawing from the <b>same prizes</b> as the mystery box at
+				their <b>Wonder rarity</b> (set on the Mystery Box tab). <b>Firesales earn wonder boxes</b> (bingo,
 				gifted subs, channel points and raffles earn mystery boxes). Chat opens one with{" "}
 				<Code fontSize="xs">!{draft.command} open</Code> and counts with <Code fontSize="xs">!{draft.command} count</Code>;
 				mods get the same give / take / stop / test as <Code fontSize="xs">!{mbCommand}</Code>, and the Terminal
@@ -60,7 +63,7 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 						? <Badge colorScheme={phase === "spinning" ? "purple" : "green"}>{phase === "spinning" ? "SPINNING" : "PRIZE UP"}</Badge>
 						: phase !== "idle" ? <Badge colorScheme="gray">A MYSTERY BOX IS UP</Badge> : <Badge>IDLE</Badge>}
 					{mine && (
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							<b>{run.opener}</b>
 							{phase === "reveal" && run.prize ? ` won ${run.prize.name || run.prize.id}` : ""}
 						</Text>
@@ -79,17 +82,17 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 					</Text>
 				)}
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.500">Test spin</Text>
+					<Text fontSize="sm" color="subtle">Test spin</Text>
 					<Select size="sm" maxW="220px" value={openPrize} onChange={(e) => setOpenPrize(e.target.value)}>
 						<option value="">(a fair draw)</option>
-						{draft.prizes.map((p: any) => (
+						{prizes.map((p: any) => (
 							<option key={p.id} value={p.id}>{p.name || p.id}</option>
 						))}
 					</Select>
-					<Button size="sm" onClick={() => testMysteryBox(ws, openPrize, "wonder")} isDisabled={!draft.prizes.length}>
+					<Button size="sm" onClick={() => testMysteryBox(ws, openPrize, "wonder")} isDisabled={!prizes.length}>
 						Spin
 					</Button>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						Spends nobody&apos;s box — but the prize&apos;s effect fires for real.
 					</Text>
 				</HStack>
@@ -99,12 +102,12 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 				<Flex align="center" gap={3} mb={2} wrap="wrap">
 					<Text fontWeight="bold">Wonder boxes owed</Text>
-					<Text fontSize="sm" color="gray.600">
+					<Text fontSize="sm" color="muted">
 						{outstanding} unopened across {owners.length} {owners.length === 1 ? "person" : "people"}
 					</Text>
 				</Flex>
 				{owners.length === 0 && (
-					<Text fontSize="sm" color="gray.500" mb={2}>
+					<Text fontSize="sm" color="subtle" mb={2}>
 						Nobody is holding a wonder box yet. They&apos;re credited when Fourthwall announces a giveaway, to
 						whoever it names as the gifter. A gifter whose Fourthwall name isn&apos;t their Twitch login can be
 						moved across with the Move control on the Mystery Box tab.
@@ -133,17 +136,45 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 				</HStack>
 			</Box>
 
-			{/* ---- the prizes ---- */}
-			<PrizeList
-				prizes={draft.prizes}
-				activeProfile={draft.activeProfile}
-				patch={patch}
-				onTest={onTest}
-				events={events}
-				textBoxes={textBoxes}
-				listId="wb-profiles"
-				what="wonder box"
-			/>
+			{/* ---- the prizes: the mystery box's list, at each prize's Wonder rarity ---- */}
+			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+				<Flex align="center" gap={3} mb={2} wrap="wrap">
+					<Text fontWeight="bold">Prizes</Text>
+					<Text fontSize="sm" color="muted">
+						Edited on the Mystery Box tab — give a prize a <b>Wonder rarity</b> above 0 to put it in here.
+					</Text>
+				</Flex>
+				<Flex align="center" gap={2} mb={3} wrap="wrap">
+					<Text fontSize="sm" color="muted">Playing</Text>
+					<Select size="sm" maxW="220px" value={draft.activeProfile} onChange={(e) => patch({ activeProfile: e.target.value })}>
+						<option value="">(no profile — just the always-on prizes)</option>
+						{profiles.map((n) => (
+							<option key={n} value={n}>{n}</option>
+						))}
+					</Select>
+					<Badge colorScheme={inPlay.length ? "green" : "red"}>
+						{inPlay.length} prize{inPlay.length === 1 ? "" : "s"} in play
+					</Badge>
+				</Flex>
+				{!inPlay.length && (
+					<Text fontSize="sm" color="red.300">
+						Nothing can be won from a wonder box yet — no prize in play has a Wonder rarity above 0.
+					</Text>
+				)}
+				<VStack align="stretch" spacing={1} maxH="260px" overflowY="auto">
+					{inPlay
+						.slice()
+						.sort((a, b) => b.wonderWeight - a.wonderWeight || String(a.name).localeCompare(String(b.name)))
+						.map((p) => (
+							<Flex key={p.id} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{p.name || p.id}</Text>
+								<Text color="subtle">rarity {p.wonderWeight}</Text>
+								<Badge colorScheme="blue">{((p.wonderWeight / total) * 100).toFixed(2)}%</Badge>
+								<Button size="xs" variant="ghost" onClick={() => testMysteryBox(ws, p.id, "wonder")}>Test</Button>
+							</Flex>
+						))}
+				</VStack>
+			</Box>
 
 			{/* ---- how it behaves ---- */}
 			<Text fontWeight="bold" mb={2}>Behaviour</Text>
@@ -158,8 +189,13 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 						<Text fontSize="sm">Chat can open them</Text>
 					</HStack>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Command</Text>
-						<Text fontSize="sm" color="gray.500">!</Text>
+						<Text fontSize="sm" color="muted">Cooldown</Text>
+						<NumberField width="80px" min={0} max={3600} value={draft.cooldownSec} onCommit={(n) => patch({ cooldownSec: n }, "cooldown")} />
+						<Text fontSize="sm" color="muted">sec after a box finishes</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">Command</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
 						<Input size="sm" maxW="110px" value={draft.command} onChange={(e) => patch({ command: e.target.value.replace(/^!/, "") }, "cmd")} />
 					</HStack>
 				</HStack>
@@ -169,7 +205,7 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 					</Text>
 				)}
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Spin music</Text>
+					<Text fontSize="sm" color="muted">Spin music</Text>
 					<Select size="sm" maxW="260px" value={draft.music} onChange={(e) => patch({ music: e.target.value })}>
 						<option value="">(same as the mystery box)</option>
 						{SOUNDS.map((f) => (
@@ -177,11 +213,11 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 						))}
 					</Select>
 					{draft.music && (<>
-						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<Text fontSize="sm" color="muted">Vol</Text>
 						<input type="range" min={0} max={1} step={0.05} value={draft.volume} onChange={(e) => patch({ volume: Number(e.target.value) }, "vol")} />
 					</>)}
 				</HStack>
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					People holding an unopened wonder box get the same chat reminder as mystery boxes, on the Mystery Box
 					tab&apos;s schedule.
 				</Text>
@@ -197,18 +233,18 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 				</HStack>
 				{draft.grantOnFiresale && (<>
 					<HStack spacing={1} mb={2}>
-						<Text fontSize="sm" color="gray.600">Each item put up earns the gifter</Text>
+						<Text fontSize="sm" color="muted">Each item put up earns the gifter</Text>
 						<NumberField width="70px" min={1} max={99} value={draft.firesaleBoxes} onCommit={(n) => patch({ firesaleBoxes: n }, "fsb")} />
-						<Text fontSize="sm" color="gray.600">wonder box{draft.firesaleBoxes === 1 ? "" : "es"}</Text>
+						<Text fontSize="sm" color="muted">wonder box{draft.firesaleBoxes === 1 ? "" : "es"}</Text>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mb={2}>
+					<Text fontSize="xs" color="subtle" mb={2}>
 						{draft.firesaleItems.length === 0
 							? "Nothing ticked, so every Fourthwall giveaway earns the gifter a wonder box. Tick some to narrow it down."
 							: `Only giveaways of these earn one — ${draft.firesaleItems.length} picked.`}
 					</Text>
-					{products === null && <Text fontSize="xs" color="gray.500">Loading your Fourthwall products…</Text>}
+					{products === null && <Text fontSize="xs" color="subtle">Loading your Fourthwall products…</Text>}
 					{products !== null && products.length === 0 && (
-						<Text fontSize="xs" color="gray.500">
+						<Text fontSize="xs" color="subtle">
 							No products loaded — connect Fourthwall, or type an item name in the box below.
 						</Text>
 					)}
@@ -252,7 +288,7 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 						/>
 						<Button size="sm" isDisabled={!itemRule.trim()} onClick={addItemRule}>Add</Button>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mt={1}>
+					<Text fontSize="xs" color="subtle" mt={1}>
 						Matched against what Fourthwall announces, ignoring case — a partial name is enough, so
 						&quot;collector&quot; covers every collector&apos;s edition.
 					</Text>

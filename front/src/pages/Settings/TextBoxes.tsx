@@ -130,14 +130,14 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 
 	return (
 		<Box maxW="900px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				Each text box is its own OBS <b>Browser</b> source showing one line (or several) of text. Mods change
 				what it says from chat:
 			</Text>
 			<Code display="block" p={2} mb={2} fontSize="sm">
 				!changetext {draft.length ? draft[0].name || "boxname" : "boxname"} "TEXT HERE"
 			</Code>
-			<Text fontSize="sm" color="gray.600" mb={4}>
+			<Text fontSize="sm" color="muted" mb={4}>
 				Only mods and the broadcaster are obeyed, the quotes are optional (everything after the name is the
 				text), and <Code fontSize="xs">!changetext {draft.length ? draft[0].name || "boxname" : "boxname"}</Code>{" "}
 				with nothing after it clears the box. The same command works in the Terminal tab, and every change a
@@ -148,7 +148,7 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			</Text>
 
 			{draft.length === 0 && (
-				<Text fontSize="sm" color="gray.500" mb={3}>
+				<Text fontSize="sm" color="subtle" mb={3}>
 					No text boxes yet. Add one, name it something short and easy to type in chat, then put its URL in
 					OBS as a browser source.
 				</Text>
@@ -158,7 +158,7 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				{draft.map((b) => (
 					<Box key={b.id} borderWidth="1px" borderRadius="md" p={3}>
 						<Flex align="center" gap={2} mb={2} wrap="wrap">
-							<Text fontSize="sm" color="gray.500" flexShrink={0}>Name</Text>
+							<Text fontSize="sm" color="subtle" flexShrink={0}>Name</Text>
 							<Input
 								size="sm"
 								w="170px"
@@ -200,9 +200,9 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 							>
 								<NumberInputField />
 							</NumberInput>
-							<Text color="gray.500">px</Text>
+							<Text color="subtle">px</Text>
 							<Input type="color" w="42px" p={1} cursor="pointer" value={b.color} onChange={(e) => patch(b.id, { color: e.currentTarget.value }, "color")} />
-							<Text color="gray.500">text</Text>
+							<Text color="subtle">text</Text>
 							<Input
 								type="color"
 								w="42px"
@@ -212,7 +212,7 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 								value={b.bgColor === "transparent" ? "#00ff00" : b.bgColor}
 								onChange={(e) => patch(b.id, { bgColor: e.currentTarget.value }, "bgColor")}
 							/>
-							<Text color="gray.500">fill</Text>
+							<Text color="subtle">fill</Text>
 							<Button size="xs" isDisabled={b.bgColor === "transparent"} onClick={() => patch(b.id, { bgColor: "transparent" })}>
 								transparent
 							</Button>
@@ -229,7 +229,7 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 								<option value="middle">Middle</option>
 								<option value="bottom">Bottom</option>
 							</Select>
-							<Text color="gray.500">Bold</Text>
+							<Text color="subtle">Bold</Text>
 							<Switch isChecked={b.bold} onChange={(e) => patch(b.id, { bold: e.target.checked })} />
 							<Select size="sm" w="130px" value={b.effect} onChange={(e) => patch(b.id, { effect: e.currentTarget.value })}>
 								<option value="none">No effect</option>
@@ -249,14 +249,14 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 									>
 										<NumberInputField />
 									</NumberInput>
-									<Text color="gray.500">
+									<Text color="subtle">
 										{b.effectWidth <= 0 ? "px — off" : b.effect === "stroke" ? "px outline" : "px blur"}
 									</Text>
 								</>
 							)}
 						</Flex>
 
-						<Text fontSize="xs" color="gray.500" mb={1}>Preview (at a fraction of the real size):</Text>
+						<Text fontSize="xs" color="subtle" mb={1}>Preview (at a fraction of the real size):</Text>
 						<Box borderRadius="md" overflow="hidden" style={b.bgColor === "transparent" ? checker : undefined}>
 							<Box height="90px" style={textBoxStyle(b, PREVIEW_FONT)}>
 								<div>{b.text || " "}</div>
@@ -268,14 +268,14 @@ const TextBoxes: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 
 			<HStack mt={4} mb={2}>
 				<Button size="sm" onClick={addBox}>+ Add text box</Button>
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					Each one needs its own browser source in OBS.
 				</Text>
 			</HStack>
 
 			<Divider my={4} />
 
-			<Text fontSize="xs" color="gray.500">
+			<Text fontSize="xs" color="subtle">
 				Size the OBS source to the area the text should sit in — the page fills it, and the alignment
 				dropdowns place the words inside it. A <b>transparent</b> fill needs no Color Key filter: OBS
 				composites the text straight over your scene (the checkerboard above just marks where it&apos;s

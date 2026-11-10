@@ -202,7 +202,7 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 				>
 					<NumberInputField />
 				</NumberInput>
-				<Text fontSize="sm" color="gray.600">
+				<Text fontSize="sm" color="muted">
 					seconds {a.unit}
 				</Text>
 				<Spacer />
@@ -215,7 +215,7 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 					>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.400">→</Text>
+					<Text color="faint">→</Text>
 					<Text fontWeight={700} fontFamily="mono" minW="90px" textAlign="right">
 						{fmt(rate * qty)}
 					</Text>
@@ -255,8 +255,8 @@ const TimePerAction: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) =
 				))}
 			</Accordion>
 
-			<Flex bg="white" borderTopWidth="1px" mt={4} py={3} align="center" gap={3}>
-				<Text color={dirty ? "orange.500" : "gray.400"} fontWeight={600}>
+			<Flex bg="surface" borderTopWidth="1px" mt={4} py={3} align="center" gap={3}>
+				<Text color={dirty ? "warn" : "faint"} fontWeight={600}>
 					{dirty ? "unsaved changes" : "all changes saved"}
 				</Text>
 				<Spacer />

@@ -35,7 +35,7 @@ const SoundPick: React.FC<{ value: string; volume: number; onPick: (v: string) =
 				<option key={f} value={f}>{f}</option>
 			))}
 		</Select>
-		<Text fontSize="sm" color="gray.600">Vol</Text>
+		<Text fontSize="sm" color="muted">Vol</Text>
 		<input type="range" min={0} max={1} step={0.05} value={volume} onChange={(e) => onVolume(Number(e.target.value))} />
 	</>
 );
@@ -173,7 +173,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 		const g = draft.games.find((z: any) => z.id === gameId);
 		if (!g || g.secrets.length >= MAX_SECRETS)
 			return;
-		patchGame(gameId, { secrets: [...g.secrets, { phrase: "", hints: [] }] });
+		patchGame(gameId, { secrets: [...g.secrets, { phrase: "", hints: [], images: [] }] });
 	};
 	const deleteSecret = (gameId: string, at: number) => {
 		const g = draft.games.find((z: any) => z.id === gameId);
@@ -238,7 +238,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 
 	return (
 		<Box maxW="960px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				Power-ups that fall out of the timer. Every sub, cheer, donation and order that puts time on the clock
 				has a small chance of <b>dropping</b> one. The drop goes up on the <b>Mystery Box</b> source with its
 				reward named, and chat has to clear a minigame in time to grab it — say a word so many times, count
@@ -246,12 +246,12 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 				hint, or guess a number. Make it and the reward fires,
 				exactly like a mystery box prize. Miss it and it&apos;s gone.
 			</Text>
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				Rewards are sorted into <b>pools</b>, and each minigame pays from one pool. A drop picks a minigame
 				first, then draws its reward from that minigame&apos;s pool — so a harder game can be the only way at
 				the better rewards.
 			</Text>
-			<Text fontSize="sm" color="gray.600" mb={3}>
+			<Text fontSize="sm" color="muted" mb={3}>
 				Drops use the same browser source as mystery boxes, so there&apos;s nothing new to add to OBS. One thing
 				happens on that source at a time: a drop that lands while a box is opening (or a firesale or raffle is
 				up) waits and goes up as soon as it&apos;s free, and new boxes wait for it. Everything here applies
@@ -269,17 +269,17 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 					<Text fontWeight="bold">Live</Text>
 					{badge}
 					{hour && (
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{hour.hourLabel}: <b>{hour.drops} of {hour.maxPerHour}</b> dropped, <b>{hour.minutes}</b> minute{hour.minutes === 1 ? "" : "s"} added
 						</Text>
 					)}
 				</Flex>
 
 				{hour && draft.guaranteeEnabled && (
-					<Text fontSize="sm" color="gray.600" mb={2}>
+					<Text fontSize="sm" color="muted" mb={2}>
 						This hour&apos;s floor is <b>{hour.threshold} minutes</b> —{" "}
 						{hour.guaranteed ? "passed, and its drop has been had." : `${Math.max(0, hour.threshold - hour.minutes)} more to go before one is guaranteed.`}
-						<Text as="span" fontSize="xs" color="gray.500"> (Only shown here — chat never sees it.)</Text>
+						<Text as="span" fontSize="xs" color="subtle"> (Only shown here — chat never sees it.)</Text>
 					</Text>
 				)}
 
@@ -288,7 +288,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 						<Badge colorScheme={phase === "running" ? "purple" : phase === "won" ? "green" : "red"}>
 							{phase === "running" ? "DROP UP" : phase === "won" ? "GRABBED" : "MISSED"}
 						</Badge>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							<b>{revive.title}</b>
 							{phase === "running" ? ` — ${revive.kind === "guess" ? `${revive.low}–${revive.high}, ${revive.guesses} guessed` : `${revive.points}${revive.kind === "scramble" || revive.kind === "secret" ? "" : ` / ${revive.goal}`}`} — ${countdown(revive.endsAt - Date.now())} left` : ""}
 						</Text>
@@ -299,7 +299,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 				{hour && hour.queued > 0 && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="orange">{hour.queued} WAITING</Badge>
-						<Text fontSize="sm" color="gray.600">for the Mystery Box source to come free</Text>
+						<Text fontSize="sm" color="muted">for the Mystery Box source to come free</Text>
 						<Button size="xs" variant="ghost" onClick={() => clearDropQueue(ws)}>Throw away</Button>
 					</Flex>
 				)}
@@ -308,12 +308,12 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 					<Button size="sm" colorScheme="purple" isDisabled={!liveGames.length} onClick={() => forceDrop(ws, "")}>
 						Drop one now
 					</Button>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						For real: announced in chat and the reward pays out. Doesn&apos;t count toward the hour&apos;s {draft.maxPerHour}.
 					</Text>
 				</HStack>
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.500">Test</Text>
+					<Text fontSize="sm" color="subtle">Test</Text>
 					<Select size="sm" maxW="200px" value={testReward} onChange={(e) => setTestReward(e.target.value)}>
 						<option value="">(a fair draw)</option>
 						{draft.pools.map((pool: any) => (
@@ -333,12 +333,12 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 					<Button size="sm" isDisabled={!draft.rewards.length || !draft.games.length} onClick={() => testDrop(ws, testReward, testGame)}>
 						Test
 					</Button>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						Plays on the source for real — say nothing in chat, and win it to see the reward fire — but credits nobody with shots or boxes.
 						A reward on its own plays one of its pool&apos;s minigames; a minigame on its own draws from its pool.
 					</Text>
 				</HStack>
-				<Text fontSize="xs" color="gray.500" mt={2}>
+				<Text fontSize="xs" color="subtle" mt={2}>
 					From the Terminal: <Code fontSize="xs">drop</Code>, <Code fontSize="xs">drop test</Code>,{" "}
 					<Code fontSize="xs">drop stop</Code>, <Code fontSize="xs">drop clear</Code>, <Code fontSize="xs">drop status</Code> —
 					and mods can type the same in chat with a <Code fontSize="xs">!</Code>. <Code fontSize="xs">drop</Code> and{" "}
@@ -356,12 +356,12 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 					</HStack>
 					<HStack spacing={1}>
 						<ChanceField value={draft.chance} onCommit={(n) => patch({ chance: n }, "chance")} />
-						<Text fontSize="sm" color="gray.600">% chance on every contribution, at most</Text>
+						<Text fontSize="sm" color="muted">% chance on every contribution, at most</Text>
 						<NumberField width="80px" min={1} max={60} value={draft.maxPerHour} onCommit={(n) => patch({ maxPerHour: n }, "max")} />
-						<Text fontSize="sm" color="gray.600">an hour</Text>
+						<Text fontSize="sm" color="muted">an hour</Text>
 					</HStack>
 				</HStack>
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					At {draft.chance}%, an hour with 50 contributions has about a{" "}
 					<b>{chanceOfAny(draft.chance, 50).toFixed(0)}%</b> chance of rolling at least one drop, and an hour with
 					200 about <b>{chanceOfAny(draft.chance, 200).toFixed(0)}%</b>. Hours run on the <b>Eastern</b> clock
@@ -374,14 +374,14 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 						<Switch isChecked={draft.guaranteeEnabled} onChange={(e) => patch({ guaranteeEnabled: e.target.checked })} />
 						<Text fontSize="sm" fontWeight="bold">Guaranteed drop</Text>
 						{draft.guaranteeEnabled ? (<>
-							<Text fontSize="sm" color="gray.600">once</Text>
+							<Text fontSize="sm" color="muted">once</Text>
 							<NumberField width="80px" min={1} max={600} value={draft.guaranteeMin} onCommit={(n) => patch({ guaranteeMin: n, guaranteeMax: Math.max(n, draft.guaranteeMax) }, "gmin")} />
-							<Text fontSize="sm" color="gray.600">to</Text>
+							<Text fontSize="sm" color="muted">to</Text>
 							<NumberField width="80px" min={1} max={600} value={draft.guaranteeMax} onCommit={(n) => patch({ guaranteeMax: n, guaranteeMin: Math.min(n, draft.guaranteeMin) }, "gmax")} />
-							<Text fontSize="sm" color="gray.600">minutes are added in an hour</Text>
+							<Text fontSize="sm" color="muted">minutes are added in an hour</Text>
 						</>) : <Badge>OFF</Badge>}
 					</HStack>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						At the top of each hour a secret number of minutes is picked somewhere in that range. The
 						contribution that takes the hour&apos;s added time past it drops one, no roll needed — even if the hour
 						has already had rolled drops (the hourly limit still applies). It looks exactly like any other drop,
@@ -394,35 +394,35 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 			<Text fontWeight="bold" mb={2}>On stream</Text>
 			<VStack align="stretch" spacing={2} mb={5}>
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Heading</Text>
+					<Text fontSize="sm" color="muted">Heading</Text>
 					<Input size="sm" maxW="200px" value={draft.title} onChange={(e) => patch({ title: e.target.value }, "title")} />
-					<Text fontSize="xs" color="gray.500">goes over the reward&apos;s art and name</Text>
-					<Text fontSize="sm" color="gray.600" ml={2}>Result stays up</Text>
+					<Text fontSize="xs" color="subtle">goes over the reward&apos;s art and name</Text>
+					<Text fontSize="sm" color="muted" ml={2}>Result stays up</Text>
 					<NumberField width="80px" min={1} max={60} value={draft.holdSec} onCommit={(n) => patch({ holdSec: n }, "hold")} />
-					<Text fontSize="sm" color="gray.600">s</Text>
+					<Text fontSize="sm" color="muted">s</Text>
 					<HStack spacing={1} ml={2}>
 						<Switch size="sm" isChecked={draft.announce} onChange={(e) => patch({ announce: e.target.checked })} />
-						<Text fontSize="sm" color="gray.600">Announce in chat</Text>
+						<Text fontSize="sm" color="muted">Announce in chat</Text>
 					</HStack>
 				</HStack>
 				<HStack spacing={2} wrap="wrap">
 					<Badge colorScheme="purple">DROPS</Badge>
 					<SoundPick value={draft.dropSound} volume={draft.dropVolume}
 						onPick={(v) => patch({ dropSound: v })} onVolume={(v) => patch({ dropVolume: v }, "dv")} />
-					<Text fontSize="xs" color="gray.500">plays once as it appears</Text>
+					<Text fontSize="xs" color="subtle">plays once as it appears</Text>
 				</HStack>
 				<HStack spacing={2} wrap="wrap">
 					<Badge colorScheme="blue">WHILE PLAYING</Badge>
 					<SoundPick value={draft.music} volume={draft.musicVolume} none="(no music)"
 						onPick={(v) => patch({ music: v })} onVolume={(v) => patch({ musicVolume: v }, "mv")} />
-					<Text fontSize="xs" color="gray.500">loops until it&apos;s decided</Text>
+					<Text fontSize="xs" color="subtle">loops until it&apos;s decided</Text>
 				</HStack>
 				<HStack spacing={2} wrap="wrap">
 					<Badge colorScheme="green">GRABBED</Badge>
 					<SoundPick value={draft.winSound} volume={draft.winVolume}
 						onPick={(v) => patch({ winSound: v })} onVolume={(v) => patch({ winVolume: v }, "wv")} />
 					<Input size="sm" maxW="220px" placeholder="What goes up on stream" value={draft.winText} onChange={(e) => patch({ winText: e.target.value }, "wt")} />
-					<Text fontSize="xs" color="gray.500">a reward with its own sound plays that instead</Text>
+					<Text fontSize="xs" color="subtle">a reward with its own sound plays that instead</Text>
 				</HStack>
 				<HStack spacing={2} wrap="wrap">
 					<Badge colorScheme="red">MISSED</Badge>
@@ -430,7 +430,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 						onPick={(v) => patch({ failSound: v })} onVolume={(v) => patch({ failVolume: v }, "fv")} />
 					<Input size="sm" maxW="220px" placeholder="What goes up on stream" value={draft.failText} onChange={(e) => patch({ failText: e.target.value }, "ft")} />
 				</HStack>
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					Colours and the fill come from the Mystery Box tab, since it&apos;s the same source.
 				</Text>
 			</VStack>
@@ -438,7 +438,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 			{/* ---- the pools ---- */}
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Drop pools</Text>
-				<Text fontSize="sm" color="gray.600">Groups of rewards. A minigame pays from one of them.</Text>
+				<Text fontSize="sm" color="muted">Groups of rewards. A minigame pays from one of them.</Text>
 				<Box flex="1" />
 				<Button size="sm" onClick={addPool} isDisabled={draft.pools.length >= MAX_POOLS}>Add pool</Button>
 			</Flex>
@@ -453,27 +453,27 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 							<Input size="sm" maxW="220px" placeholder="Pool name" value={pool.name} onChange={(e) => patchPool(pool.id, { name: e.target.value }, `pn${pool.id}`)} />
 							<Badge colorScheme={live ? "blue" : "gray"}>{live} of {inPool.length} reward{inPool.length === 1 ? "" : "s"} can drop</Badge>
 							<Badge colorScheme={armed ? "green" : games.length ? "red" : "gray"}>{armed} of {games.length} minigame{games.length === 1 ? "" : "s"} ready</Badge>
-							{!games.length && <Text fontSize="xs" color="gray.500">no minigame pays from it, so nothing in it can drop</Text>}
+							{!games.length && <Text fontSize="xs" color="subtle">no minigame pays from it, so nothing in it can drop</Text>}
 							<Box flex="1" />
 							<Button size="xs" variant="ghost" colorScheme="red" isDisabled={draft.pools.length <= 1} onClick={() => deletePool(pool.id)}>Delete</Button>
 						</HStack>
 					);
 				})}
 			</VStack>
-			<Text fontSize="xs" color="gray.500" mt={-3} mb={5}>
+			<Text fontSize="xs" color="subtle" mt={-3} mb={5}>
 				Deleting a pool moves its rewards and minigames to the first one. There&apos;s always at least one pool.
 			</Text>
 
 			{/* ---- the minigames ---- */}
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Minigames</Text>
-				<Text fontSize="sm" color="gray.600">Each drop picks one of the ones that are ready by rarity, then draws from its pool. Give a hard game a lower rarity than an easy one to see it less.</Text>
+				<Text fontSize="sm" color="muted">Each drop picks one of the ones that are ready by rarity, then draws from its pool. Give a hard game a lower rarity than an easy one to see it less.</Text>
 				<Badge colorScheme={liveGames.length ? "green" : "red"}>{liveGames.length} ready</Badge>
 				<Box flex="1" />
 				<Button size="sm" onClick={addGame} isDisabled={draft.games.length >= MAX_GAMES}>Add minigame</Button>
 			</Flex>
 			{draft.games.length === 0 && (
-				<Text fontSize="sm" color="gray.500" mb={3}>No minigames yet — a drop needs at least one to play.</Text>
+				<Text fontSize="sm" color="subtle" mb={3}>No minigames yet — a drop needs at least one to play.</Text>
 			)}
 			<VStack align="stretch" spacing={3} mb={5}>
 				{draft.games.map((g: any) => {
@@ -489,11 +489,11 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 									))}
 								</Select>
 								<Input size="sm" maxW="180px" placeholder="Name (just for this tab)" value={g.name} onChange={(e) => patchGame(g.id, { name: e.target.value }, `gn${g.id}`)} />
-								<Text fontSize="sm" color="gray.600">in</Text>
+								<Text fontSize="sm" color="muted">in</Text>
 								<NumberField width="90px" min={5} max={3600} value={g.seconds} onCommit={(n) => patchGame(g.id, { seconds: n }, `gs${g.id}`)} />
-								<Text fontSize="sm" color="gray.600">sec</Text>
+								<Text fontSize="sm" color="muted">sec</Text>
 								<HStack spacing={1}>
-									<Text fontSize="sm" color="gray.600">On</Text>
+									<Text fontSize="sm" color="muted">On</Text>
 									<Switch size="sm" isChecked={g.enabled} onChange={(e) => patchGame(g.id, { enabled: e.target.checked })} />
 								</HStack>
 								{g.enabled && !ready && <Badge colorScheme="red">needs {g.kind === "count" || g.kind === "guess" ? "a range" : g.kind === "secret" ? "a phrase with a hint" : "words"}</Badge>}
@@ -502,87 +502,87 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 								<Button size="xs" variant="ghost" colorScheme="red" onClick={() => patch({ games: draft.games.filter((z: any) => z.id !== g.id) })}>Delete</Button>
 							</HStack>
 							<HStack spacing={2} wrap="wrap" mb={2}>
-								<Text fontSize="sm" color="gray.600">Pays from</Text>
+								<Text fontSize="sm" color="muted">Pays from</Text>
 								<Select size="sm" maxW="220px" value={g.pool} onChange={(e) => patchGame(g.id, { pool: e.target.value })}>
 									{draft.pools.map((pool: any) => (
 										<option key={pool.id} value={pool.id}>{pool.name}</option>
 									))}
 								</Select>
 								{g.enabled && ready && !stocked && <Badge colorScheme="red">nothing in that pool can drop</Badge>}
-								<Text fontSize="sm" color="gray.600" ml={2}>Rarity</Text>
+								<Text fontSize="sm" color="muted" ml={2}>Rarity</Text>
 								<NumberField width="90px" min={0} max={1000} value={g.weight} onCommit={(n) => patchGame(g.id, { weight: n }, `gw${g.id}`)} />
 								{(() => {
 									const odds = gameOdds(draft.games, draft.rewards, g);
 									return <Badge colorScheme={odds > 0 ? "blue" : "gray"}>{odds > 0 ? `${odds.toFixed(1)}% of drops` : g.weight > 0 ? "can't go up" : "never (still testable)"}</Badge>;
 								})()}
 							</HStack>
-							<Text fontSize="xs" color="gray.500" mb={2}>{kind.hint}</Text>
+							<Text fontSize="xs" color="subtle" mb={2}>{kind.hint}</Text>
 							{g.kind === "chant" && (
 								<HStack spacing={2} wrap="wrap" mb={2}>
-									<Text fontSize="sm" color="gray.600">Say it</Text>
+									<Text fontSize="sm" color="muted">Say it</Text>
 									<NumberField width="90px" min={1} max={10000} value={g.times} onCommit={(n) => patchGame(g.id, { times: n }, `gt${g.id}`)} />
-									<Text fontSize="sm" color="gray.600">times</Text>
+									<Text fontSize="sm" color="muted">times</Text>
 									<HStack spacing={1}>
 										<Switch size="sm" isChecked={g.streak} onChange={(e) => patchGame(g.id, { streak: e.target.checked })} />
-										<Text fontSize="sm" color="gray.600">in a row</Text>
+										<Text fontSize="sm" color="muted">in a row</Text>
 									</HStack>
 								</HStack>
 							)}
 							{g.kind === "count" && (
 								<HStack spacing={2} wrap="wrap" mb={2}>
-									<Text fontSize="sm" color="gray.600">From</Text>
+									<Text fontSize="sm" color="muted">From</Text>
 									<NumberField width="100px" min={-100000} max={100000} value={g.from} onCommit={(n) => patchGame(g.id, { from: n }, `gf${g.id}`)} />
-									<Text fontSize="sm" color="gray.600">to</Text>
+									<Text fontSize="sm" color="muted">to</Text>
 									<NumberField width="100px" min={-100000} max={100000} value={g.to} onCommit={(n) => patchGame(g.id, { to: n }, `gto${g.id}`)} />
 									<HStack spacing={1}>
 										<Switch size="sm" isChecked={g.resetOnMistake} onChange={(e) => patchGame(g.id, { resetOnMistake: e.target.checked })} />
-										<Text fontSize="sm" color="gray.600">a wrong number starts it over</Text>
+										<Text fontSize="sm" color="muted">a wrong number starts it over</Text>
 									</HStack>
 								</HStack>
 							)}
 							{g.kind === "guess" && (
 								<HStack spacing={2} wrap="wrap" mb={2}>
-									<Text fontSize="sm" color="gray.600">A number from</Text>
+									<Text fontSize="sm" color="muted">A number from</Text>
 									<NumberField width="100px" min={-100000} max={100000} value={g.from} onCommit={(n) => patchGame(g.id, { from: n }, `gf${g.id}`)} />
-									<Text fontSize="sm" color="gray.600">to</Text>
+									<Text fontSize="sm" color="muted">to</Text>
 									<NumberField width="100px" min={-100000} max={100000} value={g.to} onCommit={(n) => patchGame(g.id, { to: n }, `gto${g.id}`)} />
-									<Text fontSize="sm" color="gray.600">(both included)</Text>
+									<Text fontSize="sm" color="muted">(both included)</Text>
 									<HStack spacing={1}>
 										<Switch size="sm" isChecked={g.narrow} onChange={(e) => patchGame(g.id, { narrow: e.target.checked })} />
-										<Text fontSize="sm" color="gray.600">higher / lower — each miss narrows the range</Text>
+										<Text fontSize="sm" color="muted">higher / lower — each miss narrows the range</Text>
 									</HStack>
 								</HStack>
 							)}
 							{g.kind === "subpoints" && (
 								<HStack spacing={2} wrap="wrap" mb={2}>
-									<Text fontSize="sm" color="gray.600">Reach</Text>
+									<Text fontSize="sm" color="muted">Reach</Text>
 									<NumberField width="100px" min={1} max={100000} value={g.points} onCommit={(n) => patchGame(g.id, { points: n }, `gp${g.id}`)} />
-									<Text fontSize="sm" color="gray.600">sub points</Text>
+									<Text fontSize="sm" color="muted">sub points</Text>
 								</HStack>
 							)}
 							{g.kind === "secret" && (
 								<Box>
 									<Flex align="center" gap={2} mb={2} wrap="wrap">
-										<Text fontSize="sm" color="gray.600">
-											Phrases — one is drawn for each drop, then one of its hints goes up
+										<Text fontSize="sm" color="muted">
+											Phrases — one is drawn for each drop, then one of its hints goes up (text or picture)
 										</Text>
 										<Box flex="1" />
 										<Button size="xs" onClick={() => addSecret(g.id)} isDisabled={g.secrets.length >= MAX_SECRETS}>Add phrase</Button>
 									</Flex>
 									{g.secrets.length === 0 && (
-										<Text fontSize="xs" color="gray.500" mb={2}>No phrases yet — add one and give it a hint or two.</Text>
+										<Text fontSize="xs" color="subtle" mb={2}>No phrases yet — add one and give it a hint or two (words or pictures).</Text>
 									)}
 									<VStack align="stretch" spacing={2}>
 										{g.secrets.map((s: any, i: number) => (
 											<Flex key={i} gap={2} wrap="wrap" borderWidth="1px" borderRadius="md" p={2} align="flex-start">
 												<VStack align="stretch" spacing={1} minW="200px" flex="0 0 auto">
-													<Text fontSize="xs" color="gray.500">The phrase to guess</Text>
+													<Text fontSize="xs" color="subtle">The phrase to guess</Text>
 													<Input size="sm" placeholder="perk a cola" value={s.phrase}
 														onChange={(e) => patchSecret(g.id, i, { phrase: e.target.value }, `sp${g.id}${i}`)} />
 													{!secretReady(s) && <Badge colorScheme="red" alignSelf="flex-start">needs {s.phrase ? "a hint" : "a phrase"}</Badge>}
 												</VStack>
 												<VStack align="stretch" spacing={1} flex="1" minW="240px">
-													<Text fontSize="xs" color="gray.500">Hints — one per line, one is picked</Text>
+													<Text fontSize="xs" color="subtle">Hints — one per line, one is picked</Text>
 													<Textarea
 														size="sm"
 														rows={2}
@@ -590,6 +590,57 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 														value={s.hints.join("\n")}
 														onChange={(e) => patchSecret(g.id, i, { hints: e.target.value.split("\n") }, `sh${g.id}${i}`)}
 													/>
+													{/* picture hints: shown on the overlay in place of the words. same pool as the text hints */}
+													<Text fontSize="xs" color="subtle">Picture hints — shown instead of words when one is picked</Text>
+													{s.images.length > 0 && (
+														<Flex gap={2} wrap="wrap">
+															{s.images.map((img: string) => (
+																<Box key={img} position="relative" w="64px" h="64px" borderWidth="1px" borderRadius="md" overflow="hidden" bg="panel" title={img}>
+																	<img src={prizeImageSrc(img)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+																	<Button
+																		size="xs"
+																		position="absolute"
+																		top={0}
+																		right={0}
+																		minW="18px"
+																		h="18px"
+																		p={0}
+																		colorScheme="red"
+																		onClick={() => patchSecret(g.id, i, { images: s.images.filter((x: string) => x !== img) })}
+																	>
+																		×
+																	</Button>
+																</Box>
+															))}
+														</Flex>
+													)}
+													<HStack spacing={2} wrap="wrap">
+														<Select
+															size="sm"
+															maxW="200px"
+															value=""
+															isDisabled={s.images.length >= 10}
+															onChange={(e) => e.target.value && !s.images.includes(e.target.value) && patchSecret(g.id, i, { images: [...s.images, e.target.value] })}
+														>
+															<option value="">(add a picture…)</option>
+															{PRIZE_IMAGES.map((f) => (
+																<option key={f} value={f}>{f}</option>
+															))}
+														</Select>
+														<Input
+															size="sm"
+															maxW="240px"
+															placeholder="…or paste an image URL + Enter"
+															isDisabled={s.images.length >= 10}
+															onKeyDown={(e) => {
+																const v = (e.target as HTMLInputElement).value.trim();
+																if (e.key === "Enter" && v && !s.images.includes(v)){
+																	patchSecret(g.id, i, { images: [...s.images, v] });
+																	(e.target as HTMLInputElement).value = "";
+																}
+															}}
+														/>
+													</HStack>
 												</VStack>
 												<Button size="xs" variant="ghost" colorScheme="red" alignSelf="center" onClick={() => deleteSecret(g.id, i)}>Delete</Button>
 											</Flex>
@@ -599,7 +650,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 							)}
 							{(g.kind === "chant" || g.kind === "scramble") && (
 								<Box>
-									<Text fontSize="sm" color="gray.600" mb={1}>
+									<Text fontSize="sm" color="muted" mb={1}>
 										{g.kind === "chant" ? "Phrases" : "Words"} — one per line, one is picked for each drop
 									</Text>
 									<Textarea
@@ -619,18 +670,18 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 			{/* ---- the rewards ---- */}
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Rewards</Text>
-				<Text fontSize="sm" color="gray.600">
+				<Text fontSize="sm" color="muted">
 					What can drop, by pool. Rarity is a weight against the rest of its pool, like the mystery box prizes.
 				</Text>
 				<Badge colorScheme={liveRewards.length ? "green" : "red"}>{liveRewards.length} can drop</Badge>
 			</Flex>
-			<Text fontSize="xs" color="gray.500" mb={3}>
+			<Text fontSize="xs" color="subtle" mb={3}>
 				A reward that goes to one person (ray gun shots, more boxes, <Code fontSize="xs">{"{user}"}</Code> in a
 				command) goes to whoever finished the minigame: the last number counted, the last line of the chant, the
 				unscrambler or guesser, or the gifter of the last sub points. If nobody in chat finished it, that part is skipped.
 			</Text>
 			{draft.rewards.length === 0 && (
-				<Text fontSize="sm" color="gray.500" mb={3}>
+				<Text fontSize="sm" color="subtle" mb={3}>
 					No rewards yet. Add one to a pool, drop its art into <Code fontSize="xs">front/public/prizes</Code>, and pick what it does.
 				</Text>
 			)}
@@ -638,7 +689,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 				<Box key={pool.id} mb={5}>
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="purple" fontSize="sm">{pool.name}</Badge>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{draft.rewards.filter((p: any) => p.pool === pool.id).length === 0
 								? "Nothing in this pool yet."
 								: `Paid out by ${draft.games.filter((g: any) => g.pool === pool.id).map((g: any) => g.name || (GAME_KINDS.find((k) => k.key === g.kind) || GAME_KINDS[0]).label).join(", ") || "no minigame yet"}.`}
@@ -654,27 +705,27 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 							return (
 								<Box key={p.id} borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled ? 1 : 0.55}>
 									<Flex gap={3} wrap="wrap">
-										<Box w="86px" h="86px" flex="0 0 auto" borderWidth="1px" borderRadius="md" bg="gray.50"
+										<Box w="86px" h="86px" flex="0 0 auto" borderWidth="1px" borderRadius="md" bg="panel"
 											display="flex" alignItems="center" justifyContent="center" overflow="hidden">
 											{img
 												? <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-												: <Text fontSize="xs" color="gray.400">no art</Text>}
+												: <Text fontSize="xs" color="faint">no art</Text>}
 										</Box>
 										<VStack align="stretch" spacing={2} flex="1" minW="280px">
 											<HStack spacing={2} wrap="wrap">
 												<Input size="sm" maxW="200px" placeholder="Reward name" value={p.name}
 													onChange={(e) => patchReward(p.id, { name: e.target.value }, `n${p.id}`)} />
 												<HStack spacing={1}>
-													<Text fontSize="sm" color="gray.600">Rarity</Text>
+													<Text fontSize="sm" color="muted">Rarity</Text>
 													<NumberField width="90px" min={0} max={1000} value={p.weight} onCommit={(n) => patchReward(p.id, { weight: n }, `w${p.id}`)} />
 													<Badge colorScheme={odds > 0 ? "blue" : "gray"}>{odds > 0 ? `${odds.toFixed(2)}%` : "never"}</Badge>
 												</HStack>
 												<HStack spacing={1}>
-													<Text fontSize="sm" color="gray.600">On</Text>
+													<Text fontSize="sm" color="muted">On</Text>
 													<Switch size="sm" isChecked={p.enabled} onChange={(e) => patchReward(p.id, { enabled: e.target.checked })} />
 												</HStack>
 												<HStack spacing={1}>
-													<Text fontSize="sm" color="gray.600">Pool</Text>
+													<Text fontSize="sm" color="muted">Pool</Text>
 													<Select size="sm" maxW="160px" value={p.pool} onChange={(e) => patchReward(p.id, { pool: e.target.value })}>
 														{draft.pools.map((z: any) => (
 															<option key={z.id} value={z.id}>{z.name}</option>
@@ -702,7 +753,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 											</HStack>
 											<Divider />
 											<HStack spacing={2} wrap="wrap">
-												<Text fontSize="sm" color="gray.600">Does</Text>
+												<Text fontSize="sm" color="muted">Does</Text>
 												<Select size="sm" maxW="220px" value={p.effect.kind} onChange={(e) => patchEffect(p.id, { kind: e.target.value })}>
 													{REWARD_KINDS.map((k) => (
 														<option key={k.key} value={k.key}>{k.label}</option>
@@ -719,7 +770,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 				</Box>
 			))}
 
-			<Text fontSize="xs" color="gray.500">
+			<Text fontSize="xs" color="subtle">
 				Reward art lives in <Code fontSize="xs">front/public/prizes</Code> and sounds in{" "}
 				<Code fontSize="xs">front/public/media</Code>, the same folders the mystery box uses. Both lists are read
 				when the site starts, so a file dropped in while it&apos;s running needs a restart before it shows up here.

@@ -54,7 +54,7 @@ function ago(ts?: number): string {
 // small grey "<label> <age>" line; renders nothing until we've actually seen the signal
 const Fresh: React.FC<{ ts?: number; label: string }> = ({ ts, label }) =>
 	ts ? (
-		<Text fontSize="xs" color="gray.500">
+		<Text fontSize="xs" color="subtle">
 			{label} {ago(ts)}
 		</Text>
 	) : null;
@@ -62,8 +62,8 @@ const Fresh: React.FC<{ ts?: number; label: string }> = ({ ts, label }) =>
 // red reason box, matching the fourthwall treatment — only shown when configured-but-not-working with a reason
 const ErrorBox: React.FC<{ show: boolean; text: string }> = ({ show, text }) =>
 	show && text ? (
-		<Box bg="red.50" borderWidth="1px" borderColor="red.200" borderRadius="md" px={3} py={2}>
-			<Text fontSize="sm" color="red.600">
+		<Box bg="dangerBg" borderWidth="1px" borderColor="dangerLine" borderRadius="md" px={3} py={2}>
+			<Text fontSize="sm" color="danger">
 				{text}
 			</Text>
 		</Box>
@@ -130,7 +130,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 
 	return (
 		<Box textAlign="left">
-			<Text color="gray.500" fontSize="sm" mb={3}>
+			<Text color="subtle" fontSize="sm" mb={3}>
 				Set up which channels the timer watches. Changes apply immediately on the server.
 			</Text>
 			<Accordion allowMultiple defaultIndex={[0]}>
@@ -149,7 +149,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					</AccordionButton>
 					<AccordionPanel pb={4}>
 						<VStack align="stretch" spacing={3}>
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								Twitch channel whose chat to watch.
 							</Text>
 							<ErrorBox show={!!curChannel && !settings.twitchStatus} text={twitchError} />
@@ -172,7 +172,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 								</Button>
 							</HStack>
 							{curChannel && (
-								<Text fontSize="xs" color="gray.500">
+								<Text fontSize="xs" color="subtle">
 									Currently watching: {curChannel}
 								</Text>
 							)}
@@ -195,7 +195,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					</AccordionButton>
 					<AccordionPanel pb={4}>
 						<VStack align="stretch" spacing={3}>
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								Streamlabs socket API token (donations + merch).
 							</Text>
 							<ErrorBox show={slHasToken && !settings.slStatus} text={slError} />
@@ -241,7 +241,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						<AccordionIcon />
 					</AccordionButton>
 					<AccordionPanel pb={4}>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							YouTube Super Chats, Super Stickers, and memberships are relayed through your Streamlabs
 							connection. Connect Streamlabs above (with your YouTube channel linked in Streamlabs) to
 							enable them, then set their rates under Time Per Action.
@@ -263,7 +263,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					</AccordionButton>
 					<AccordionPanel pb={4}>
 						<VStack align="stretch" spacing={3}>
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								Adds time for store purchases, donations, and memberships. Paste a Fourthwall API key
 								(username + password from your Fourthwall dashboard); the server polls your store for new
 								activity. The credentials are stored so polling can continue.
@@ -323,20 +323,20 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					</AccordionButton>
 					<AccordionPanel pb={4}>
 						<VStack align="stretch" spacing={3}>
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								Powers the live <b>active subs</b> and <b>sub points</b> browser sources on the Subcounts
 								tab. These rise and fall with real subscriber numbers, unlike the all-time tallies which
 								only count up. Twitch only reports this to the broadcaster&apos;s own authorized token —
 								there&apos;s no API key for it — so this needs a one-time approval on your channel.
 								Nothing here adds time to the timer.
 							</Text>
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								The same approval also lets the Mystery Box tab hear <b>channel point redemptions</b>.
 								If you approved this before that was added, authorize again to turn it on.
 								{tsAuthorized && (ts.pointsOk ? " Channel points: listening." : ts.pointsError ? ` Channel points: ${ts.pointsError}` : "")}
 							</Text>
 							<ErrorBox show={tsAuthorized && !settings.twitchSubsStatus} text={tsError} />
-							<Box fontSize="sm" color="gray.600">
+							<Box fontSize="sm" color="muted">
 								<Text>
 									<b>1.</b> At <Text as="code">dev.twitch.tv/console/apps</Text> register an application. Client
 									type <b>must be Confidential</b> — a Public app&apos;s access expires after 30 days and
@@ -382,7 +382,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 									>
 										{tsAuthorized ? "Re-authorize" : "Authorize"}
 									</Button>
-									<Text fontSize="xs" color="gray.500">
+									<Text fontSize="xs" color="subtle">
 										{tsAuthorized && tsLogin ? `currently reading ${tsLogin}` : "gives you a code to enter on Twitch"}
 									</Text>
 								</HStack>
@@ -400,7 +400,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 									<Text fontSize="3xl" fontWeight={700} letterSpacing="0.2em" fontFamily="mono">
 										{tsPending.userCode}
 									</Text>
-									<Text fontSize="xs" color="gray.500" mt={2}>
+									<Text fontSize="xs" color="subtle" mt={2}>
 										Waiting for Twitch — this page picks it up on its own, no need to come back and click
 										anything. The code stops working in about 30 minutes.
 									</Text>
@@ -433,7 +433,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					</AccordionButton>
 					<AccordionPanel pb={4}>
 						<VStack align="stretch" spacing={3}>
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								The account this app <b>speaks and moderates as</b>. Reading chat needs nobody, but saying
 								anything — or the Mystery Box&apos;s <b>Nuke</b> prize timing people out — needs an account,
 								and timeouts need that account to be a <b>moderator</b> in the channel. Without this, those
@@ -443,7 +443,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 								and says it as a plain message until then.
 							</Text>
 							<ErrorBox show={!!tbError} text={tbError} />
-							<Box fontSize="sm" color="gray.600">
+							<Box fontSize="sm" color="muted">
 								<Text>
 									<b>1.</b> In the channel&apos;s chat, the broadcaster types{" "}
 									<Text as="code">/mod yourbotname</Text>.
@@ -501,7 +501,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 											Test
 										</Button>
 									)}
-									<Text fontSize="xs" color="gray.500">
+									<Text fontSize="xs" color="subtle">
 										{tbAuthorized && tbLogin
 											? `talking as ${tbLogin} — Test checks it's still a mod (result on the Terminal tab)`
 											: "gives you a code to enter on Twitch, signed in as the bot"}
@@ -521,7 +521,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 									<Text fontSize="3xl" fontWeight={700} letterSpacing="0.2em" fontFamily="mono">
 										{tbPending.userCode}
 									</Text>
-									<Text fontSize="xs" color="gray.500" mt={2}>
+									<Text fontSize="xs" color="subtle" mt={2}>
 										Waiting for Twitch — this page picks it up on its own. The code stops working in about
 										30 minutes.
 									</Text>
@@ -549,7 +549,7 @@ const Connections: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 						<AccordionIcon />
 					</AccordionButton>
 					<AccordionPanel pb={4}>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							Kick subscriptions and gifted subs are relayed through your Streamlabs connection (with your
 							Kick channel linked in Streamlabs). Connect Streamlabs above to enable them, then set their
 							rates under Time Per Action. Kick tips arrive via the Streamlabs donation rate.

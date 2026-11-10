@@ -515,10 +515,99 @@ const MysteryBox: React.FC = () => {
 	const reviveLettersFs = Math.max(48, Math.min(120, Math.floor((STAGE_W - 120) / (Math.max(4, reviveLetters.length) * 0.62))));
 	// a hint is a sentence, so it wraps rather than shrinking out of sight, and only needs a floor
 	const reviveHint = String((revive && revive.hint) || "");
+	// …or the hint is a picture, which goes up in the words' place
+	const reviveHintImage = reviveSecret ? prizeImageSrc(String((revive && revive.hintImage) || "")) : "";
 	const reviveHintFs = Math.max(40, Math.min(80, Math.floor((STAGE_W - 120) / (Math.max(10, reviveHint.length) * 0.5))));
 	const reviveWinner = String((revive && revive.winner) || "");
 	// a number guess: where the number can still be, and the last miss with which way it was off
 	const reviveGuess = !!(revive && revive.kind === "guess");
+	// shell game: a row of numbered shells. once it's decided, the prize's shell lights up green and a wrong
+	// pick goes red.
+	const reviveShell = !!(revive && revive.kind === "shell");
+	// solve for x: the equation, sized to fit on one or two lines
+	const reviveAlgebra = !!(revive && revive.kind === "algebra");
+	const equation = String((revive && revive.equation) || "");
+	const equationFs = Math.max(34, Math.min(72, Math.floor((STAGE_W - 120) / (Math.max(16, equation.length) * 0.32))));
+	const wrongAnswers = Number((revive && revive.wrongAnswers) || 0);
+	const shellCount = Math.max(0, Number((revive && revive.shells) || 0));
+	const shellPick = Number((revive && revive.shellPick) || 0);
+	const shellAnswer = Number((revive && revive.shellAnswer) || 0);
+	const shellArt = reviveShell ? prizeImageSrc(String((revive && revive.shellImage) || "")) : "";
+	const shellSize = Math.max(70, Math.min(140, Math.floor((STAGE_W - 160) / Math.max(3, shellCount) - 24)));
+	const shellRow = (
+		<div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 18 }}>
+			{Array.from({ length: shellCount }, (_, i) => i + 1).map((n) => {
+				const prizeHere = shellAnswer === n;
+				const wrongPick = shellPick === n && !prizeHere;
+				const lift = shellPick === n && !shellAnswer ? "translateY(-10px)" : undefined;
+				if (shellArt)
+					// the client's art as the shell, its number over it. the result shows as a glow round the
+					// art — green where the prize was, red on a wrong pick — so the art itself stays as drawn.
+					return (
+						<div key={n} style={{ textAlign: "center", animation: prizeHere ? "mb-pop 420ms ease-out both" : undefined }}>
+							<div style={{ position: "relative", width: shellSize, height: shellSize, transform: lift }}>
+								<img
+									src={shellArt}
+									alt=""
+									style={{
+										width: "100%",
+										height: "100%",
+										objectFit: "contain",
+										filter: prizeHere
+											? "drop-shadow(0 0 18px rgba(47,211,107,1)) drop-shadow(0 0 30px rgba(47,211,107,0.8))"
+											: wrongPick
+											? "drop-shadow(0 0 18px rgba(255,75,75,1)) grayscale(0.4)"
+											: "drop-shadow(0 6px 0 rgba(0,0,0,0.55))",
+									}}
+								/>
+								<div
+									style={{
+										position: "absolute",
+										inset: 0,
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "center",
+										fontSize: shellSize * 0.5,
+										fontWeight: 700,
+										color: prizeHere ? "#2fd36b" : wrongPick ? "#ff4b4b" : cfg.titleColor,
+										WebkitTextStrokeWidth: "4px",
+										WebkitTextStrokeColor: "#000",
+										paintOrder: "stroke fill",
+										textShadow: "0 4px 0 rgba(0,0,0,0.6)",
+									}}
+								>
+									{prizeHere ? "★" : n}
+								</div>
+							</div>
+						</div>
+					);
+				return (
+					<div key={n} style={{ textAlign: "center", animation: prizeHere ? "mb-pop 420ms ease-out both" : undefined }}>
+						<div
+							style={{
+								width: shellSize,
+								height: shellSize * 0.8,
+								borderRadius: "50% 50% 14px 14px",
+								background: prizeHere ? "#2fd36b" : wrongPick ? "#ff4b4b" : cfg.titleColor,
+								border: "4px solid #000",
+								boxShadow: prizeHere ? "0 0 40px rgba(47,211,107,0.9)" : "0 6px 0 rgba(0,0,0,0.55)",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								fontSize: shellSize * 0.45,
+								color: "#000",
+								fontWeight: 700,
+								transform: lift,
+							}}
+						>
+							{prizeHere ? "★" : n}
+						</div>
+						<div style={{ color: cfg.nameColor, fontSize: 30, marginTop: 6, textShadow: outline }}>{n}</div>
+					</div>
+				);
+			})}
+		</div>
+	);
 	const guessLow = Number((revive && revive.low) || 0);
 	const guessHigh = Number((revive && revive.high) || 0);
 	const guessLast = revive && revive.lastGuess !== null && revive.lastGuess !== undefined ? Number(revive.lastGuess) : null;
@@ -540,7 +629,9 @@ const MysteryBox: React.FC = () => {
 	const reviveHolder = String((revive && revive.holder) || "");
 	const holderFs = Math.max(48, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveHolder.length + 1) * 0.55))));
 	// vote 'em out: the standings, and how many of them go
-	const reviveVote = !!(revive && revive.kind === "vote");
+	// vote 'em up shares the board; only the colour and the words at the end change
+	const reviveVoteUp = !!(revive && revive.kind === "voteup");
+	const reviveVote = !!(revive && (revive.kind === "vote" || reviveVoteUp));
 	const voteBoard: { name: string; votes: number }[] = revive && Array.isArray(revive.board) ? revive.board : [];
 	const voteTop = Math.max(1, Number((revive && revive.topCount) || 1));
 	// weenie hunt: the phrase nobody may say, and who said it if somebody did
@@ -1116,7 +1207,7 @@ const MysteryBox: React.FC = () => {
 												justifyContent: "space-between",
 												fontSize: i < voteTop ? 44 : 32,
 												lineHeight: 1.15,
-												color: i < voteTop ? "#ff4b4b" : cfg.nameColor,
+												color: i < voteTop ? (reviveVoteUp ? "#4bff7a" : "#ff4b4b") : cfg.nameColor,
 												textShadow: outline,
 												opacity: i < voteTop ? 1 : 0.8,
 											}}
@@ -1145,6 +1236,35 @@ const MysteryBox: React.FC = () => {
 										&ldquo;{weeniePhrase.toUpperCase()}&rdquo;
 									</div>
 								</div>
+							) : reviveAlgebra ? (
+								<div style={{ marginTop: 14, padding: "0 40px" }}>
+									<div
+										style={{
+											color: cfg.titleColor,
+											fontSize: equationFs,
+											lineHeight: 1.15,
+											fontFamily: "'Azeret Mono', monospace",
+											fontWeight: 700,
+											WebkitTextStrokeWidth: "3px",
+											WebkitTextStrokeColor: "#000",
+											paintOrder: "stroke fill",
+											textShadow: "0 0 30px rgba(255,212,0,0.6), 0 5px 0 rgba(0,0,0,0.55)",
+											animation: "mb-pop 420ms ease-out both",
+										}}
+									>
+										{equation}
+									</div>
+									<div style={{ color: cfg.nameColor, fontSize: 34, marginTop: 12, textShadow: outline }}>
+										TYPE x IN CHAT
+										{wrongAnswers > 0 && (
+											<span key={`wa${wrongAnswers}`} style={{ display: "inline-block", marginLeft: 18, color: "#ff4b4b", animation: "mb-pop 300ms ease-out both" }}>
+												{wrongAnswers} WRONG
+											</span>
+										)}
+									</div>
+								</div>
+							) : reviveShell ? (
+								shellRow
 							) : reviveGuess ? (
 								<div style={{ marginTop: 10 }}>
 									{/* the range pops each time a miss closes it in, so chat sees its guess land */}
@@ -1169,6 +1289,19 @@ const MysteryBox: React.FC = () => {
 											{guessBy && <span style={{ fontSize: 28, opacity: 0.85, marginLeft: 14 }}>@{guessBy}</span>}
 										</div>
 									)}
+								</div>
+							) : reviveSecret && reviveHintImage ? (
+								<div style={{ marginTop: 14, animation: "mb-pop 420ms ease-out both" }}>
+									<img
+										src={reviveHintImage}
+										alt=""
+										style={{
+											maxWidth: STAGE_W - 160,
+											maxHeight: reviveDrop ? 260 : 340,
+											objectFit: "contain",
+											filter: "drop-shadow(0 6px 0 rgba(0,0,0,0.55)) drop-shadow(0 0 30px rgba(255,212,0,0.5))",
+										}}
+									/>
 								</div>
 							) : reviveScramble || reviveSecret ? (
 								<div
@@ -1279,17 +1412,22 @@ const MysteryBox: React.FC = () => {
 								{reviveHolderGame
 									? `@${reviveHolder} ${revive.kind === "potato" ? "GOT BURNED" : "WINS"}`
 									: reviveVote
-									? (voteBoard.length ? "VOTED OUT:" : "NOBODY GOT A VOTE")
+									? (voteBoard.length ? (reviveVoteUp ? "WINNER:" : "VOTED OUT:") : "NOBODY GOT A VOTE")
 									: reviveWeenie
 									? (weenieBy ? `@${weenieBy} SAID "${weeniePhrase.toUpperCase()}"` : `NOBODY SAID "${weeniePhrase.toUpperCase()}"`)
+									: reviveAlgebra
+									? (revivePhase === "won" ? `@${String(revive.winner || "")} — x = ${String(revive.xAnswer || "")}` : `x = ${String(revive.xAnswer || "")}`)
+									: reviveShell
+									? (shellPick ? `@${String(revive.shellPickedBy || revive.shellPlayer || "")} PICKED #${shellPick} — IT WAS #${shellAnswer}` : `IT WAS UNDER #${shellAnswer}`)
 									: reviveGuess
 									? `IT WAS ${String(revive.answer || "")}`
 									: reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
 									: reviveInfection || reviveRollCall ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
+							{reviveShell && shellRow}
 							{reviveVote && voteBoard.length > 0 && (
-								<div style={{ color: "#ff4b4b", fontSize: voteTop > 4 ? 32 : 42, lineHeight: 1.2, marginTop: 8, padding: "0 50px", textShadow: outline }}>
+								<div style={{ color: reviveVoteUp ? "#4bff7a" : "#ff4b4b", fontSize: voteTop > 4 ? 32 : 42, lineHeight: 1.2, marginTop: 8, padding: "0 50px", textShadow: outline }}>
 									{voteBoard.slice(0, voteTop).map((v) => (
 										<span key={v.name} style={{ display: "inline-block", marginRight: 18 }}>@{v.name} ({v.votes})</span>
 									))}

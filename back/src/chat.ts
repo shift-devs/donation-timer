@@ -18,7 +18,7 @@ import { Ledger, ledgerCount, ledgerGrant } from "./ledger";
 import { twitchBotReady, botSay, botAnnounce, botTimeout, resolveUserIds, reportBotError, describeError } from "./platforms/twitchBot";
 
 const MAX_CHATTERS = 2000;       // roster ceiling; the oldest are dropped past it
-const MAX_TIMEOUT_SEC = 3600;    // twitch's own ceiling for a timeout is 2 weeks; this is ours, and plenty
+const MAX_TIMEOUT_SEC = 24 * 3600; // twitch's own ceiling for a timeout is 2 weeks; this is ours (the fuck you gun's day)
 // how far back somebody must have spoken to count as "in chat right now". a minute is too short (plenty of
 // people are reading, not typing) and an hour is too long (it would sweep up people who left before the
 // stream's last break).
@@ -133,7 +133,8 @@ export async function chatTimeoutMany(session: TimerUserSession, logins: string[
 // has thirty of them and nobody wants thirty lines; a ray gun shot is a single deliberate act by a viewer
 // who spent something on it, so it owes them an answer — and lets the caller hand the charge back.
 // `blocked` = it would have landed, but they spent a shield on it.
-export async function chatTimeoutOne(session: TimerUserSession, login: string, seconds: number, reason: string): Promise<{ ok: boolean, message: string, blocked?: boolean }> {
+// `ignoreShield`: for first aid, whose 1 second "timeout" is a heal — it mustn't use up the target's shield.
+export async function chatTimeoutOne(session: TimerUserSession, login: string, seconds: number, reason: string, ignoreShield = false): Promise<{ ok: boolean, message: string, blocked?: boolean }> {
     const who = String(login || "").replace(/^@/, "").trim().toLowerCase();
     const secs = Math.min(MAX_TIMEOUT_SEC, Math.max(1, Math.trunc(seconds)));
     if (!who)
@@ -144,7 +145,7 @@ export async function chatTimeoutOne(session: TimerUserSession, login: string, s
         const ids = await resolveUserIds(session, [who]);
         if (!ids[who])
             return { ok: false, message: `there's nobody on Twitch called ${who}` };
-        if (spendShield(session, who))
+        if (!ignoreShield && spendShield(session, who))
             return { ok: false, message: `${who} blocked it`, blocked: true };
         await botTimeout(session, ids[who], secs, reason);
         return { ok: true, message: "" };

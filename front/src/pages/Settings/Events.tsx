@@ -522,7 +522,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 			return (
 				<HStack>
 					<Input type="time" size="sm" width="130px" value={t.dailyTime} onChange={(ev) => set({ dailyTime: ev.currentTarget.value })} />
-					<Text fontSize="xs" color="gray.500">{t.tz || "server time"}</Text>
+					<Text fontSize="xs" color="subtle">{t.tz || "server time"}</Text>
 				</HStack>
 			);
 		if (t.type === "once")
@@ -539,9 +539,9 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 			return (
 				<HStack wrap="wrap">
 					<Input size="sm" width="70px" placeholder="min" value={t.giftMin} onChange={(ev) => set({ giftMin: ev.currentTarget.value })} />
-					<Text fontSize="sm" color="gray.600">to</Text>
+					<Text fontSize="sm" color="muted">to</Text>
 					<Input size="sm" width="70px" placeholder="max" value={t.giftMax} onChange={(ev) => set({ giftMax: ev.currentTarget.value })} isInvalid={giftBackwards(t)} />
-					<Text fontSize="sm" color="gray.600">subs from</Text>
+					<Text fontSize="sm" color="muted">subs from</Text>
 					<Select size="sm" width="130px" value={t.giftPlatform} onChange={(ev) => set({ giftPlatform: ev.currentTarget.value })}>
 						{GIFT_PLATFORMS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
 					</Select>
@@ -552,9 +552,9 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				<HStack wrap="wrap">
 					{["donMin", "donMax"].map((k) => (
 						<React.Fragment key={k}>
-							{k === "donMax" && <Text fontSize="sm" color="gray.600">to</Text>}
+							{k === "donMax" && <Text fontSize="sm" color="muted">to</Text>}
 							<InputGroup size="sm" width="90px">
-								<InputLeftElement pointerEvents="none" color="gray.400" fontSize="sm">$</InputLeftElement>
+								<InputLeftElement pointerEvents="none" color="faint" fontSize="sm">$</InputLeftElement>
 								<Input
 									placeholder={k === "donMin" ? "min" : "max"}
 									value={t[k]}
@@ -564,7 +564,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							</InputGroup>
 						</React.Fragment>
 					))}
-					<Text fontSize="sm" color="gray.600">from</Text>
+					<Text fontSize="sm" color="muted">from</Text>
 					<Select size="sm" width="180px" value={t.donSource} onChange={(ev) => set({ donSource: ev.currentTarget.value })}>
 						{DONATION_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
 					</Select>
@@ -601,13 +601,13 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					</Wrap>
 				)}
 				<HStack mt={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">quantity</Text>
+					<Text fontSize="sm" color="muted">quantity</Text>
 					<Input size="sm" width="70px" placeholder="min" value={t.fwMin} onChange={(ev) => set({ fwMin: ev.currentTarget.value })} />
-					<Text fontSize="sm" color="gray.600">to</Text>
+					<Text fontSize="sm" color="muted">to</Text>
 					<Input size="sm" width="70px" placeholder="max" value={t.fwMax} onChange={(ev) => set({ fwMax: ev.currentTarget.value })} isInvalid={fwBackwards(t)} />
 				</HStack>
 				{!products && (
-					<Text fontSize="xs" color="gray.500" mt={1}>
+					<Text fontSize="xs" color="subtle" mt={1}>
 						Product list not loaded — connect Fourthwall to pick specific products. Until then this fires on any purchase.
 					</Text>
 				)}
@@ -638,7 +638,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 	};
 
 	const triggerRow = (i: number, t: any, ti: number) => (
-		<Box key={t.id} borderWidth="1px" borderRadius="md" borderColor="gray.200" p={2}>
+		<Box key={t.id} borderWidth="1px" borderRadius="md" borderColor="line" p={2}>
 			<HStack align="start">
 				<Select
 					size="sm"
@@ -652,14 +652,14 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				<Box flex="1">{triggerFields(i, t, ti)}</Box>
 				<Button size="xs" variant="ghost" colorScheme="red" onClick={() => removeTrigger(i, ti)} title="remove this trigger">✕</Button>
 			</HStack>
-			<Text fontSize="xs" color={giftBackwards(t) || donBackwards(t) || fwBackwards(t) ? "red.500" : "gray.500"} mt={1}>
+			<Text fontSize="xs" color={giftBackwards(t) || donBackwards(t) || fwBackwards(t) ? "danger" : "subtle"} mt={1}>
 				{triggerHint(t)}
 			</Text>
 		</Box>
 	);
 
 	const card = (e: any, i: number) => (
-		<Box key={e.id} borderWidth="1px" borderRadius="md" p={4} mb={3} bg={e.enabled ? "white" : "gray.50"}>
+		<Box key={e.id} borderWidth="1px" borderRadius="md" p={4} mb={3} bg={e.enabled ? "surface" : "panel"}>
 			<HStack mb={3}>
 				<Input
 					value={e.name}
@@ -669,7 +669,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					maxW="320px"
 				/>
 				<Spacer />
-				<Text fontSize="sm" color="gray.500">renders to</Text>
+				<Text fontSize="sm" color="subtle">renders to</Text>
 				<Select
 					size="sm"
 					width="200px"
@@ -683,7 +683,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 						<option value={e.layerId}>{layerLabel(layers, e.layerId)}</option>
 					)}
 				</Select>
-				<Text fontSize="sm" color="gray.500">enabled</Text>
+				<Text fontSize="sm" color="subtle">enabled</Text>
 				<Switch isChecked={e.enabled} onChange={(ev) => update(i, { enabled: ev.currentTarget.checked })} />
 			</HStack>
 
@@ -692,10 +692,10 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				<Box minW="420px" flex="1">
 					<HStack mb={1}>
 						<Text fontSize="sm" fontWeight={600}>Triggers</Text>
-						<Text fontSize="xs" color="gray.500">any one of these fires the event</Text>
+						<Text fontSize="xs" color="subtle">any one of these fires the event</Text>
 					</HStack>
 					{e.triggers.length === 0 && (
-						<Text fontSize="sm" color="orange.500" mb={2}>No triggers — this event can never fire.</Text>
+						<Text fontSize="sm" color="warn" mb={2}>No triggers — this event can never fire.</Text>
 					)}
 					<VStack align="stretch" spacing={2}>
 						{e.triggers.map((t: any, ti: number) => triggerRow(i, t, ti))}
@@ -707,14 +707,14 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				<Box minW="240px">
 					<Text fontSize="sm" fontWeight={600} mb={1}>Only if remaining time is</Text>
 					<HStack>
-						<Text fontSize="sm" color="gray.600">between</Text>
+						<Text fontSize="sm" color="muted">between</Text>
 						<Input
 							value={e.minRemaining}
 							placeholder="HH:MM:SS"
 							onChange={(ev) => update(i, { minRemaining: ev.currentTarget.value })}
 							width="110px"
 						/>
-						<Text fontSize="sm" color="gray.600">and</Text>
+						<Text fontSize="sm" color="muted">and</Text>
 						<Input
 							value={e.maxRemaining}
 							placeholder="HH:MM:SS"
@@ -722,7 +722,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							width="110px"
 						/>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mt={1}>
+					<Text fontSize="xs" color="subtle" mt={1}>
 						Applies to every trigger above. Both ends are inclusive; leave a box blank for no limit on
 						that side. The check uses the exact countdown, while the on-screen clock rounds to whole
 						seconds — so a max of <Code fontSize="xs">0:09:59</Code> only catches the lower half of the
@@ -754,11 +754,11 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 									isInvalid={!!e.linkUrl.trim() && (!/^https?:\/\//i.test(e.linkUrl.trim()) || !!linkProblem(e.linkUrl))}
 								/>
 								{!!e.linkUrl.trim() && !/^https?:\/\//i.test(e.linkUrl.trim()) ? (
-									<Text fontSize="xs" color="red.500" mt={1}>Needs to start with http:// or https://</Text>
+									<Text fontSize="xs" color="danger" mt={1}>Needs to start with http:// or https://</Text>
 								) : linkProblem(e.linkUrl) ? (
-									<Text fontSize="xs" color="red.500" mt={1}>{linkProblem(e.linkUrl)}</Text>
+									<Text fontSize="xs" color="danger" mt={1}>{linkProblem(e.linkUrl)}</Text>
 								) : willRewrite(e.linkUrl) ? (
-									<Text fontSize="xs" color="gray.500" mt={1}>
+									<Text fontSize="xs" color="subtle" mt={1}>
 										Dropbox preview link — saves as a direct <Code fontSize="xs">raw=1</Code> link so it streams
 										instead of loading their web page.
 									</Text>
@@ -780,7 +780,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 									isInvalid={!!e.ytUrl.trim() && !parseYouTube(e.ytUrl)}
 								/>
 								{!!e.ytUrl.trim() && !parseYouTube(e.ytUrl) && (
-									<Text fontSize="xs" color="red.500" mt={1}>Not a YouTube link.</Text>
+									<Text fontSize="xs" color="danger" mt={1}>Not a YouTube link.</Text>
 								)}
 							</Box>
 						) : (
@@ -797,14 +797,14 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 						)}
 					</HStack>
 					<HStack mb={1}>
-						<Text fontSize="sm" color="gray.600" minW="70px">play from</Text>
+						<Text fontSize="sm" color="muted" minW="70px">play from</Text>
 						<Input
 							value={e.clipStart}
 							placeholder="start"
 							onChange={(ev) => update(i, { clipStart: ev.currentTarget.value })}
 							width="90px"
 						/>
-						<Text fontSize="sm" color="gray.600">to</Text>
+						<Text fontSize="sm" color="muted">to</Text>
 						<Input
 							value={e.clipEnd}
 							placeholder="end"
@@ -813,14 +813,14 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							isInvalid={clipIsBackwards(e)}
 						/>
 					</HStack>
-					<Text fontSize="xs" color={clipIsBackwards(e) ? "red.500" : "gray.500"} mb={2}>
+					<Text fontSize="xs" color={clipIsBackwards(e) ? "danger" : "subtle"} mb={2}>
 						{clipIsBackwards(e)
 							? "The end must be after the start — it saves as unset, playing to the end."
 							: <>Time into the clip, as <Code fontSize="xs">M:SS</Code> or <Code fontSize="xs">H:MM:SS</Code> (a
 								plain number is seconds). Blank start = from the beginning, blank end = to the end.</>}
 					</Text>
 					<HStack>
-						<Text fontSize="sm" color="gray.600" minW="70px">volume</Text>
+						<Text fontSize="sm" color="muted" minW="70px">volume</Text>
 						<Slider
 							value={e.volume}
 							min={0}
@@ -832,10 +832,10 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							<SliderTrack><SliderFilledTrack /></SliderTrack>
 							<SliderThumb />
 						</Slider>
-						<Text fontSize="sm" color="gray.500" minW="40px">{Math.round(e.volume * 100)}%</Text>
+						<Text fontSize="sm" color="subtle" minW="40px">{Math.round(e.volume * 100)}%</Text>
 					</HStack>
 					{e.source === "youtube" && !e.clipEnd.trim() && (
-						<Text fontSize="xs" color="gray.500" mt={1}>
+						<Text fontSize="xs" color="subtle" mt={1}>
 							With no end set this plays the whole video — set one to keep it short.
 						</Text>
 					)}
@@ -860,9 +860,9 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 						>
 							<NumberInputField />
 						</NumberInput>
-						<Text fontSize="sm" color="gray.600">seconds after the media starts</Text>
+						<Text fontSize="sm" color="muted">seconds after the media starts</Text>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mt={1}>
+					<Text fontSize="xs" color="subtle" mt={1}>
 						Same syntax as the Terminal tab (type <Code fontSize="xs">help</Code> there for the list).
 						Runs on real fires and on Test.
 					</Text>
@@ -882,33 +882,33 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							<NumberInput size="sm" maxW="80px" min={0} step={1} value={e.raffle.delaySec} onChange={(str: string) => updateRaffle(i, { delaySec: str })}>
 								<NumberInputField />
 							</NumberInput>
-							<Text color="gray.600">sec after the event fires</Text>
+							<Text color="muted">sec after the event fires</Text>
 						</HStack>
 						<HStack>
-							<Text color="gray.600">title</Text>
+							<Text color="muted">title</Text>
 							<Input size="sm" maxW="160px" maxLength={40} value={e.raffle.title} placeholder="(Raffle tab's)" onChange={(ev) => updateRaffle(i, { title: ev.currentTarget.value })} />
 						</HStack>
 						<HStack>
-							<Text color="gray.600">prize</Text>
+							<Text color="muted">prize</Text>
 							<Input size="sm" maxW="220px" maxLength={200} value={e.raffle.prize} placeholder="(Raffle tab's)" onChange={(ev) => updateRaffle(i, { prize: ev.currentTarget.value })} />
 						</HStack>
 					</Flex>
 					<Flex gap={3} wrap="wrap" align="center" fontSize="sm" mt={2}>
 						<HStack>
-							<Text color="gray.600">entries open</Text>
+							<Text color="muted">entries open</Text>
 							<NumberInput size="sm" maxW="90px" min={0} max={3600} value={e.raffle.entrySec} onChange={(str: string) => updateRaffle(i, { entrySec: str })}>
 								<NumberInputField placeholder="tab's" />
 							</NumberInput>
-							<Text color="gray.600">sec</Text>
+							<Text color="muted">sec</Text>
 						</HStack>
 						<HStack>
-							<Text color="gray.600">winners</Text>
+							<Text color="muted">winners</Text>
 							<NumberInput size="sm" maxW="80px" min={1} max={20} value={e.raffle.winners} onChange={(str: string) => updateRaffle(i, { winners: str })}>
 								<NumberInputField placeholder="tab's" />
 							</NumberInput>
 						</HStack>
 						<HStack>
-							<Text color="gray.600">mystery boxes</Text>
+							<Text color="muted">mystery boxes</Text>
 							<Select size="sm" width="170px" value={e.raffle.giveBoxes} onChange={(ev) => updateRaffle(i, { giveBoxes: ev.currentTarget.value })}>
 								<option value="tab">as on the Raffle tab</option>
 								<option value="yes">yes</option>
@@ -918,7 +918,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 								<NumberInput size="sm" maxW="80px" min={1} max={99} value={e.raffle.boxesPerWinner} onChange={(str: string) => updateRaffle(i, { boxesPerWinner: str })}>
 									<NumberInputField placeholder="tab's" />
 								</NumberInput>
-								<Text color="gray.600">each</Text>
+								<Text color="muted">each</Text>
 							</>)}
 						</HStack>
 					</Flex>
@@ -926,7 +926,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 						<Code fontSize="xs" p={1} flex="1" overflowX="auto" whiteSpace="nowrap">{eventRaffleCommand(e.raffle)}</Code>
 						<Button size="xs" onClick={() => copyText(eventRaffleCommand(e.raffle))}>Copy as command</Button>
 					</HStack>
-					<Text fontSize="xs" color="gray.500" mt={2}>
+					<Text fontSize="xs" color="subtle" mt={2}>
 						Anything left blank uses the <b>Raffle</b> tab&apos;s setup, and the look, sounds and entry command
 						always come from there. Entries open 0 = stays open until you hit Draw now. If a raffle is already
 						running when this fires, it&apos;s skipped rather than replacing it. Runs on real fires and on Test.
@@ -943,7 +943,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				>
 					Test
 				</Button>
-				{dirty && <Text fontSize="xs" color="gray.500">save to test changes</Text>}
+				{dirty && <Text fontSize="xs" color="subtle">save to test changes</Text>}
 				<Spacer />
 				<Button size="sm" variant="ghost" colorScheme="red" onClick={() => remove(i)}>Delete</Button>
 			</HStack>
@@ -952,7 +952,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 
 	return (
 		<Box textAlign="left">
-			<Text color="gray.500" fontSize="sm" mb={3}>
+			<Text color="subtle" fontSize="sm" mb={3}>
 				An event holds any number of triggers — a time of day, a one-off moment, a gifted-subs bomb, a cash
 				donation, or a shop product being bought. When any of them fires, and only if the live countdown's
 				remaining time is inside the window, it plays its clip on the browser source it renders to (and can
@@ -961,14 +961,14 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 			</Text>
 
 			{draft.length === 0 && (
-				<Text color="gray.400" fontSize="sm" mb={3}>No events yet. Add one below.</Text>
+				<Text color="faint" fontSize="sm" mb={3}>No events yet. Add one below.</Text>
 			)}
 			{draft.map((e, i) => card(e, i))}
 
 			<Button onClick={add} mb={4}>+ Add event</Button>
 
-			<Flex bg="white" borderTopWidth="1px" py={3} align="center" gap={3}>
-				<Text color={dirty ? "orange.500" : "gray.400"} fontWeight={600}>
+			<Flex bg="surface" borderTopWidth="1px" py={3} align="center" gap={3}>
+				<Text color={dirty ? "warn" : "faint"} fontWeight={600}>
 					{dirty ? "unsaved changes" : "all changes saved"}
 				</Text>
 				<Spacer />
@@ -983,12 +983,12 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					<Text fontWeight={600}>OBS browser sources</Text>
 					<Badge colorScheme="purple">setup</Badge>
 				</HStack>
-				<Text fontSize="sm" color="gray.600" mb={2}>
+				<Text fontSize="sm" color="muted" mb={2}>
 					In OBS add a <b>Browser</b> source per URL below, sized to your canvas (e.g. 1920×1080). Each page fills
 					with <Code fontSize="xs">#00FF00</Code> — add a <b>Color Key</b> filter on that green so only the clip
 					shows, and audio plays through the source. Use a clip's <b>Test</b> button to confirm it's wired up before going live.
 				</Text>
-				<Text fontSize="sm" color="gray.600" mb={2}>
+				<Text fontSize="sm" color="muted" mb={2}>
 					Add a layer for each place a clip should appear, then point events at it with the <b>renders to</b>
 					dropdown on the event. Each layer is its own source URL and its own OBS source, so you can size and
 					position them independently. Everything defaults to Main, which is the URL this tab has always shown
@@ -1019,11 +1019,11 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 				</VStack>
 				<HStack mb={2}>
 					<Button size="sm" onClick={addLayer}>+ Add layer</Button>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						New layers save with the button above. Deleting one sends its events back to Main.
 					</Text>
 				</HStack>
-				<Text fontSize="xs" color="gray.500" mt={2}>
+				<Text fontSize="xs" color="subtle" mt={2}>
 					<b>Media folder</b> lists the videos and audios in the site's <Code fontSize="xs">media</Code> folder
 					(<Code fontSize="xs">front/public/media</Code>) and only those — drop files there and
 					rebuild/restart for them to appear.
@@ -1041,7 +1041,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 					<br />
 					For a file or a direct link, whether it plays as video or audio follows the file type.
 				</Text>
-				<Text fontSize="xs" color="gray.500" mt={2}>
+				<Text fontSize="xs" color="subtle" mt={2}>
 					Gift, donation and product triggers fire on real activity only — a typed terminal command never sets
 					one off. To rehearse one, use an event's <b>Test</b> button, or click a product thumbnail on the
 					Fourthwall tab: that simulated purchase drives the product triggers exactly like a real order, as a

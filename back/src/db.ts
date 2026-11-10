@@ -126,6 +126,31 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // unfired thunder gun charges, same shape again (see migration add-thunderguns)
+    thunderguns: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    // unused first aid kits, same shape again (see migration add-first-aid)
+    firstAid: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    // unfired fuck you gun charges, same shape again (see migration add-fuck-you-guns)
+    fuckYouGuns: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    // running emote-only / sub-only prizes' deadlines, so a restart still switches them off (see migration
+    // add-chat-modes)
+    chatModes: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // unspent double time prizes, same shape as the box ledger (see migration add-double-time)
     doubleTime: {
         type: DataTypes.JSONB,
@@ -299,6 +324,10 @@ export async function dbCreate(inObj: Object){
         mysteryBoxSettings: lvObj.mysteryBoxSettings,
         mysteryBoxes: lvObj.mysteryBoxes,
         rayguns: lvObj.rayguns,
+        thunderguns: lvObj.thunderguns,
+        firstAid: lvObj.firstAid,
+        fuckYouGuns: lvObj.fuckYouGuns,
+        chatModes: lvObj.chatModes,
         doubleTime: lvObj.doubleTime,
         shields: lvObj.shields,
         wonderBoxSettings: lvObj.wonderBoxSettings,
@@ -355,6 +384,10 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 mysteryBoxSettings: curSession.mysteryBoxSettings,
                 mysteryBoxes: curSession.mysteryBoxes,
                 rayguns: curSession.rayguns,
+                thunderguns: curSession.thunderguns,
+                firstAid: curSession.firstAid,
+                fuckYouGuns: curSession.fuckYouGuns,
+                chatModes: curSession.chatModes,
                 doubleTime: curSession.doubleTime,
                 shields: curSession.shields,
                 wonderBoxSettings: curSession.wonderBoxSettings,

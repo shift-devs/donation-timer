@@ -123,7 +123,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	return (
 		<Box maxW="700px" mx="auto">
 		<VStack align="stretch" spacing={3} maxW="420px" mx="auto">
-			<Text color="gray.500" fontSize="sm">
+			<Text color="subtle" fontSize="sm">
 				These apply immediately — no Save.
 			</Text>
 			<HStack justify="space-between">
@@ -140,12 +140,12 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						onBlur={applyCap}
 						onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
 					/>
-					<Text fontSize="sm" color="gray.500" w="70px">
+					<Text fontSize="sm" color="subtle" w="70px">
 						{capSeconds ? "hrs max" : "no cap"}
 					</Text>
 				</HStack>
 			</HStack>
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				Maximum timer length. New time is clamped to this, and changing it re-clamps the running timer
 				immediately. Leave 0 (blank) for no cap.
 			</Text>
@@ -153,7 +153,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				<Text>Stop at zero</Text>
 				<Switch isChecked={stopAtZero} onChange={(e) => setStopAtZero(ws, e.target.checked)} />
 			</HStack>
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				When the timer runs out it stays out — subs, donations and purchases after that add nothing, and
 				the Terminal says so when one is ignored. Set a time by hand to start it again. Off means the next
 				event revives the timer from 0.
@@ -179,7 +179,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 					</Button>
 				</HStack>
 			</HStack>
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				Fills the /widget page behind the timer — keep a color OBS can key out, or match your overlay.
 				Open widgets update live.
 			</Text>
@@ -191,7 +191,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 					<option value="right">Right</option>
 				</Select>
 			</HStack>
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				Justifies the digits on the /widget browser source. The timer at the top of this page stays
 				centered. Open widgets update live.
 			</Text>
@@ -210,14 +210,14 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						cursor="pointer"
 					/>
 					<Code>{peakColor}</Code>
-					<Text fontSize="sm" color="gray.400">record</Text>
+					<Text fontSize="sm" color="faint">record</Text>
 					{/* editable, because the record only starts being kept from this version on — a timer that
 					    already hit 299 before then needs telling */}
 					<NumberField width="90px" min={0} max={100000} value={peakHour} onCommit={(n) => setWidgetSettings(ws, { peakHour: n })} />
-					<Text fontSize="sm" color="gray.400">h</Text>
+					<Text fontSize="sm" color="faint">h</Text>
 				</HStack>
 			</HStack>
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				The timer remembers the highest hour it has ever shown — reach 299:00:00 and 299 is the record; reach
 				300 and it moves up. Set the record by hand if the timer was already higher before this was
 				added; 0 clears it. While the timer is back inside that hour (299:xx:xx), the digits pulse this
@@ -225,14 +225,14 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				timebomb&apos;s freeze colour takes over while one is running.
 			</Text>
 			<Divider />
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				These hit the server instantly — no Save.
 			</Text>
 		</VStack>
 
 		<Box mt={6} p={4} borderRadius="md" bg="whiteAlpha.100" fontSize="sm" textAlign="left">
 			<Text fontWeight="bold" mb={2}>Timer widget — OBS browser source</Text>
-			<Text color="gray.400" mb={3}>
+			<Text color="faint" mb={3}>
 				Set the look below, check the preview, then copy the URL into an OBS browser source. The look is
 				baked into the URL, so you can run several timer sources with different looks — and it overrides
 				the live settings above for that source. A URL with no look in it (anything copied before this
@@ -287,7 +287,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 					<NumberInput size="sm" maxW="90px" min={0} max={20} value={wizEffectW} onChange={(_, n) => setWizEffectW(Number.isFinite(n) ? Math.min(20, Math.max(0, Math.trunc(n))) : 0)}>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.400">
+					<Text color="faint">
 						{wizEffectW <= 0 ? "px — off" : wizEffect === "stroke" ? "px outline" : "px blur"}
 					</Text>
 				</Flex>
@@ -302,7 +302,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				const widgetUrl = `${BASE_URL}/widget?${p.toString()}`;
 				return (
 					<>
-						<Text fontSize="xs" color="gray.500" mb={1}>Preview (a sample time, at a fraction of the real size):</Text>
+						<Text fontSize="xs" color="subtle" mb={1}>Preview (a sample time, at a fraction of the real size):</Text>
 						<Box borderRadius="md" mb={3} overflow="hidden" style={builderTransparent ? checker : undefined}>
 							<div style={timerTextStyle({
 								background: builderBg,
@@ -330,7 +330,7 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 							/>
 							<Button size="xs" isDisabled={!wizPaste.trim()} onClick={loadFromUrl}>Load</Button>
 						</HStack>
-						<Text color="gray.400" mt={3}>
+						<Text color="faint" mt={3}>
 							A stroke outlines the digits — drawn behind them, so a wide one thickens the digits
 							instead of eating into them. A drop shadow is centred on them, blurred out to
 							the width. Either is off at width 0. The monospaced font keeps every digit the same width,

@@ -176,7 +176,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 
 	return (
 		<VStack align="stretch" spacing={4} maxW="620px" mx="auto">
-			<Text color="gray.500" fontSize="sm">
+			<Text color="subtle" fontSize="sm">
 				A live, all-time tally of subs per service (each gifted sub counts individually). We can only
 				<b> add</b> subs as they come in — platforms never tell us about expirations — so these drift up
 				over time. Whenever a number is off, type the real current count from that platform's dashboard
@@ -226,7 +226,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 
 			<Box borderWidth="1px" borderRadius="md" p={3}>
 				<Text fontSize="sm" fontWeight={600} mb={2}>Counter appearance</Text>
-				<Text fontSize="xs" color="gray.500" mb={3}>
+				<Text fontSize="xs" color="subtle" mb={3}>
 					Applies to every counter URL above &mdash; set it here, then copy the ones you want. Re-copy after
 					changing anything, since the look travels in the URL.
 				</Text>
@@ -257,7 +257,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 								onChange={(_, n) => setCntEffectW(Number.isFinite(n) ? Math.min(MAX_EFFECT_WIDTH, Math.max(0, Math.trunc(n))) : 0)}>
 								<NumberInputField />
 							</NumberInput>
-							<Text fontSize="sm" color="gray.500">
+							<Text fontSize="sm" color="subtle">
 								{cntEffectW <= 0 ? "px — off" : cntEffect === "stroke" ? "px outline" : "px blur"}
 							</Text>
 						</>
@@ -266,11 +266,11 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				<Flex align="center" gap={2} mb={2} wrap="wrap">
 					<Text fontSize="sm" w="80px" flexShrink={0}>Roll digits</Text>
 					<Switch isChecked={cntRoll} onChange={(e) => setCntRoll(e.target.checked)} />
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						places scroll up or down to the new number, like a mechanical counter
 					</Text>
 				</Flex>
-				<Text fontSize="xs" color="gray.500" mb={1}>
+				<Text fontSize="xs" color="subtle" mb={1}>
 					Preview{cntRoll ? " (sample number moving at random, so you can see the roll)" : ""}:
 				</Text>
 				<Box borderRadius="md" overflow="hidden" mb={2} style={cntTransparent ? checker : undefined}>
@@ -294,7 +294,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 				</HStack>
 			</Box>
 
-			<Text fontSize="xs" color="gray.400">
+			<Text fontSize="xs" color="faint">
 				Add each URL as a Browser source in OBS. A transparent background needs no Color Key filter at all;
 				any other colour does. One more optional tweak per URL: <b>&amp;label=Subs</b> prints a caption above
 				the number.
@@ -304,7 +304,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 
 			<Box borderWidth="1px" borderRadius="md" p={4} fontSize="sm">
 				<Text fontWeight={600} mb={2}>Live active subs &mdash; OBS browser sources</Text>
-				<Text color="gray.500" mb={3}>
+				<Text color="subtle" mb={3}>
 					Your real subscriber count and sub points as Twitch reports them right now, re-read every
 					second. Unlike the tallies above these go <b>down</b> too, so expirations, cancellations and
 					decay show up on their own and there is nothing to correct by hand. Sub points count Tier 1 and
@@ -340,7 +340,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 								</Box>
 							))}
 						</HStack>
-						<Text fontSize="xs" color="gray.400" mt={3}>
+						<Text fontSize="xs" color="faint" mt={3}>
 							Same page as the tallies above, so <b>&amp;label=</b> and <b>&amp;color=</b> work here too. The
 							source shows a dash whenever the Twitch read is failing rather than freezing on a stale
 							number.
@@ -353,7 +353,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 
 			<Box borderWidth="1px" borderRadius="md" p={4} fontSize="sm">
 				<Text fontWeight={600} mb={2}>Sub goal progress bar &mdash; OBS browser source</Text>
-				<Text color="gray.500" mb={3}>
+				<Text color="subtle" mb={3}>
 					A live &quot;title &mdash; bar &mdash; X / N&quot; row for one of the tallies above, for running a sub
 					goal on stream. Set it up below, check the preview, then copy the URL into an OBS browser source.
 				</Text>
@@ -383,7 +383,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 					<NumberInput size="sm" maxW="110px" min={1} value={barMax} onChange={(_, n) => setBarMax(Number.isFinite(n) && n > 0 ? Math.trunc(n) : 1)}>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.500">subs</Text>
+					<Text color="subtle">subs</Text>
 				</Flex>
 				<Flex align="center" gap={2} mb={2} wrap="wrap">
 					<Text w="52px" flexShrink={0}>Offset</Text>
@@ -393,7 +393,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 					{barPlatform && (
 						<Button size="xs" variant="outline" onClick={() => setBarOffset(tallyOf(barPlatform))}>Start from now</Button>
 					)}
-					<Text color="gray.500">subtracted from the all-time tally, so the bar starts at 0 for this goal</Text>
+					<Text color="subtle">subtracted from the all-time tally, so the bar starts at 0 for this goal</Text>
 				</Flex>
 				<Flex align="center" gap={5} mb={3} wrap="wrap">
 					<HStack><Text>Fill</Text><Input type="color" w="42px" p={1} value={barFill} onChange={(e) => setBarFill(e.currentTarget.value)} /></HStack>
@@ -418,7 +418,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						const barUrl = `${BASE_URL}/subprogress?${p.toString()}`;
 						return (
 							<>
-								<Text fontSize="xs" color="gray.500" mb={1}>
+								<Text fontSize="xs" color="subtle" mb={1}>
 									Preview (live tally &mdash; {tally.toLocaleString()} all-time{barOffset > 0 ? `, ${counted.toLocaleString()} after the offset` : ""}):
 								</Text>
 								<Box borderRadius="md" p={3} mb={3} style={{ background: previewBg }}>
@@ -441,7 +441,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 						);
 					})()
 				) : (
-					<Text color="gray.500">Pick a tally above to preview it and get its browser-source URL.</Text>
+					<Text color="subtle">Pick a tally above to preview it and get its browser-source URL.</Text>
 				)}
 				<HStack spacing={2} mt={2}>
 					<Input
@@ -453,7 +453,7 @@ const SubCounts: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 					/>
 					<Button size="xs" isDisabled={!barPaste.trim()} onClick={loadBarUrl}>Load</Button>
 				</HStack>
-				<Text color="gray.400" mt={3}>
+				<Text color="faint" mt={3}>
 					Same chroma-key setup as the plain counters: add a Color Key filter in OBS so only the row shows.
 					One URL per bar &mdash; run several if you want a goal per service.
 				</Text>

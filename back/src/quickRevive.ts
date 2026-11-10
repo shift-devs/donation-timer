@@ -51,6 +51,7 @@
 // until everyone who's around has had a turn, so a small chat still has a game and a big one spreads it out.
 
 import { TimerUserSession, TimerEvent } from "./types";
+import { readAnswer } from "./algebra";
 import { emitQuickRevive, emitTerminal, reportError } from "./bus";
 import { chatAnnounce, chatSay, chatTimeoutMany, canTimeout, activeChatters, chatterName, chatters, ACTIVE_WINDOW_MS } from "./chat";
 import { addToEndTime } from "./timer";
@@ -149,7 +150,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall" | "potato" | "cup" | "vote" | "weenie"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall" | "potato" | "cup" | "vote" | "voteup" | "weenie" | "shell" | "algebra"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -191,6 +192,9 @@ export interface ChallengeSpec {
     // scramble and secret only: the words as they have to be typed. `phrase` carries what's shown instead —
     // the letters shuffled for a scramble, the hint for a secret.
     answer?: string
+    // secret only: a picture hint, put up instead of the words when the drawn hint is an image (`phrase` is
+    // blank then). a file in public/prizes or a full url.
+    hintImage?: string
     // guess only: the range chat is told (both ends count), the number picked inside it, and whether a miss
     // closes the range in on it — "higher" or "lower", shown on the source
     guessLow?: number
@@ -212,7 +216,12 @@ export interface ChallengeSpec {
     unique?: boolean
     // vote only: how many of the most-@'d are timed out
     topCount?: number
-    // cup only: how many boxes whoever is "it" at the end wins
+    // shell only: how many shells there are (1 to this), and which one hides the prize (`guessNumber`). the
+    // player is `patientZero`; blank (a rehearsal with nobody around) lets anybody pick.
+    shells?: number
+    // …and the art each shell is drawn as (blank = plain shells)
+    shellImage?: string
+    // cup, voteup and shell: how many boxes the winner gets (whoever is "it" at the end / the most-voted)
     prizeBoxes?: number
     // a rehearsal from the dashboard: plays for real, but credits nobody with currency
     test?: boolean
@@ -315,6 +324,12 @@ function subtitleFor(spec: ChallengeSpec): string {
         return `@ WHOEVER IS IT TO STEAL IT — ${spec.prizeBoxes} BOX${spec.prizeBoxes === 1 ? "" : "ES"} AT THE END`;
     if (spec.kind === "vote")
         return `@ SOMEONE TO VOTE — THE TOP ${spec.topCount} GET TIMED OUT`;
+    if (spec.kind === "algebra")
+        return `SOLVE FOR X — FIRST RIGHT ANSWER WINS ${algebraPrize(spec).toUpperCase()}`;
+    if (spec.kind === "shell")
+        return `${spec.patientZeroName ? `@${String(spec.patientZeroName).toUpperCase()}: ` : ""}PICK A SHELL — TYPE 1 TO ${spec.shells}`;
+    if (spec.kind === "voteup")
+        return `@ SOMEONE TO VOTE THEM UP — THE WINNER GETS ${spec.prizeBoxes} BOX${spec.prizeBoxes === 1 ? "" : "ES"}`;
     if (spec.kind === "weenie")
         return `NOBODY SAY IT${spec.rewardSeconds > 0 ? ` FOR +${sayTime(spec.rewardSeconds).toUpperCase()}` : ""}`;
     return spec.subtitle;
@@ -351,6 +366,7 @@ export function quickReviveView(session: TimerUserSession): any {
         next: spec.kind === "count" ? qr.next : 0,
         scrambled: spec.kind === "scramble" ? spec.phrase : "",
         hint: spec.kind === "secret" ? spec.phrase : "",
+        hintImage: spec.kind === "secret" ? spec.hintImage || "" : "",
         answer: (spec.kind === "scramble" || spec.kind === "secret") && qr.phase !== "running" ? spec.answer || ""
             : spec.kind === "guess" && qr.phase !== "running" ? String(spec.guessNumber) : "",
         // guess: where the number can still be (the whole range, unless misses have closed it in), the last
@@ -377,10 +393,22 @@ export function quickReviveView(session: TimerUserSession): any {
         holder: spec.kind === "potato" || spec.kind === "cup" ? qr.holderName || qr.holder || "" : "",
         holderAt: spec.kind === "potato" || spec.kind === "cup" ? qr.holderAt || 0 : 0,
         // vote: the standings, most votes first, and how many of them go
-        board: spec.kind === "vote" ? voteBoard(qr).slice(0, 10).map((v) => ({ name: v.name, votes: v.votes })) : [],
-        topCount: spec.kind === "vote" ? spec.topCount || 1 : 0,
+        board: spec.kind === "vote" || spec.kind === "voteup" ? voteBoard(qr).slice(0, 10).map((v) => ({ name: v.name, votes: v.votes })) : [],
+        topCount: spec.kind === "vote" ? spec.topCount || 1 : spec.kind === "voteup" ? 1 : 0,
         // weenie hunt: whoever said it (when somebody did)
         saidBy: spec.kind === "weenie" && qr.phase === "lost" ? qr.lastByName || qr.lastBy || "" : "",
+        // shell game: how many shells, who's picking, what they picked, and — once it's decided — where the
+        // prize was. the answer stays on the server until then, like every other answer.
+        shells: spec.kind === "shell" ? spec.shells || 3 : 0,
+        shellImage: spec.kind === "shell" ? spec.shellImage || "" : "",
+        shellPlayer: spec.kind === "shell" ? spec.patientZeroName || spec.patientZero || "" : "",
+        shellPick: spec.kind === "shell" ? qr.shellPick || 0 : 0,
+        // solve for x: the equation, how many wrong answers chat has had, and — once it's over — x
+        equation: spec.kind === "algebra" ? spec.phrase : "",
+        wrongAnswers: spec.kind === "algebra" ? qr.guesses || 0 : 0,
+        xAnswer: spec.kind === "algebra" && qr.phase !== "running" ? String(spec.guessNumber) : "",
+        shellPickedBy: spec.kind === "shell" && qr.shellPick ? qr.lastByName || qr.lastBy || "" : "",
+        shellAnswer: spec.kind === "shell" && qr.phase !== "running" ? Number(spec.guessNumber) || 0 : 0,
         image: spec.image || "",
         kicker: spec.kicker || "",
         startSound: spec.startSound || "",
@@ -470,6 +498,7 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
     qr.passedBy = "";
     qr.votes = {};
     qr.sayers = {};
+    qr.shellPick = 0;
     const t = slots(session.userId);
     clearTimeout(t.done);
     clearTimeout(t.spread);
@@ -518,6 +547,37 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
             chatAnnounce(session, `${spec.title}! For the next ${spec.seconds} seconds, @ who you want gone. The ${spec.topCount === 1 ? "most-voted person gets" : `top ${spec.topCount} get`} timed out for ${sayTime(spec.timeoutSeconds)}! One vote per person per name.`, "orange");
         pushQuickRevive(session);
         return { ok: true, message: `${spec.title} started — ${spec.seconds}s, top ${spec.topCount} go.` };
+    }
+    if (spec.kind === "algebra"){
+        qr.goal = 1;
+        armClock(session, spec.seconds);
+        const prize = algebraPrize(spec);
+        emitTerminal(session.userId, `${spec.title} — ${spec.phrase}  (x = ${spec.guessNumber}). ${spec.seconds}s.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! Solve for x: ${spec.phrase} — first to type x wins ${prize}. ${spec.seconds} seconds!`, "blue");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — x = ${spec.guessNumber}, ${spec.seconds}s.` };
+    }
+    if (spec.kind === "shell"){
+        qr.goal = 1;
+        armClock(session, spec.seconds);
+        const who = spec.patientZeroName || spec.patientZero;
+        const prize = `${spec.prizeBoxes} mystery box${spec.prizeBoxes === 1 ? "" : "es"}`;
+        emitTerminal(session.userId, `${spec.title} — ${who || "anybody (test)"} picks a shell, 1 to ${spec.shells}; the prize is under #${spec.guessNumber}. ${spec.seconds}s.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! ${who ? `@${who}` : "Somebody"}, the prize is under one of ${spec.shells} shells — type a number from 1 to ${spec.shells} to pick one! Find it and win ${prize}. You have ${spec.seconds} seconds.`, "purple");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — ${who || "anybody"} picks 1 to ${spec.shells}, ${spec.seconds}s.` };
+    }
+    if (spec.kind === "voteup"){
+        qr.goal = 0;
+        armClock(session, spec.seconds);
+        const boxes = `${spec.prizeBoxes} mystery box${spec.prizeBoxes === 1 ? "" : "es"}`;
+        emitTerminal(session.userId, `${spec.title} — ${spec.seconds}s of voting; the most-voted wins ${boxes}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${spec.title}! For the next ${spec.seconds} seconds, @ who you want to win. The most-voted person gets ${boxes}! One vote per person per name, and you can't vote for yourself.`, "green");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — ${spec.seconds}s, the winner gets ${boxes}.` };
     }
     if (spec.kind === "weenie"){
         const pool = spec.phrases || [];
@@ -579,7 +639,9 @@ function instruction(spec: ChallengeSpec): string {
     if (spec.kind === "scramble")
         return `Unscramble "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
     if (spec.kind === "secret")
-        return `Guess the secret phrase. Hint: "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
+        return spec.hintImage
+            ? `Guess the secret phrase from the picture on stream — first to type it within ${spec.seconds} seconds gets it for chat.`
+            : `Guess the secret phrase. Hint: "${spec.phrase}" — first to type it within ${spec.seconds} seconds gets it for chat.`;
     if (spec.kind === "guess")
         return `Guess the number from ${spec.guessLow} to ${spec.guessHigh} — type just the number. First to get it within ${spec.seconds} seconds gets it for chat${spec.narrow ? " (watch the screen for higher or lower)" : ""}.`;
     return `Put up ${spec.goal} sub point${spec.goal === 1 ? "" : "s"} within ${spec.seconds} seconds — Tier 1 = 1, Tier 2 = 2, Tier 3 = 6.`;
@@ -818,6 +880,124 @@ export function creditGuess(session: TimerUserSession, text: string, login = "",
     pushQuickRevive(session);
 }
 
+// a chat line during solve for x: "7", "x = -3", "x is 7". the first right one wins; a wrong one just counts.
+export function creditAlgebra(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "algebra")
+        return;
+    const from = String(login || "").toLowerCase();
+    if (!from || isBot(session, from) || Date.now() >= qr.endsAt)
+        return;
+    const said = readAnswer(text);
+    if (said === null)
+        return;
+    if (said !== Number(qr.spec.guessNumber)){
+        qr.guesses = (qr.guesses || 0) + 1;
+        pushQuickRevive(session);
+        return;
+    }
+    qr.lastBy = from;
+    qr.lastByName = String(displayName || login);
+    decide(session, true);
+}
+
+// what solving it is worth, in words: "3 mystery boxes", "+5 min on the timer", or both
+function algebraPrize(spec: ChallengeSpec): string {
+    const boxes = Number(spec.prizeBoxes) || 0;
+    const parts: string[] = [];
+    if (boxes > 0)
+        parts.push(`${boxes} mystery box${boxes === 1 ? "" : "es"}`);
+    if (spec.rewardSeconds > 0)
+        parts.push(`+${sayTime(spec.rewardSeconds)} on the timer`);
+    return parts.join(" and ") || "nothing";
+}
+
+function decideAlgebra(session: TimerUserSession, qr: any, spec: ChallengeSpec, now: number){
+    const t = slots(session.userId);
+    const solved = !!qr.lastBy;
+    qr.phase = solved ? "won" : "lost";
+    qr.resultAt = now;
+    const who = qr.lastByName || qr.lastBy;
+    const prize = algebraPrize(spec);
+    pushQuickRevive(session);
+    // the time is chat's — it goes on through the timer's own path (cap, stop-at-zero, the log) like a chant's
+    if (solved && spec.rewardSeconds > 0){
+        try {
+            addToEndTime(session, spec.rewardSeconds, spec.label);
+        } catch (err) {
+            reportError(session.userId, `paying out ${spec.title}'s time`, err);
+        }
+    }
+    emitTerminal(session.userId, `${spec.title} — ${solved ? `${who} solved it (x = ${spec.guessNumber}) and wins ${prize}${spec.test && Number(spec.prizeBoxes) > 0 ? " (test: boxes not given)" : ""}` : `nobody solved it; x = ${spec.guessNumber}`}. ${qr.guesses || 0} wrong answer${qr.guesses === 1 ? "" : "s"}.`, solved);
+    if (spec.announce)
+        chatAnnounce(session, solved
+            ? `${spec.winText} @${who} got it — x = ${spec.guessNumber} — and wins ${prize}!`
+            : `${spec.failText} Nobody solved it — x = ${spec.guessNumber}.`, solved ? "green" : "orange");
+    const hook = t.onWin;
+    t.onWin = undefined;
+    if (solved && hook && hook.nonce === qr.nonce){
+        try {
+            hook.fn(qr.lastBy, who);
+        } catch (err) {
+            reportError(session.userId, `paying out ${spec.title}`, err);
+        }
+    }
+    holdThenEnd(session, spec, "solve for x");
+}
+
+// a chat line during a shell game: the player's first number from 1 to the shell count is their pick, and
+// it's final. anything else they say, and anything anybody else says, is ignored.
+export function creditShell(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "shell" || qr.shellPick)
+        return;
+    const spec: ChallengeSpec = qr.spec;
+    const from = String(login || "").toLowerCase();
+    if (!from || isBot(session, from) || Date.now() >= qr.endsAt)
+        return;
+    if (spec.patientZero && from !== spec.patientZero)
+        return;
+    const m = String(text || "").trim().match(/^#?(\d+)[!.?]*$/);
+    if (!m)
+        return;
+    const pick = Number(m[1]);
+    if (pick < 1 || pick > Number(spec.shells))
+        return;
+    qr.shellPick = pick;
+    qr.lastBy = from;
+    qr.lastByName = String(displayName || login);
+    decide(session, pick === Number(spec.guessNumber));
+}
+
+// the pick is in, or the clock ran out first. found it: the boxes, through the hook it started with.
+function decideShell(session: TimerUserSession, qr: any, spec: ChallengeSpec, now: number){
+    const t = slots(session.userId);
+    const found = !!qr.shellPick && qr.shellPick === Number(spec.guessNumber);
+    qr.phase = found ? "won" : "lost";
+    qr.resultAt = now;
+    const who = qr.lastByName || spec.patientZeroName || spec.patientZero || "";
+    const prize = `${spec.prizeBoxes} mystery box${spec.prizeBoxes === 1 ? "" : "es"}`;
+    spec.failText = qr.shellPick ? "WRONG SHELL!" : "TOO SLOW!";
+    pushQuickRevive(session);
+    emitTerminal(session.userId, `${spec.title} — ${!qr.shellPick ? `${who || "nobody"} didn't pick in time` : `${who} picked #${qr.shellPick}`}; the prize was under #${spec.guessNumber}.${found ? ` Wins ${prize}${spec.test ? " (test: not given)" : ""}.` : ""}`, found);
+    if (spec.announce)
+        chatAnnounce(session, found
+            ? `${spec.winText} @${who} found it under shell #${spec.guessNumber} and wins ${prize}!`
+            : !qr.shellPick
+            ? `${spec.failText} ${who ? `@${who}` : "Nobody"} didn't pick in time — it was under shell #${spec.guessNumber}.`
+            : `${spec.failText} @${who} picked #${qr.shellPick}, but it was under shell #${spec.guessNumber}.`, found ? "green" : "orange");
+    const hook = t.onWin;
+    t.onWin = undefined;
+    if (found && hook && hook.nonce === qr.nonce){
+        try {
+            hook.fn(qr.lastBy, who);
+        } catch (err) {
+            reportError(session.userId, `paying out ${spec.title}`, err);
+        }
+    }
+    holdThenEnd(session, spec, "shell game");
+}
+
 // ---------------------------------------------------------------------------
 // roll call
 // ---------------------------------------------------------------------------
@@ -986,6 +1166,12 @@ function untouchable(session: TimerUserSession, key: string): boolean {
     return key === channel || !!(roster[key] && roster[key].mod) || isBot(session, key);
 }
 
+// who can't be voted UP: the broadcaster (boxes for themselves off their own chat's votes) and the bot
+function cantWinVote(session: TimerUserSession, key: string): boolean {
+    const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
+    return key === channel || isBot(session, key);
+}
+
 // the standings, most different voters first; a tie goes to whoever got there first
 function voteBoard(qr: any): { key: string, name: string, votes: number, at: number }[] {
     const votes = qr.votes || {};
@@ -1019,7 +1205,7 @@ export function creditPing(session: TimerUserSession, login: string, displayName
     if (qr.phase !== "running" || !qr.spec)
         return;
     const spec: ChallengeSpec = qr.spec;
-    if (spec.kind !== "potato" && spec.kind !== "cup" && spec.kind !== "vote")
+    if (spec.kind !== "potato" && spec.kind !== "cup" && spec.kind !== "vote" && spec.kind !== "voteup")
         return;
     const now = Date.now();
     if (now >= qr.endsAt)
@@ -1083,11 +1269,12 @@ export function creditPing(session: TimerUserSession, login: string, displayName
         sayHolderSoon(session);
         return;
     }
-    // vote: every name in the line gets this voter's vote, once each. counted by DIFFERENT voters, so
-    // spamming one name is worth no more than saying it once.
+    // vote / voteup: every name in the line gets this voter's vote, once each. counted by DIFFERENT voters,
+    // so spamming one name is worth no more than saying it once. voting somebody UP has no timeout to dodge,
+    // so mods can win it — only the broadcaster and the bot are left out.
     let changed = false;
     for (const p of pings){
-        if (p.key === from || untouchable(session, p.key))
+        if (p.key === from || (spec.kind === "voteup" ? cantWinVote(session, p.key) : untouchable(session, p.key)))
             continue;
         const row = qr.votes[p.key] || (qr.votes[p.key] = { name: chatterName(session, p.key) !== p.key ? chatterName(session, p.key) : p.typed, voters: {}, at: 0 });
         if (row.voters[from])
@@ -1199,6 +1386,30 @@ function decidePingGame(session: TimerUserSession, qr: any, spec: ChallengeSpec,
         holdThenEnd(session, spec, "vote");
         return;
     }
+    if (spec.kind === "voteup"){
+        const top = voteBoard(qr)[0];
+        const boxes = `${spec.prizeBoxes} mystery box${spec.prizeBoxes === 1 ? "" : "es"}`;
+        qr.phase = top ? "won" : "lost";
+        qr.lastBy = top ? top.key : "";
+        qr.lastByName = top ? top.name : "";
+        pushQuickRevive(session);
+        emitTerminal(session.userId, `${spec.title} — over. ${qr.points} vote${qr.points === 1 ? "" : "s"}; ${top ? `@${top.name} wins ${boxes} with ${top.votes}${spec.test ? " (test: not given)" : ""}` : "nobody got a vote"}.`, true);
+        if (spec.announce)
+            chatAnnounce(session, top
+                ? `${spec.winText} Chat voted up @${top.name} (${top.votes} vote${top.votes === 1 ? "" : "s"}) — they win ${boxes}!`
+                : `${spec.failText} Nobody got a single vote.`, top ? "green" : "orange");
+        const hook = t.onWin;
+        t.onWin = undefined;
+        if (top && hook && hook.nonce === qr.nonce){
+            try {
+                hook.fn(top.key, top.name);
+            } catch (err) {
+                reportError(session.userId, `paying out ${spec.title}`, err);
+            }
+        }
+        holdThenEnd(session, spec, "vote 'em up");
+        return;
+    }
 }
 
 // weenie hunt: the clock running out with nobody having said it is the win. somebody saying it is the only
@@ -1251,12 +1462,20 @@ function decide(session: TimerUserSession, won: boolean){
             chatAnnounce(session, `Round ${qr.round - 1} cleared! Round ${qr.round} of ${spec.rounds}: ${roundWords(spec)}`, "blue");
         return;
     }
-    if (spec.kind === "potato" || spec.kind === "cup" || spec.kind === "vote"){
+    if (spec.kind === "potato" || spec.kind === "cup" || spec.kind === "vote" || spec.kind === "voteup"){
         decidePingGame(session, qr, spec, won, now);
         return;
     }
     if (spec.kind === "weenie"){
         decideWeenie(session, qr, spec, now);
+        return;
+    }
+    if (spec.kind === "shell"){
+        decideShell(session, qr, spec, now);
+        return;
+    }
+    if (spec.kind === "algebra"){
+        decideAlgebra(session, qr, spec, now);
         return;
     }
     if (spec.kind === "infection"){

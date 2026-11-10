@@ -5,8 +5,12 @@
 export const DEFAULT_MYSTERYBOX = {
 	enabled: true,
 	allowOpening: true,
+	cooldownSec: 0,
 	command: "mb",
 	raygunCommand: "raygun",
+	thundergunCommand: "thundergun",
+	firstAidCommand: "firstaid",
+	fuckYouGunCommand: "fuckyougun",
 	activeProfile: "",
 	grantOnFiresale: true,
 	firesaleItems: [] as string[],
@@ -74,12 +78,13 @@ export const DEFAULT_PRIZE = {
 	profile: "",
 	enabled: true,
 	weight: 10,
+	wonderWeight: 0,
 	gag: false,
 	image: "",
 	sound: "",
 	volume: 1,
 	blurb: "",
-	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+	effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, ttsRate: 1, ttsPitch: 1, ttsVolume: 1, sayNames: false, timeoutSeconds: 600, unique: true, topCount: 3, shells: 3, shellImage: "", difficulty: 2, bombGoalSec: 0, bombReward: "time", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 // how many prizes may fly past the marker on one spin. the spin always takes spinSec, so this is the reel's
@@ -97,7 +102,13 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "timebomb", label: "Timebomb (freeze chat can chain)", needs: ["seconds", "bombGoal", "loopSound", "freezeColor"], hint: "Freezes the countdown, and every contribution pushes the freeze back out to its full length again. Chat keeps it frozen by chaining subs and donations; it only lets go once they've gone this long without one. Time won during it still counts. Set \"keep it alive\" above 0 to reward chat for holding it that long — time on the timer, or boxes for whoever opened it (paid the moment it gets there; a test spin pays no boxes)." },
 	{ key: "timeBoost", label: "Multiply all contributions", needs: ["factor", "seconds", "loopSound"], hint: "A bonfire sale: for this long, every sub, cheer, donation and order grants multiplied time. A typed \"time\" command is left alone, so you can still correct the clock. Overlapping sales take the later end and the bigger multiplier rather than compounding." },
 	{ key: "nuke", label: "Nuke chat", needs: ["percent", "seconds"], hint: "Times out a random share of the people who have actually typed in the last 10 minutes. Mods and the broadcaster are left out — Twitch refuses a timeout on them, so counting them would make the share a lie. Needs a bot account with mod powers in chat; until then it reports who it would have hit." },
+	{ key: "emp", label: "EMP (no box opening for a while)", needs: ["seconds"], hint: "Knocks every box offline — mystery boxes AND wonder boxes — for this long. Anybody trying to open one is told an EMP is up and how long is left, and the bot says when they're back. Boxes keep being earned and banked as normal. Another EMP while one is up pushes the end out to the later of the two. The dashboard can't open one on somebody's behalf during it either, but Test still works. A server restart ends it early." },
+	{ key: "emoteOnly", label: "Emote only (chat goes emote-only for a while)", needs: ["seconds"], hint: "Turns on Twitch's emote-only mode, the same as /emoteonly, and switches it back off when the time is up — even if the server restarts in between. If chat was already emote-only it's left alone, so this never turns off a setting you chose. A second one landing while it runs adds to the time. Mods can still type normally. Needs a bot account with mod powers; a bot authorized before this prize existed needs Re-authorize on the Connections tab once." },
+	{ key: "subOnly", label: "Sub only (chat goes subscriber-only for a while)", needs: ["seconds"], hint: "Turns on Twitch's subscriber-only mode, the same as /subscribers, and switches it back off when the time is up — even if the server restarts in between. If chat was already sub-only it's left alone, so this never turns off a setting you chose. A second one landing while it runs adds to the time. Mods and VIPs can still type. Needs a bot account with mod powers; a bot authorized before these prizes existed needs Re-authorize on the Connections tab once." },
 	{ key: "raygun", label: "Ray gun (shots to spend later)", needs: ["charges", "seconds"], hint: "Credits the winner with shots they keep and fire whenever they like, with \"!raygun <name>\", timing that person out. A shot that doesn't land — a name nobody has, a mod Twitch refuses — is handed back. Needs a bot account with mod powers." },
+	{ key: "thundergun", label: "Thunder gun (20 min shots to spend later)", needs: ["charges"], hint: "The ray gun's big brother, with its own wallet: credits the winner with shots they fire with \"!thundergun <name>\", and every shot is a 20 minute timeout. A shot that doesn't land is handed back. Needs a bot account with mod powers." },
+	{ key: "fuckyougun", label: "Fuck you gun (24 hour shots to spend later)", needs: ["charges"], hint: "The thunder gun, but meaner, with its own wallet: credits the winner with shots they fire with \"!fuckyougun <name>\", and every shot is a 24 hour timeout. A shot that doesn't land is handed back; a shield still blocks it. Needs a bot account with mod powers." },
+	{ key: "firstaid", label: "First aid (kits that end a timeout)", needs: ["charges"], hint: "Credits the winner with first aid kits they use with \"!firstaid <name>\" on somebody who's timed out: the bot swaps their timeout for a 1 second one, so they're back in chat straight away. It doesn't use up the target's shield. A kit that doesn't work — a name nobody has, a mod — is handed back. Twitch clears the target's recent messages on any timeout, this one included. Needs a bot account with mod powers." },
 	{ key: "extraBoxes", label: "More boxes (same kind)", needs: ["boxes"], hint: "Hands the winner more boxes of the kind they just opened (a mystery box pays mystery boxes, a wonder box pays wonder boxes), which they can open straight away — so this one can chain into itself. The odds shown are for a single spin; set the rarity with that in mind. A test spin credits nobody." },
 	{ key: "wonderBoxes", label: "Wonder boxes", needs: ["boxes"], hint: "Hands the winner wonder boxes, which they open with the wonder box's own command once this box is done (only one box spins at a time). A test spin credits nobody." },
 	{ key: "doubleTime", label: "Double time (next contribution x2)", needs: [], hint: "Banks a double for the winner: the next sub, cheer, donation, membership or order they make is worth twice the time. Stacks with a bonfire sale. Matched by name, so it only works where the platform says who gave it — an anonymous gift can't spend it. Winning it twice banks two. A test spin credits nobody." },
@@ -107,7 +118,10 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "shield", label: "Timeout shield (blocks the bot's timeouts)", needs: ["charges"], hint: "Banks blocks for the winner: the next timeouts the bot would give them — a nuke, a ray gun shot, an infection, a hot potato, a vote — are shrugged off instead, one block each, and chat is told. Won twice, it stacks. A mod can't be timed out anyway, so a mod's blocks are never spent. A test spin credits nobody." },
 	{ key: "potato", label: "Hot potato (@ to pass, holder timed out)", needs: ["seconds", "reward", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is holding the potato. Whoever holds it passes it by @-ing somebody, and every pass puts the time set here on the timer. Whoever is holding it when the clock runs out is timed out. It can't be passed to a mod or the broadcaster (they can't be timed out, and the bot tells the holder so), nor straight back to whoever just passed it — two people batting it back and forth would farm the timer. Needs a bot account with mod powers; a test spin hands it to a random recent chatter." },
 	{ key: "cup", label: "Cup and ball (@ whoever is it to steal it, win boxes)", needs: ["seconds", "boxes", "loopSound", "winSound"], hint: "The opener is \"it\". Anybody who @s whoever is it steals it and becomes it themselves — the @ has to be the first name in their message, so a pasted list of names doesn't count. Whoever is it when the clock runs out wins the boxes. A test spin starts it on a random recent chatter and gives nobody the boxes." },
+	{ key: "algebra", label: "Solve for X (first to solve it wins boxes)", needs: ["seconds", "difficulty", "boxes", "reward", "loopSound", "resultSounds"], hint: "A fresh equation is made up every time — brackets, negatives, x on both sides — and goes up on the Mystery Box source and in chat. The first chatter to type the right x (\"7\", \"x = -3\" and \"x is 7\" all count) wins the mystery boxes, and the time goes on the timer — set either one to 0 to pay only the other. x is always a whole number from -1000 to 1000 (never a small one), so chat can't win by spamming 1 to 10 — they have to solve it. Difficulty 1 keeps x on one side, 2 puts it on both, 3 nests brackets inside brackets. A test spin plays it for real — the time included — but gives nobody the boxes." },
+	{ key: "shell", label: "Shell game (pick the right number, win boxes)", needs: ["seconds", "shells", "shellImage", "boxes", "loopSound", "resultSounds"], hint: "The prize is hidden under one of so many shells. Whoever opened the box types a number — 1 to 3 with three shells — within the time, and their first number in range is their pick; it's final. Pick the right one and they win the mystery boxes; anything else anyone says is ignored. The shells show on the Mystery Box source, and the reveal shows where it was. A test spin plays it for real with ANYBODY's number counting, and gives nobody the boxes." },
 	{ key: "vote", label: "Vote 'em out (most @'d are timed out)", needs: ["seconds", "topCount", "timeoutSeconds", "loopSound", "endSound"], hint: "For as long as it runs, chat votes by @-ing people; the standings show on the Mystery Box source. Votes are counted by how many DIFFERENT people @'d someone, so spamming a name does nothing. A tie goes to whoever got there first. When the clock runs out, the top few are timed out. Mods, the broadcaster and the bot can't be voted for. Needs a bot account with mod powers." },
+	{ key: "voteup", label: "Vote 'em up (most @'d wins boxes)", needs: ["seconds", "boxes", "loopSound", "winSound"], hint: "Vote 'em out turned round: for as long as it runs, chat votes by @-ing who they want to WIN. Every name in a line gets that person's vote, once each — saying a name again doesn't count twice, and you can't vote for yourself. When the clock runs out, whoever got votes from the most different people wins the mystery boxes (a tie goes to whoever got there first). Mods can win; the broadcaster and the bot can't. A test spin plays it for real but gives nobody the boxes." },
 	{ key: "weenie", label: "Weenie hunt (nobody say the phrase, for time)", needs: ["seconds", "phrases", "reward", "loopSound", "resultSounds"], hint: "One phrase from the list goes up on the Mystery Box source. If nobody in chat says it before the clock runs out, the time goes on the timer. The first person to say it — anywhere in a message — loses it for everyone, and the source names them. The bot's own lines don't count." },
 	{ key: "jukebox", label: "Jukebox (a long track in the background)", needs: ["track"], hint: "Plays one clip through on the Mystery Box source — minutes long is fine — and gets out of the way: boxes keep opening over it, and it ends when the clip does. A second jukebox landing while one plays replaces it." },
 	{ key: "schizo", label: "Schizo (chat read aloud)", needs: ["seconds", "tts"], hint: "For this long, every chat line is read out loud on the Mystery Box source in the browser's own built-in voice — no service, no AI, just the machine's text-to-speech. Commands and the bot's own lines are skipped, long lines are cut short, and if chat outruns the voice the oldest lines are dropped so it stays live. Boxes keep opening over it; a second one landing extends the time. In OBS the voice comes out of the system's speech engine, so it lands on the desktop audio device rather than the browser source's own audio track. Testing in an ordinary browser tab? Click the page once first — browsers refuse to speak until they've been clicked; OBS's source has no such rule." },
@@ -146,6 +160,7 @@ export function canonPrize(raw: any, i: number) {
 		profile: typeof r.profile === "string" ? r.profile.slice(0, 60).trim() : d.profile,
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		weight: numIn(r.weight, 0, 1000, d.weight),
+		wonderWeight: numIn(r.wonderWeight, 0, 1000, d.wonderWeight),
 		gag: !!r.gag,
 		image: typeof r.image === "string" ? r.image.slice(0, 300) : d.image,
 		sound: typeof r.sound === "string" ? r.sound.slice(0, 300) : d.sound,
@@ -157,7 +172,7 @@ export function canonPrize(raw: any, i: number) {
 			factor: Math.min(10, Math.max(1, Number.isFinite(Number(e.factor)) ? Number(e.factor) : 2)),
 			percent: numIn(e.percent, 1, 100, 50),
 			charges: numIn(e.charges, 1, 99, 5),
-			boxes: numIn(e.boxes, 1, 99, 2),
+			boxes: numIn(e.boxes, 0, 99, 2),
 			chants: (Array.isArray(e.chants) ? e.chants : (typeof e.phrase === "string" && e.phrase ? [{ phrase: e.phrase, times: e.times, seconds: e.seconds }] : []))
 				.map((c: any) => ({
 					phrase: typeof (c && c.phrase) === "string" ? c.phrase.slice(0, 60).trim() : "",
@@ -178,6 +193,9 @@ export function canonPrize(raw: any, i: number) {
 			streak: !!e.streak,
 			unique: e.unique === undefined ? true : !!e.unique,
 			topCount: numIn(e.topCount, 1, 50, 3),
+			shells: numIn(e.shells, 2, 10, 3),
+			difficulty: numIn(e.difficulty, 1, 3, 2),
+			shellImage: typeof e.shellImage === "string" ? e.shellImage.slice(0, 300) : "",
 			bombGoalSec: numIn(e.bombGoalSec, 0, 24 * 3600, 0),
 			bombReward: e.bombReward === "boxes" ? "boxes" : "time",
 			winSound: typeof e.winSound === "string" ? e.winSound.slice(0, 300) : "",
@@ -203,11 +221,13 @@ export function canonPrize(raw: any, i: number) {
 	};
 }
 
-// the wonder box: a second wheel, earned by firesales, with its own prizes and wallet. same rules as
+// the wonder box: a second wheel, earned by firesales, with its own wallet. it draws from the mystery box's
+// prize list, using each prize's wonderWeight as its rarity. same rules as
 // back/src/mysterybox.ts's normalizeWonderBox. it spins on the /mysterybox source with the mystery box's look.
 export const DEFAULT_WONDERBOX = {
 	enabled: true,
 	allowOpening: true,
+	cooldownSec: 0,
 	command: "wb",
 	activeProfile: "",
 	grantOnFiresale: true,
@@ -215,7 +235,6 @@ export const DEFAULT_WONDERBOX = {
 	firesaleBoxes: 1,
 	music: "",
 	volume: 0.7,
-	prizes: [] as any[],
 };
 
 export function canonWonderBox(raw: any) {
@@ -224,6 +243,7 @@ export function canonWonderBox(raw: any) {
 	return {
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
+		cooldownSec: numIn(r.cooldownSec, 0, 3600, d.cooldownSec),
 		command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
 		activeProfile: typeof r.activeProfile === "string" ? r.activeProfile.slice(0, 60).trim() : "",
 		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
@@ -236,7 +256,6 @@ export function canonWonderBox(raw: any) {
 		firesaleBoxes: numIn(r.firesaleBoxes, 1, 99, d.firesaleBoxes),
 		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
-		prizes: (Array.isArray(r.prizes) ? r.prizes : []).map(canonPrize),
 	};
 }
 
@@ -247,12 +266,16 @@ export function canonMysteryBox(raw: any) {
 	return {
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
+		cooldownSec: numIn(r.cooldownSec, 0, 3600, d.cooldownSec),
 		// trimmed, lowercased and cut to length exactly as the server does — this is the comparison the tab
 		// uses to decide whether its draft has landed, so a field the server would tidy up (an uppercase
 		// command, a stray space) would otherwise never compare equal and the box would snap back a few
 		// seconds after you stopped typing
 		command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
 		raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
+		thundergunCommand: (typeof r.thundergunCommand === "string" ? r.thundergunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.thundergunCommand,
+		firstAidCommand: (typeof r.firstAidCommand === "string" ? r.firstAidCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.firstAidCommand,
+		fuckYouGunCommand: (typeof r.fuckYouGunCommand === "string" ? r.fuckYouGunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.fuckYouGunCommand,
 		activeProfile: typeof r.activeProfile === "string" ? r.activeProfile.slice(0, 60).trim() : "",
 		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
 		firesaleItems: Array.isArray(r.firesaleItems)

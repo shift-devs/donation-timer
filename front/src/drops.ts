@@ -5,7 +5,7 @@
 import { canonPrize, DEFAULT_PRIZE, EFFECT_KINDS } from "./mysterybox";
 
 // the rewards that are a minigame of their own, which a drop — already a minigame — can't pay out
-export const NOT_A_DROP = ["chant", "infection", "rollcall", "potato", "cup", "vote", "weenie"];
+export const NOT_A_DROP = ["chant", "infection", "rollcall", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra"];
 export const REWARD_KINDS = EFFECT_KINDS.filter((k) => !NOT_A_DROP.includes(k.key));
 
 export const GAME_KINDS: { key: string; label: string; hint: string }[] = [
@@ -29,7 +29,7 @@ export const DEFAULT_GAME = {
 	seconds: 60,
 	pool: "",
 	words: [] as string[],
-	secrets: [] as { phrase: string; hints: string[] }[],
+	secrets: [] as { phrase: string; hints: string[]; images: string[] }[],
 	times: 20,
 	streak: false,
 	from: 1,
@@ -152,6 +152,12 @@ export function canonGame(raw: any, i: number, pools: any[]) {
 							.filter((h: string, j: number, all: string[]) => h && all.indexOf(h) === j)
 							.slice(0, MAX_HINTS)
 						: [],
+					images: Array.isArray(s.images)
+						? s.images
+							.map((h: any) => (typeof h === "string" ? h.slice(0, 300).trim() : ""))
+							.filter((h: string, j: number, all: string[]) => h && all.indexOf(h) === j)
+							.slice(0, 10)
+						: [],
 				}))
 			: [],
 		times: numIn(r.times, 1, 10000, d.times),
@@ -218,7 +224,7 @@ export function rewardOdds(rewards: any[], reward: any): number {
 
 // a secret phrase that can go up: it has a phrase, and at least one hint
 export function secretReady(s: any): boolean {
-	return !!(s.phrase && s.hints.length);
+	return !!(s.phrase && (s.hints.length || s.images.length));
 }
 
 // can this minigame actually be played — the word games need words, a count needs somewhere to go, a

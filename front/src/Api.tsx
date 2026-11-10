@@ -198,6 +198,24 @@ export function giveMysteryBox(ws: WebSocket, name: string, count: number, kind:
 	return 1;
 }
 
+// hand out (or take back) fuck you gun shots by hand
+export function giveFuckYouGun(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveFuckYouGun", name: name, count: count });
+	return 1;
+}
+
+// hand out (or take back) first aid kits by hand
+export function giveFirstAid(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveFirstAid", name: name, count: count });
+	return 1;
+}
+
+// hand out (or take back) thunder gun shots by hand
+export function giveThundergun(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveThundergun", name: name, count: count });
+	return 1;
+}
+
 // hand out (or take back) ray gun shots by hand
 export function giveRaygun(ws: WebSocket, name: string, count: number) {
 	send(ws, { event: "giveRaygun", name: name, count: count });

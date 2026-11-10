@@ -31,7 +31,9 @@ const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 // twitch checks both.
 // a bot authorized before announcements were added here carries a token WITHOUT that scope, and it keeps
 // working: botAnnounce falls back to a plain message and says once, on the terminal, to re-authorize.
-export const TWITCH_BOT_SCOPES = "user:write:chat moderator:manage:banned_users moderator:manage:announcements";
+// moderator:manage:chat_settings is the emote-only and sub-only prizes. a bot authorized before it was added gets a refusal
+// from twitch when that prize lands, which is reported on the terminal with the fix (re-authorize).
+export const TWITCH_BOT_SCOPES = "user:write:chat moderator:manage:banned_users moderator:manage:announcements moderator:manage:chat_settings";
 
 // per user: twitch has refused an announcement from this token (missing scope, or the bot isn't a mod), so
 // don't keep asking — every prize would otherwise cost two refused requests before the plain line goes out.
@@ -371,6 +373,38 @@ export async function botTimeout(session: TimerUserSession, targetUserId: string
     }, {
         headers: { Authorization: `Bearer ${token}`, "Client-Id": clientId, "Content-Type": "application/json" },
         // moderator_id is the account DOING it and must match the token; broadcaster_id is the channel
+        params: { broadcaster_id: broadcaster, moderator_id: b.botId },
+        timeout: FW_HTTP_TIMEOUT,
+        paramsSerializer: (p: any) => new URLSearchParams(p).toString(),
+    }));
+}
+
+// the chat modes a prize can switch, by their name in helix's chat settings
+export type ChatModeField = "emote_mode" | "subscriber_mode";
+
+// is this chat mode on right now? reading the settings needs no scope beyond a valid token.
+export async function botChatMode(session: TimerUserSession, field: ChatModeField): Promise<boolean> {
+    const broadcaster = await broadcasterId(session);
+    if (!broadcaster)
+        throw new Error("Couldn't work out which channel to look at.");
+    const res: any = await asBot(session, (token, clientId) => axios.get(`${HELIX}/chat/settings`, {
+        headers: { Authorization: `Bearer ${token}`, "Client-Id": clientId },
+        params: { broadcaster_id: broadcaster },
+        timeout: FW_HTTP_TIMEOUT,
+    }));
+    const row = res && res.data && Array.isArray(res.data.data) ? res.data.data[0] : null;
+    return !!(row && row[field]);
+}
+
+// turn a chat mode on or off — the same switch as /emoteonly or /subscribers. wants the bot to be a mod and
+// the token to carry moderator:manage:chat_settings.
+export async function botSetChatMode(session: TimerUserSession, field: ChatModeField, on: boolean){
+    const b = session.connections.twitchBot;
+    const broadcaster = await broadcasterId(session);
+    if (!broadcaster)
+        throw new Error("Couldn't work out which channel to change.");
+    await asBot(session, (token, clientId) => axios.patch(`${HELIX}/chat/settings`, { [field]: on }, {
+        headers: { Authorization: `Bearer ${token}`, "Client-Id": clientId, "Content-Type": "application/json" },
         params: { broadcaster_id: broadcaster, moderator_id: b.botId },
         timeout: FW_HTTP_TIMEOUT,
         paramsSerializer: (p: any) => new URLSearchParams(p).toString(),

@@ -65,7 +65,7 @@ const PermissionRow: React.FC<{ ws: any; entry: Entry; perm: { on: boolean; mods
 				<Flex gap={1} wrap="wrap" mt={1}>
 					{entry.commands.map((c) => <Code key={c} fontSize="xs">{c}</Code>)}
 				</Flex>
-				<Text fontSize="xs" color="gray.500" mt={1}>{entry.hint}</Text>
+				<Text fontSize="xs" color="subtle" mt={1}>{entry.hint}</Text>
 				{perm.on && (
 					<Box mt={2}>
 						<Flex gap={1} wrap="wrap" align="center" mb={mods.length ? 2 : 0}>
@@ -99,7 +99,7 @@ const Permissions: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 
 	return (
 		<Box maxW="900px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={3}>
+			<Text fontSize="sm" color="muted" mb={3}>
 				Which <b>!</b> commands your Twitch mods can use in chat. Switch one off and no mod can use it. Leave it on
 				with no names listed and every mod can; add names and only those mods can. Refused commands get nothing in
 				chat — the Terminal shows who tried. The broadcaster can always use all of them, and the Terminal tab and
@@ -117,9 +117,9 @@ const Permissions: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 					</Box>
 				</Box>
 			))}
-			<Text fontSize="xs" color="gray.500">
+			<Text fontSize="xs" color="subtle">
 				Opening your own box (<Code fontSize="xs">!mb open</Code>), <Code fontSize="xs">!mb count</Code>,{" "}
-				<Code fontSize="xs">!enter</Code> and <Code fontSize="xs">!raygun</Code> are open to everyone and aren&apos;t listed here.
+				<Code fontSize="xs">!enter</Code>, <Code fontSize="xs">!raygun</Code>, <Code fontSize="xs">!thundergun</Code>, <Code fontSize="xs">!fuckyougun</Code> and <Code fontSize="xs">!firstaid</Code> are open to everyone and aren&apos;t listed here.
 			</Text>
 		</Box>
 	);

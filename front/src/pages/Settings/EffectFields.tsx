@@ -1,7 +1,7 @@
 import React from "react";
-import { Badge, Button, Checkbox, HStack, Input, Select, Switch, Text, Textarea, VStack } from "@chakra-ui/react";
+import { Badge, Box, Button, Checkbox, HStack, Input, Select, Switch, Text, Textarea, VStack } from "@chakra-ui/react";
 import NumberField from "../../NumberField";
-import { countdown, EFFECT_KINDS } from "../../mysterybox";
+import { countdown, EFFECT_KINDS, prizeImageSrc } from "../../mysterybox";
 
 // prize art in public/prizes, audio in public/media (vite.config.ts bakes both lists in at build time)
 export const PRIZE_IMAGES: string[] = typeof __PRIZES__ !== "undefined" ? __PRIZES__ : [];
@@ -23,7 +23,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 	const spec = EFFECT_KINDS.find((k) => k.key === prize.effect.kind) || EFFECT_KINDS[0];
 	return (
 		<VStack align="stretch" spacing={2} mt={2}>
-			<Text fontSize="xs" color="gray.500">{spec.hint}</Text>
+			<Text fontSize="xs" color="subtle">{spec.hint}</Text>
 			<HStack spacing={2} wrap="wrap">
 				{spec.needs.includes("rounds") && (
 					<HStack spacing={1}>
@@ -34,12 +34,12 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.rounds}
 							onCommit={(n) => patchEffect(prize.id, { rounds: n }, `rd${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.600">round{prize.effect.rounds === 1 ? "" : "s"}, each drawn from the list below</Text>
+						<Text fontSize="sm" color="muted">round{prize.effect.rounds === 1 ? "" : "s"}, each drawn from the list below</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("seconds") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "pauseTimer" ? "Pause for"
 								: prize.effect.kind === "timebomb" ? "Each contribution buys"
 								: prize.effect.kind === "textBox" ? "Hold for"
@@ -48,7 +48,12 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								: prize.effect.kind === "infection" ? "Spreads for"
 								: prize.effect.kind === "schizo" ? "Reads chat for"
 								: prize.effect.kind === "rollcall" ? "Runs for"
-								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "weenie" ? "Runs for"
+								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "voteup" || prize.effect.kind === "weenie" ? "Runs for"
+								: prize.effect.kind === "shell" ? "They get"
+								: prize.effect.kind === "algebra" ? "Chat gets"
+								: prize.effect.kind === "emp" ? "Boxes offline for"
+								: prize.effect.kind === "emoteOnly" ? "Emote only for"
+								: prize.effect.kind === "subOnly" ? "Sub only for"
 								: prize.effect.kind === "nuke" ? ""
 								: prize.effect.kind === "raygun" ? ""
 								: "Seconds"}
@@ -60,14 +65,14 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.seconds}
 							onCommit={(n) => patchEffect(prize.id, { seconds: n }, `sec${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">
+						<Text fontSize="sm" color="subtle">
 							{prize.effect.seconds >= 60 ? `= ${countdown(prize.effect.seconds * 1000)}` : "sec"}
 						</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("timeoutSeconds") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "potato" ? "then whoever holds it is timed out"
 								: prize.effect.kind === "vote" ? "then they're timed out"
 								: "then the infected are timed out"}
@@ -79,14 +84,14 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.timeoutSeconds}
 							onCommit={(n) => patchEffect(prize.id, { timeoutSeconds: n }, `to${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">
+						<Text fontSize="sm" color="subtle">
 							{prize.effect.timeoutSeconds >= 60 ? `sec = ${countdown(prize.effect.timeoutSeconds * 1000)}` : "sec"}
 						</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("answerSeconds") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">each person called gets</Text>
+						<Text fontSize="sm" color="muted">each person called gets</Text>
 						<NumberField
 							width="80px"
 							min={5}
@@ -94,15 +99,16 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.answerSeconds}
 							onCommit={(n) => patchEffect(prize.id, { answerSeconds: n }, `as${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">sec to answer</Text>
+						<Text fontSize="sm" color="subtle">sec to answer</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("reward") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "rollcall" ? "each answer adds"
 								: prize.effect.kind === "potato" ? "each pass adds"
 								: prize.effect.kind === "weenie" ? "if nobody says it, adds"
+								: prize.effect.kind === "algebra" ? "and solving it adds"
 								: "for"}
 						</Text>
 						<NumberField
@@ -112,7 +118,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.rewardSeconds}
 							onCommit={(n) => patchEffect(prize.id, { rewardSeconds: n }, `rw${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">
+						<Text fontSize="sm" color="subtle">
 							{prize.effect.rewardSeconds >= 60 ? `sec = +${countdown(prize.effect.rewardSeconds * 1000)}` : "sec on the timer"}
 						</Text>
 					</HStack>
@@ -124,13 +130,64 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							isChecked={prize.effect.unique}
 							onChange={(e) => patchEffect(prize.id, { unique: e.target.checked })}
 						/>
-						<Text fontSize="sm" color="gray.600">one per person</Text>
-						<Text fontSize="xs" color="gray.500">(the number is how many different chatters say it)</Text>
+						<Text fontSize="sm" color="muted">one per person</Text>
+						<Text fontSize="xs" color="subtle">(the number is how many different chatters say it)</Text>
+					</HStack>
+				)}
+				{spec.needs.includes("difficulty") && (
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">Difficulty</Text>
+						<Select size="sm" maxW="300px" value={String(prize.effect.difficulty)} onChange={(e) => patchEffect(prize.id, { difficulty: Number(e.target.value) })}>
+							<option value="1">1 — brackets, x on one side</option>
+							<option value="2">2 — x on both sides</option>
+							<option value="3">3 — brackets inside brackets</option>
+						</Select>
+					</HStack>
+				)}
+				{spec.needs.includes("shells") && (
+					<HStack spacing={1}>
+						<NumberField
+							width="80px"
+							min={2}
+							max={10}
+							value={prize.effect.shells}
+							onCommit={(n) => patchEffect(prize.id, { shells: n }, `sh${prize.id}`)}
+						/>
+						<Text fontSize="sm" color="muted">shells (they pick 1 to {prize.effect.shells})</Text>
+					</HStack>
+				)}
+				{spec.needs.includes("shellImage") && (
+					<HStack spacing={2} wrap="wrap">
+						<Text fontSize="sm" color="muted">Shell art</Text>
+						{prize.effect.shellImage && (
+							<Box w="40px" h="40px" borderWidth="1px" borderRadius="md" overflow="hidden" bg="panel">
+								<img src={prizeImageSrc(prize.effect.shellImage)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+							</Box>
+						)}
+						<Select
+							size="sm"
+							maxW="200px"
+							value={PRIZE_IMAGES.includes(prize.effect.shellImage) ? prize.effect.shellImage : ""}
+							onChange={(e) => patchEffect(prize.id, { shellImage: e.target.value })}
+						>
+							<option value="">(plain shells)</option>
+							{PRIZE_IMAGES.map((f) => (
+								<option key={f} value={f}>{f}</option>
+							))}
+						</Select>
+						<Input
+							size="sm"
+							maxW="240px"
+							placeholder="…or an image URL"
+							value={PRIZE_IMAGES.includes(prize.effect.shellImage) ? "" : prize.effect.shellImage}
+							onChange={(e) => patchEffect(prize.id, { shellImage: e.target.value }, `si${prize.id}`)}
+						/>
+						<Text fontSize="xs" color="subtle">each shell is drawn as this, with its number on top</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("topCount") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">The top</Text>
+						<Text fontSize="sm" color="muted">The top</Text>
 						<NumberField
 							width="80px"
 							min={1}
@@ -138,7 +195,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.topCount}
 							onCommit={(n) => patchEffect(prize.id, { topCount: n }, `tc${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.600">most-voted</Text>
+						<Text fontSize="sm" color="muted">most-voted</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("streak") && (
@@ -148,14 +205,14 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							isChecked={prize.effect.streak}
 							onChange={(e) => patchEffect(prize.id, { streak: e.target.checked })}
 						/>
-						<Text fontSize="sm" color="gray.600">in a row</Text>
-						<Text fontSize="xs" color="gray.500">(any other line resets the count)</Text>
+						<Text fontSize="sm" color="muted">in a row</Text>
+						<Text fontSize="xs" color="subtle">(any other line resets the count)</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("factor") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Everything is worth</Text>
-						<Text fontSize="sm" color="gray.500">x</Text>
+						<Text fontSize="sm" color="muted">Everything is worth</Text>
+						<Text fontSize="sm" color="subtle">x</Text>
 						<NumberField
 							width="80px"
 							min={2}
@@ -167,7 +224,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 				)}
 				{spec.needs.includes("charges") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">{prize.effect.kind === "shield" ? "Blocks the next" : "Gives"}</Text>
+						<Text fontSize="sm" color="muted">{prize.effect.kind === "shield" ? "Blocks the next" : "Gives"}</Text>
 						<NumberField
 							width="80px"
 							min={1}
@@ -175,25 +232,25 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.charges}
 							onCommit={(n) => patchEffect(prize.id, { charges: n }, `ch${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">{prize.effect.kind === "shield" ? "timeouts from the bot" : "shots, each"}</Text>
+						<Text fontSize="sm" color="subtle">{prize.effect.kind === "shield" ? "timeouts from the bot" : prize.effect.kind === "thundergun" ? "shots, 20 minutes each" : prize.effect.kind === "firstaid" ? "first aid kits" : prize.effect.kind === "fuckyougun" ? "shots, 24 hours each" : "shots, each"}</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("boxes") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Gives</Text>
+						<Text fontSize="sm" color="muted">Gives</Text>
 						<NumberField
 							width="80px"
-							min={1}
+							min={prize.effect.kind === "algebra" ? 0 : 1}
 							max={99}
 							value={prize.effect.boxes}
 							onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bx${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">{prize.effect.kind === "cup" ? "boxes to whoever is it at the end" : prize.effect.kind === "wonderBoxes" ? `wonder box${prize.effect.boxes === 1 ? "" : "es"}` : "more boxes"}</Text>
+						<Text fontSize="sm" color="subtle">{prize.effect.kind === "cup" ? "boxes to whoever is it at the end" : prize.effect.kind === "voteup" ? "mystery boxes to the most-voted" : prize.effect.kind === "shell" ? "mystery boxes if they find it" : prize.effect.kind === "algebra" ? "mystery boxes to whoever solves it" : prize.effect.kind === "wonderBoxes" ? `wonder box${prize.effect.boxes === 1 ? "" : "es"}` : "more boxes"}</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("percent") && (
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Hits</Text>
+						<Text fontSize="sm" color="muted">Hits</Text>
 						<NumberField
 							width="80px"
 							min={1}
@@ -201,7 +258,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.percent}
 							onCommit={(n) => patchEffect(prize.id, { percent: n }, `pc${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">% of chat, for</Text>
+						<Text fontSize="sm" color="subtle">% of chat, for</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("eventId") && (
@@ -233,7 +290,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 			</HStack>
 			{spec.needs.includes("bombGoal") && (
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Keep it alive</Text>
+					<Text fontSize="sm" color="muted">Keep it alive</Text>
 					<NumberField
 						width="100px"
 						min={0}
@@ -241,7 +298,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						value={prize.effect.bombGoalSec}
 						onCommit={(n) => patchEffect(prize.id, { bombGoalSec: n }, `bg${prize.id}`)}
 					/>
-					<Text fontSize="sm" color="gray.500">
+					<Text fontSize="sm" color="subtle">
 						{prize.effect.bombGoalSec > 0 ? `sec${prize.effect.bombGoalSec >= 60 ? ` = ${countdown(prize.effect.bombGoalSec * 1000)}` : ""} and chat earns` : "sec for a reward (0 = no reward)"}
 					</Text>
 					{prize.effect.bombGoalSec > 0 && (<>
@@ -263,7 +320,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 									value={prize.effect.boxes}
 									onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bbx${prize.id}`)}
 								/>
-								<Text fontSize="sm" color="gray.500">boxes</Text>
+								<Text fontSize="sm" color="subtle">boxes</Text>
 							</HStack>
 						) : (
 							<HStack spacing={1}>
@@ -274,7 +331,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 									value={prize.effect.rewardSeconds}
 									onCommit={(n) => patchEffect(prize.id, { rewardSeconds: n }, `brw${prize.id}`)}
 								/>
-								<Text fontSize="sm" color="gray.500">
+								<Text fontSize="sm" color="subtle">
 									{prize.effect.rewardSeconds >= 60 ? `sec = +${countdown(prize.effect.rewardSeconds * 1000)}` : "sec"}
 								</Text>
 							</HStack>
@@ -284,7 +341,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 			)}
 			{spec.needs.includes("loopSound") && (
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Loop</Text>
+					<Text fontSize="sm" color="muted">Loop</Text>
 					<Select
 						size="sm"
 						maxW="240px"
@@ -296,7 +353,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							<option key={f} value={f}>{f}</option>
 						))}
 					</Select>
-					<Text fontSize="sm" color="gray.600">Vol</Text>
+					<Text fontSize="sm" color="muted">Vol</Text>
 					<input
 						type="range"
 						min={0}
@@ -305,7 +362,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						value={prize.effect.loopVolume}
 						onChange={(e) => patchEffect(prize.id, { loopVolume: Number(e.target.value) }, `lv${prize.id}`)}
 					/>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						plays on the Mystery Box source for as long as it lasts
 					</Text>
 				</HStack>
@@ -317,7 +374,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 					)}
 					{prize.effect.chants.map((c: any, i: number) => (
 						<HStack key={i} spacing={2} wrap="wrap">
-							<Text fontSize="sm" color="gray.600">Say</Text>
+							<Text fontSize="sm" color="muted">Say</Text>
 							<Input
 								size="sm"
 								maxW="180px"
@@ -332,7 +389,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								value={c.times}
 								onCommit={(n) => patchChant(prize.id, i, { times: n }, `ct${prize.id}${i}`)}
 							/>
-							<Text fontSize="sm" color="gray.600">{prize.effect.unique ? "people within" : "times within"}</Text>
+							<Text fontSize="sm" color="muted">{prize.effect.unique ? "people within" : "times within"}</Text>
 							<NumberField
 								width="80px"
 								min={5}
@@ -340,7 +397,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								value={c.seconds}
 								onCommit={(n) => patchChant(prize.id, i, { seconds: n }, `cs${prize.id}${i}`)}
 							/>
-							<Text fontSize="sm" color="gray.600">sec</Text>
+							<Text fontSize="sm" color="muted">sec</Text>
 							<Button
 								size="xs"
 								variant="ghost"
@@ -360,14 +417,14 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							Add chant
 						</Button>
 						{prize.effect.chants.length > 0 && prize.effect.chants.some((c: any) => !c.phrase.trim()) && (
-							<Text fontSize="xs" color="gray.500">a chant with no words is dropped when it&apos;s saved</Text>
+							<Text fontSize="xs" color="subtle">a chant with no words is dropped when it&apos;s saved</Text>
 						)}
 					</HStack>
 				</VStack>
 			)}
 			{spec.needs.includes("phrases") && (
 				<VStack align="stretch" spacing={1}>
-					<Text fontSize="sm" color="gray.600">
+					<Text fontSize="sm" color="muted">
 						{prize.effect.kind === "weenie"
 							? "The phrase nobody may say — one per line, one drawn each time it lands"
 							: "What they have to say — one per line, one drawn for each person called"}
@@ -386,7 +443,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 			)}
 			{spec.needs.includes("track") && (
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Track</Text>
+					<Text fontSize="sm" color="muted">Track</Text>
 					<Select
 						size="sm"
 						maxW="280px"
@@ -398,7 +455,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							<option key={f} value={f}>{f}</option>
 						))}
 					</Select>
-					<Text fontSize="sm" color="gray.600">Vol</Text>
+					<Text fontSize="sm" color="muted">Vol</Text>
 					<input
 						type="range"
 						min={0}
@@ -407,12 +464,12 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						value={prize.effect.trackVolume}
 						onChange={(e) => patchEffect(prize.id, { trackVolume: Number(e.target.value) }, `tv${prize.id}`)}
 					/>
-					<Text fontSize="xs" color="gray.500">plays once, start to finish, under whatever else happens</Text>
+					<Text fontSize="xs" color="subtle">plays once, start to finish, under whatever else happens</Text>
 				</HStack>
 			)}
 			{spec.needs.includes("tts") && (
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Speed</Text>
+					<Text fontSize="sm" color="muted">Speed</Text>
 					<input
 						type="range"
 						min={0.5}
@@ -421,8 +478,8 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						value={prize.effect.ttsRate}
 						onChange={(e) => patchEffect(prize.id, { ttsRate: Number(e.target.value) }, `tr${prize.id}`)}
 					/>
-					<Text fontSize="xs" color="gray.500">{Number(prize.effect.ttsRate).toFixed(1)}x</Text>
-					<Text fontSize="sm" color="gray.600">Pitch</Text>
+					<Text fontSize="xs" color="subtle">{Number(prize.effect.ttsRate).toFixed(1)}x</Text>
+					<Text fontSize="sm" color="muted">Pitch</Text>
 					<input
 						type="range"
 						min={0}
@@ -431,8 +488,8 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						value={prize.effect.ttsPitch}
 						onChange={(e) => patchEffect(prize.id, { ttsPitch: Number(e.target.value) }, `tp${prize.id}`)}
 					/>
-					<Text fontSize="xs" color="gray.500">{Number(prize.effect.ttsPitch).toFixed(1)}</Text>
-					<Text fontSize="sm" color="gray.600">Vol</Text>
+					<Text fontSize="xs" color="subtle">{Number(prize.effect.ttsPitch).toFixed(1)}</Text>
+					<Text fontSize="sm" color="muted">Vol</Text>
 					<input
 						type="range"
 						min={0}
@@ -544,7 +601,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 			)}
 			{spec.needs.includes("freezeColor") && (
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Timer turns</Text>
+					<Text fontSize="sm" color="muted">Timer turns</Text>
 					<input
 						type="color"
 						value={prize.effect.freezeColor || "#5bd5ff"}
@@ -558,16 +615,16 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 									isChecked={prize.effect.freezePulse}
 									onChange={(e) => patchEffect(prize.id, { freezePulse: e.target.checked })}
 								/>
-								<Text fontSize="sm" color="gray.600">pulse</Text>
+								<Text fontSize="sm" color="muted">pulse</Text>
 							</HStack>
 							<Button size="xs" variant="ghost" onClick={() => patchEffect(prize.id, { freezeColor: "" })}>
 								leave it alone
 							</Button>
 						</>
 					) : (
-						<Text fontSize="xs" color="gray.500">not tinted — pick a colour to turn the digits while it holds</Text>
+						<Text fontSize="xs" color="subtle">not tinted — pick a colour to turn the digits while it holds</Text>
 					)}
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						{prize.effect.freezeColor
 							? prize.effect.freezePulse
 								? "the countdown beats between its normal colour and this one for as long as the freeze lasts"

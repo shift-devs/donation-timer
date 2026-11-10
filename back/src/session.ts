@@ -8,7 +8,7 @@ import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeRaffle, endRaffleTimers } from "./raffle";
 import { normalizeBoxBoard, normalizeBoxBoardTally } from "./boxBoard";
 import { normalizeChatPermissions } from "./chatPermissions";
-import { normalizeMysteryBox, normalizeWonderBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
+import { normalizeMysteryBox, normalizeWonderBox, foldWonderPrizes, normalizeBoxes, resumeChatModes, endMysteryBoxTimers } from "./mysterybox";
 import { forgetTwitchBot } from "./platforms/twitchBot";
 import { endPauseTimer, endBoostTimer } from "./timer";
 import { endQuickReviveTimers } from "./quickRevive";
@@ -97,9 +97,14 @@ export function loginUser(inObj: Object){
     lvObj.mysteryBoxSettings = normalizeMysteryBox(lvObj.mysteryBoxSettings);
     lvObj.mysteryBoxes = normalizeBoxes(lvObj.mysteryBoxes); // the ledger DOES survive: boxes are owed, not live state
     lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
+    lvObj.thunderguns = normalizeBoxes(lvObj.thunderguns);   // and thunder gun charges
+    lvObj.firstAid = normalizeBoxes(lvObj.firstAid);         // and first aid kits
+    lvObj.fuckYouGuns = normalizeBoxes(lvObj.fuckYouGuns);   // and fuck you gun charges
     lvObj.doubleTime = normalizeBoxes(lvObj.doubleTime);     // and unspent double time prizes
     lvObj.shields = normalizeBoxes(lvObj.shields);           // and unspent timeout shields
     // seeded from the mystery box's firesale rules the first time, since firesales earn wonder boxes now
+    // a wonder box that still has prizes of its own hands them to the shared list first (see foldWonderPrizes)
+    lvObj.mysteryBoxSettings = foldWonderPrizes(lvObj.mysteryBoxSettings, lvObj.wonderBoxSettings);
     lvObj.wonderBoxSettings = normalizeWonderBox(lvObj.wonderBoxSettings, lvObj.mysteryBoxSettings);
     lvObj.wonderBoxes = normalizeBoxes(lvObj.wonderBoxes);   // and unopened wonder boxes
     lvObj.giftSubProgress = normalizeBoxes(lvObj.giftSubProgress); // and gift subs counted toward a box
@@ -112,8 +117,15 @@ export function loginUser(inObj: Object){
     lvObj.timeBoost = undefined;    // nor a bonfire sale — it lapses with the process that was running it
     lvObj.chatters = {};            // who's talking is rebuilt from chat itself within a few minutes
     lvObj.mbEffect = undefined;     // a prize's after-effect doesn't survive the process either
+    lvObj.emp = undefined;          // nor an EMP: a restart brings the boxes back online
     lvObj.jukebox = undefined;      // nor the note of what the jukebox was playing
     lvObj.schizo = undefined;       // nor a schizo prize — the voice stops with the process that was feeding it
+    // an emote-only / sub-only prize DOES survive: its deadline is what switches chat back (see resumeChatModes)
+    const cm: any = (lvObj as any).chatModes;
+    lvObj.chatModes = {};
+    for (const m of ["emote", "subscriber"])
+        if (cm && typeof cm === "object" && Number(cm[m]) > 0)
+            lvObj.chatModes[m] = Number(cm[m]);
     lvObj.fwProductBonuses = normalizeFwProductBonuses(lvObj.fwProductBonuses);
     lvObj.fwProductSounds = normalizeFwProductSounds(lvObj.fwProductSounds);
     lvObj.fwProductAlerts = normalizeFwProductAlerts(lvObj.fwProductAlerts);
@@ -174,6 +186,11 @@ export function loginUser(inObj: Object){
             curSession.conTwitchSubs = connectTwitchSubsFor(curSession);
     } catch (err) {
         reportError(curSession.userId, `connecting Twitch subs for ${curSession.name}`, err);
+    }
+    try {
+        resumeChatModes(curSession);
+    } catch (err) {
+        reportError(curSession.userId, `resuming chat modes for ${curSession.name}`, err);
     }
     console.log(`${curSession.name} has logged in!`);
 }

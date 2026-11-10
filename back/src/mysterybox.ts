@@ -27,6 +27,8 @@ import { setTextBoxText } from "./textBoxes";
 import { MB_ACTIONS, mbPermission } from "./chatPermissions";
 import { testTimerEvent } from "./scheduler";
 import { runCommandLine } from "./runCommand";
+import { twitchBotReady, botChatMode, botSetChatMode, ChatModeField, describeError as describeBotError } from "./platforms/twitchBot";
+import { makeEquation } from "./algebra";
 import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime, randomChatter } from "./quickRevive";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
@@ -68,7 +70,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "weenie", "wonderBoxes"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes"];
 const BOMB_REWARDS = ["time", "boxes"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
@@ -103,6 +105,7 @@ const MAX_BOOST = 10;
 const MAX_NUKE_SEC = 3600;    // ceiling on one nuke's timeout, well under twitch's own
 const MAX_COMMAND = 1000;      // a command prize's whole text
 const MAX_COMMAND_LINES = 10;  // …and how many lines of it run
+const MAX_COOLDOWN_SEC = 3600; // ceiling on the wait between chat's box openings
 
 export const DEFAULT_MYSTERYBOX = {
     // the whole feature. off = nothing is earned and nothing can be opened; the boxes people already hold
@@ -112,11 +115,21 @@ export const DEFAULT_MYSTERYBOX = {
     // opened yet — for holding the spins back until the streamer is ready to react to one, without stopping
     // anybody earning in the meantime. the dashboard can still open and rehearse while this is off.
     allowOpening: true,
+    // seconds chat has to wait after a box finishes (either kind) before it can open another mystery box.
+    // 0 = straight away, the old behaviour. only chat waits: the dashboard can still open and test.
+    cooldownSec: 0,
     // what chatters type, without the "!". the actions after it (open / count) are fixed.
     command: "mb",
     // what a ray gun charge is fired with, without the "!". "<command> <name>" shoots; on its own it says
     // how many shots the asker has left.
     raygunCommand: "raygun",
+    // the thunder gun's, likewise. same mechanic as the ray gun, its own wallet, and every shot is 20 minutes.
+    thundergunCommand: "thundergun",
+    // first aid's. the same wallet-and-command mechanic, but it HEALS: a 1 second timeout replaces whatever
+    // timeout the target is sitting in, so they're back in chat a second later.
+    firstAidCommand: "firstaid",
+    // the fuck you gun's: the thunder gun again, but every shot is a 24 hour timeout
+    fuckYouGunCommand: "fuckyougun",
     // which set of prizes is in play. a prize belongs to a profile (or to none, which means always), so the
     // streamer can keep a pile of game-specific prizes set up and switch to them when they switch games
     // without disabling anything by hand. "" = only the prizes that belong to no profile.
@@ -174,6 +187,9 @@ export const DEFAULT_PRIZE = {
     // weight above zero. so 1 against three 10s is roughly a 3% prize, and the operator never has to make
     // the numbers add up to anything in particular.
     weight: 10,
+    // the same again for the WONDER box. there's one prize list: every prize has a rarity in each box, and 0
+    // keeps it out of that box. new prizes start out mystery-box only.
+    wonderWeight: 0,
     // a visual gag: at rarity 0 it can never be won, but with this on it still scrolls past on the reel —
     // the near-miss on something chat can see but nobody will ever get
     gag: false,
@@ -226,7 +242,8 @@ function normalizeEffect(raw: any): any {
         charges: numIn(r.charges, 1, MAX_CHARGES, 5),
         // extraBoxes: how many more boxes the winner is handed. they can be opened straight away, so a prize
         // like this can chain — the rarity on the tab only ever describes ONE spin.
-        boxes: numIn(r.boxes, 1, MAX_EXTRA_BOXES, 2),
+        // 0 is only offered by Solve for X (time-only); every other prize that pays boxes checks for > 0
+        boxes: numIn(r.boxes, 0, MAX_EXTRA_BOXES, 2),
         // chant: the pool of things chat may be asked to say — each round draws one — how many rounds have
         // to be cleared, and what clearing them all pays. a prize saved before the list existed carried one
         // phrase/times on the effect itself; that becomes a one-chant, one-round list so it plays as it did.
@@ -250,6 +267,13 @@ function normalizeEffect(raw: any): any {
         // chant: count each chatter once a round, so the goal is PEOPLE saying it rather than lines. on unless
         // switched off — the client asked for this to be how it works, prizes saved before it existed included.
         unique: r.unique === undefined ? true : !!r.unique,
+        // shell: how many shells the opener picks from (the prize is under one)
+        shells: numIn(r.shells, 2, 10, 3),
+        // algebra: how hard the equation is — 1 brackets on one side, 2 x on both sides, 3 nested brackets
+        difficulty: numIn(r.difficulty, 1, 3, 2),
+        // shell: the art each shell is drawn as, with its number over it. a file in public/prizes or a full
+        // url, like a prize's art. blank = the plain coloured shells.
+        shellImage: str(r.shellImage, MAX_PATH),
         // vote: how many of the most-@'d are timed out
         topCount: numIn(r.topCount, 1, 50, 3),
         // timebomb: keep it frozen this long (0 = no reward) and chat earns `bombReward` — `rewardSeconds` on
@@ -298,6 +322,7 @@ function normalizePrize(raw: any, i: number): any | null {
         profile: str(raw.profile, 60).trim(),
         enabled: raw.enabled === undefined ? d.enabled : !!raw.enabled,
         weight: numIn(raw.weight, 0, 1000, d.weight),
+        wonderWeight: numIn(raw.wonderWeight, 0, 1000, d.wonderWeight),
         gag: !!raw.gag,
         image: str(raw.image, MAX_PATH),
         sound: str(raw.sound, MAX_PATH),
@@ -331,9 +356,13 @@ export function normalizeMysteryBox(raw: any): any {
     return {
         enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
         allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
+        cooldownSec: numIn(r.cooldownSec, 0, MAX_COOLDOWN_SEC, d.cooldownSec),
         // stored without the "!" so the ui and the chat matcher can't disagree about whether it's there
         command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
         raygunCommand: (typeof r.raygunCommand === "string" ? r.raygunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.raygunCommand,
+        thundergunCommand: (typeof r.thundergunCommand === "string" ? r.thundergunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.thundergunCommand,
+        firstAidCommand: (typeof r.firstAidCommand === "string" ? r.firstAidCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.firstAidCommand,
+        fuckYouGunCommand: (typeof r.fuckYouGunCommand === "string" ? r.fuckYouGunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.fuckYouGunCommand,
         activeProfile: str(r.activeProfile, 60).trim(),
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
         firesaleItems: Array.isArray(r.firesaleItems)
@@ -379,6 +408,8 @@ export type BoxKind = "mystery" | "wonder";
 export const DEFAULT_WONDERBOX = {
     enabled: true,
     allowOpening: true,
+    // the same as the mystery box's, for the next wonder box
+    cooldownSec: 0,
     command: "wb",
     activeProfile: "",
     // the firesale earning rules, which used to be on the mystery box (see normalizeWonderBox's seeding)
@@ -388,7 +419,6 @@ export const DEFAULT_WONDERBOX = {
     // blank = play the mystery box's spin music
     music: "",
     volume: 0.7,
-    prizes: [] as any[],
 };
 
 // `seed` is the mystery box's settings. a channel that has never saved a wonder box gets the firesale rules
@@ -401,6 +431,7 @@ export function normalizeWonderBox(raw: any, seed?: any): any {
     return {
         enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
         allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
+        cooldownSec: numIn(r.cooldownSec, 0, MAX_COOLDOWN_SEC, d.cooldownSec),
         command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
         activeProfile: str(r.activeProfile, 60).trim(),
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
@@ -413,8 +444,27 @@ export function normalizeWonderBox(raw: any, seed?: any): any {
         firesaleBoxes: numIn(r.firesaleBoxes, 1, MAX_EXTRA_BOXES, d.firesaleBoxes),
         music: str(r.music, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
-        prizes: normalizePrizes(r.prizes),
     };
+}
+
+// the wonder box used to keep a prize list of its own. there's one list now, with a rarity per box, so a
+// channel that set wonder prizes up gets them moved onto the mystery box's list — out of the mystery box
+// (rarity 0 there) and at the rarity they had in the wonder box. run once on load; the wonder box's settings
+// stop carrying prizes from then on, so it never runs twice.
+export function foldWonderPrizes(mbCfg: any, rawWb: any): any {
+    const old = rawWb && typeof rawWb === "object" && Array.isArray(rawWb.prizes) ? normalizePrizes(rawWb.prizes) : [];
+    if (!old.length)
+        return mbCfg;
+    const moved = old.map((p: any) => ({ ...p, weight: 0, wonderWeight: p.weight }));
+    // normalizePrizes renames any id the two lists share, so a landed reel can't be ambiguous
+    return { ...mbCfg, prizes: normalizePrizes(mbCfg.prizes.concat(moved)) };
+}
+
+// the one prize list, as one kind of box sees it: `weight` is that box's rarity. everything that draws, builds
+// a reel or shows odds reads the prizes through here, so the rest of the code doesn't care which box it is.
+export function boxPrizes(session: TimerUserSession, kind: BoxKind): any[] {
+    const prizes = mbSettings(session).prizes;
+    return kind === "wonder" ? prizes.map((p: any) => ({ ...p, weight: p.wonderWeight })) : prizes;
 }
 
 export function wbSettings(session: TimerUserSession): any {
@@ -422,7 +472,7 @@ export function wbSettings(session: TimerUserSession): any {
 }
 
 // the settings of one kind of box. both carry enabled / allowOpening / command / activeProfile / music /
-// volume / prizes, which is all the spinning and the chat half need.
+// volume, which is all the spinning and the chat half need. the prizes come from boxPrizes.
 export function boxSettings(session: TimerUserSession, kind: BoxKind): any {
     return kind === "wonder" ? wbSettings(session) : mbSettings(session);
 }
@@ -479,17 +529,17 @@ export function inActiveProfile(cfg: any, prize: any): boolean {
 // the prizes that can actually be landed on: enabled, worth something, and in the set that's in play.
 function winnablePrizes(session: TimerUserSession, kind: BoxKind = "mystery"): any[] {
     const cfg = boxSettings(session, kind);
-    return cfg.prizes.filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(cfg, p));
+    return boxPrizes(session, kind).filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(cfg, p));
 }
 
 // the gags: rarity 0, so never drawn, but switched on to be SEEN on the reel
 function gagPrizes(session: TimerUserSession, kind: BoxKind): any[] {
     const cfg = boxSettings(session, kind);
-    return cfg.prizes.filter((p: any) => p.enabled && p.weight <= 0 && p.gag && inActiveProfile(cfg, p));
+    return boxPrizes(session, kind).filter((p: any) => p.enabled && p.weight <= 0 && p.gag && inActiveProfile(cfg, p));
 }
 
 export function findPrize(session: TimerUserSession, key: any, kind: BoxKind = "mystery"): any | null {
-    const prizes = boxSettings(session, kind).prizes;
+    const prizes = boxPrizes(session, kind);
     const want = String(key || "").trim();
     if (!want)
         return null;
@@ -708,9 +758,80 @@ export function raygunCount(session: TimerUserSession, login: any): number {
 }
 
 export function grantRaygun(session: TimerUserSession, login: any, displayName: any, n = 1): number {
-    const next = ledgerGrant(mbRayguns(session), login, displayName, n);
+    return grantGun(session, "raygun", login, displayName, n);
+}
+
+// the thunder gun: a second ray gun with its own wallet and command, and a fixed 20 minute shot
+export function mbThunderguns(session: TimerUserSession): Ledger {
+    return session.thunderguns || (session.thunderguns = {});
+}
+
+export function grantThundergun(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    return grantGun(session, "thundergun", login, displayName, n);
+}
+
+// first aid kits: the same wallet again. one used on somebody swaps their timeout for a 1 second one.
+export function mbFirstAid(session: TimerUserSession): Ledger {
+    return session.firstAid || (session.firstAid = {});
+}
+
+export function grantFirstAid(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    return grantGun(session, "firstaid", login, displayName, n);
+}
+
+// the fuck you gun: the thunder gun with a 24 hour shot, and its own wallet
+export function mbFuckYouGuns(session: TimerUserSession): Ledger {
+    return session.fuckYouGuns || (session.fuckYouGuns = {});
+}
+
+export function grantFuckYouGun(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    return grantGun(session, "fuckyougun", login, displayName, n);
+}
+
+export type GunKind = "raygun" | "thundergun" | "fuckyougun" | "firstaid";
+export const GUN_KINDS: GunKind[] = ["raygun", "thundergun", "fuckyougun", "firstaid"];
+const THUNDERGUN_SEC = 20 * 60;
+const FUCK_YOU_GUN_SEC = 24 * 3600;
+const FIRST_AID_SEC = 1;
+
+// what tells the guns apart. everything else — banking charges, using one, handing a miss back — is shared.
+// `heal` is first aid: a 1 second timeout is how twitch lets a mod cut somebody's timeout short, and it
+// mustn't spend the target's shield, or being healed would cost them their protection.
+type GunSpec = { name: string, tag: string, unit: string, heal: boolean, command: (s: TimerUserSession) => string, ledger: (s: TimerUserSession) => Ledger, flavor: string };
+const GUNS: { [k in GunKind]: GunSpec } = {
+    raygun: { name: "ray gun", tag: "RAYGUN", unit: "shot", heal: false, command: (s) => mbSettings(s).raygunCommand, ledger: mbRayguns, flavor: "in the shadow realm" },
+    thundergun: { name: "thunder gun", tag: "THUNDERGUN", unit: "shot", heal: false, command: (s) => mbSettings(s).thundergunCommand, ledger: mbThunderguns, flavor: "blown clean out of chat" },
+    fuckyougun: { name: "fuck you gun", tag: "FUCKYOUGUN", unit: "shot", heal: false, command: (s) => mbSettings(s).fuckYouGunCommand, ledger: mbFuckYouGuns, flavor: "gone for the day" },
+    firstaid: { name: "first aid", tag: "FIRSTAID", unit: "kit", heal: true, command: (s) => mbSettings(s).firstAidCommand, ledger: mbFirstAid, flavor: "" },
+};
+
+// a shot's length as chat should read it: "30 seconds", "20 minutes", "24 hours"
+function shotLength(secs: number): string {
+    const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+    if (secs < 60)
+        return plural(secs, "second");
+    if (secs < 2 * 3600)
+        return plural(Math.round(secs / 60), "minute");
+    return plural(Math.round(secs / 3600), "hour");
+}
+
+// "3 ray gun shots", "1 first aid kit"
+function charges(g: GunSpec, n: number): string {
+    return `${n} ${g.name} ${g.unit}${n === 1 ? "" : "s"}`;
+}
+
+function gunCount(session: TimerUserSession, gun: GunKind, login: any): number {
+    return ledgerCount(GUNS[gun].ledger(session), login);
+}
+
+function grantGun(session: TimerUserSession, gun: GunKind, login: any, displayName: any, n = 1): number {
+    const next = ledgerGrant(GUNS[gun].ledger(session), login, displayName, n);
     emitSync(session.userId);
     return next;
+}
+
+function shots(n: number): string {
+    return `shot${n === 1 ? "" : "s"}`;
 }
 
 // double time: won from a box, spent automatically on the holder's next contribution. same wallet again.
@@ -823,6 +944,9 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
         return { ok: false, message: `Nobody called "${from}" is holding a box, or those are the same name.` };
     // charges follow the boxes: it's the same person being corrected to the same login
     ledgerRename(mbRayguns(session), from, to);
+    ledgerRename(mbThunderguns(session), from, to);
+    ledgerRename(mbFirstAid(session), from, to);
+    ledgerRename(mbFuckYouGuns(session), from, to);
     ledgerRename(mbDoubleTime(session), from, to);
     ledgerRename(shieldLedger(session), from, to);
     ledgerRename(mbGiftProgress(session), from, to);
@@ -892,9 +1016,8 @@ export function mysteryBoxView(session: TimerUserSession): any {
         // strip, but a rehearsal can still land on one and the art has to be there when it does.
         // while a box is open it's that kind's prizes (the reel's ids are theirs); idle, both lists, so the
         // art is preloaded whichever kind opens next
-        prizes: mb.phase !== "idle"
-            ? kcfg.prizes.map(art)
-            : cfg.prizes.concat(wbSettings(session).prizes).map(art),
+        // (one list serves both boxes, so it's the same art either way)
+        prizes: cfg.prizes.map(art),
         kind,
         title: kind === "wonder" ? "WONDER BOX" : "MYSTERY BOX",
         // why "!mb open" is being turned away, if it is — the dashboard shows it so the operator isn't left
@@ -1086,6 +1209,10 @@ export function openBlockedBy(session: TimerUserSession): string {
     const boost = session.timeBoost;
     if (boost && boost.until > Date.now())
         return `${boost.reason} is still going`;
+    // an EMP says how long is left, since it's a wait chat is meant to sit through rather than a prize playing
+    const emp = session.emp;
+    if (emp && emp.until > Date.now())
+        return `${emp.what} has boxes knocked out — back in ${fmtWait(emp.until - Date.now())}`;
     const eff = session.mbEffect;
     if (eff && eff.until > Date.now())
         return `${eff.what} is still going`;
@@ -1191,6 +1318,17 @@ function landMysteryBox(session: TimerUserSession){
     }, cfg.revealHoldSec * 1000);
 }
 
+// when the last real box (either kind) went back to idle, for the cooldown between chat's openings. in
+// memory only: a restart forgets it, and the next box can be opened straight away.
+const lastBoxEnded: { [userId: number]: number } = {};
+
+// how long chat still has to wait before it can open a box of this kind, in ms (0 = it can now)
+export function cooldownLeft(session: TimerUserSession, kind: BoxKind): number {
+    const sec = Number(boxSettings(session, kind).cooldownSec) || 0;
+    const ended = lastBoxEnded[session.userId] || 0;
+    return sec > 0 && ended ? Math.max(0, ended + sec * 1000 - Date.now()) : 0;
+}
+
 // back to idle: the source draws nothing and the next "!mb open" is accepted. a lingering effect (a pause,
 // a text box holding its words) carries on past this — those are not part of the lock.
 export function endMysteryBox(session: TimerUserSession){
@@ -1199,6 +1337,9 @@ export function endMysteryBox(session: TimerUserSession){
     clearTimeout(t.land);
     clearTimeout(t.done);
     t.land = t.done = undefined;
+    // a rehearsal doesn't start the cooldown — the operator testing prizes shouldn't hold chat back
+    if (mb.phase !== "idle" && !mb.isTest)
+        lastBoxEnded[session.userId] = Date.now();
     mb.phase = "idle";
     mb.kind = "mystery";
     mb.opener = "";
@@ -1373,6 +1514,154 @@ function holdEffect(session: TimerUserSession, seconds: number, what: string){
         session.mbEffect = { until, what };
 }
 
+// ---------------------------------------------------------------------------
+// chat modes: emote only, sub only
+// ---------------------------------------------------------------------------
+//
+// prizes that flip a twitch chat mode on (/emoteonly, /subscribers) and back off when their time is up. each
+// mode's end time is SAVED (session.chatModes, persisted), because a restart mid-prize must not leave chat
+// stuck: on load, resumeChatModes picks the deadlines back up, and one already passed is acted on straight
+// away. they hold no lock. if a mode was ALREADY on when the prize landed, it's left alone, so a prize never
+// switches off a setting the streamer chose. a second prize of the same mode while it runs pushes the end out.
+
+export type ChatMode = "emote" | "subscriber";
+const CHAT_MODES: { [m in ChatMode]: { field: ChatModeField, name: string, shout: string, over: string, off: string } } = {
+    emote: { field: "emote_mode", name: "emote-only", shout: "Chat is EMOTE ONLY", over: "Emote-only is over — chat away!", off: "/emoteonlyoff" },
+    subscriber: { field: "subscriber_mode", name: "sub-only", shout: "Chat is SUB ONLY", over: "Sub-only is over — everybody can chat again!", off: "/subscribersoff" },
+};
+
+const modeTimers: { [userId: number]: { [m: string]: any } } = {};
+
+function modeSlots(userId: number){
+    return modeTimers[userId] || (modeTimers[userId] = {});
+}
+
+function chatModes(session: TimerUserSession): { [m: string]: number } {
+    return session.chatModes || (session.chatModes = {});
+}
+
+async function startChatMode(session: TimerUserSession, mode: ChatMode, seconds: number, what: string){
+    const m = CHAT_MODES[mode];
+    const TAG = m.name.toUpperCase();
+    const until = Date.now() + seconds * 1000;
+    const modes = chatModes(session);
+    if (modes[mode] > Date.now()){
+        if (until > modes[mode]){
+            modes[mode] = until;
+            scheduleModeOff(session, mode);
+        }
+        const left = Math.round((modes[mode] - Date.now()) / 1000);
+        emitTerminal(session.userId, `${TAG} — ${what}: already on; now ends in ${shotLength(left)}.`, true);
+        chatSay(session, `${what}! ${m.name[0].toUpperCase()}${m.name.slice(1)} goes on for another ${shotLength(left)}.`);
+        return;
+    }
+    if (!twitchBotReady(session)){
+        emitTerminal(session.userId, `${TAG} — ${what} landed, but there's no bot account connected to switch ${m.name} on.`);
+        return;
+    }
+    try {
+        if (await botChatMode(session, m.field)){
+            emitTerminal(session.userId, `${TAG} — ${what} landed, but chat is already ${m.name}. Left it as it is (and won't switch it off).`);
+            return;
+        }
+        await botSetChatMode(session, m.field, true);
+    } catch (err: any) {
+        const status = err && err.response && err.response.status;
+        emitTerminal(session.userId, status === 401 || status === 403
+            ? `${TAG} — Twitch refused (${status}: ${describeBotError(err)}). Make sure the bot is a mod and hit Re-authorize on the Connections tab so its token carries moderator:manage:chat_settings.`
+            : `${TAG} — couldn't switch it on: ${describeBotError(err)}`);
+        return;
+    }
+    modes[mode] = until;
+    scheduleModeOff(session, mode);
+    emitTerminal(session.userId, `${TAG} — ${what}: chat is ${m.name} for ${shotLength(seconds)}.`, true);
+    chatAnnounce(session, `${what}! ${m.shout} for the next ${shotLength(seconds)}.`, "purple");
+}
+
+function scheduleModeOff(session: TimerUserSession, mode: ChatMode){
+    const t = modeSlots(session.userId);
+    clearTimeout(t[mode]);
+    const until = chatModes(session)[mode];
+    if (!(until > 0))
+        return;
+    t[mode] = setTimeout(() => {
+        endChatMode(session, mode, 0).catch((err) => reportError(session.userId, `turning off ${CHAT_MODES[mode].name}`, err));
+    }, Math.max(0, until - Date.now()));
+}
+
+// time's up. a failure is retried a few times a minute apart — leaving chat locked by accident is the one
+// outcome this has to avoid — and the deadline stays saved until it works, so a restart retries too.
+async function endChatMode(session: TimerUserSession, mode: ChatMode, attempt: number){
+    const m = CHAT_MODES[mode];
+    const TAG = m.name.toUpperCase();
+    const t = modeSlots(session.userId);
+    delete t[mode];
+    try {
+        await botSetChatMode(session, m.field, false);
+    } catch (err) {
+        if (attempt < 5){
+            t[mode] = setTimeout(() => {
+                endChatMode(session, mode, attempt + 1).catch((e) => reportError(session.userId, `turning off ${m.name}`, e));
+            }, 60 * 1000);
+            emitTerminal(session.userId, `${TAG} — couldn't switch it off (${describeBotError(err)}); trying again in a minute.`);
+        } else {
+            emitTerminal(session.userId, `${TAG} — still couldn't switch it off after several tries (${describeBotError(err)}). Type ${m.off} in chat.`);
+            delete chatModes(session)[mode];
+        }
+        return;
+    }
+    delete chatModes(session)[mode];
+    emitTerminal(session.userId, `${TAG} — over; chat is back to normal.`, true);
+    chatSay(session, m.over);
+}
+
+// on load: a saved deadline means the process went down while a mode was on. pick it back up — an overdue
+// one fires a few seconds in, once the rest of the login has settled.
+export function resumeChatModes(session: TimerUserSession){
+    const modes = chatModes(session);
+    for (const mode of Object.keys(CHAT_MODES) as ChatMode[]){
+        if (!(modes[mode] > 0))
+            continue;
+        modes[mode] = Math.max(modes[mode], Date.now() + 5000);
+        scheduleModeOff(session, mode);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// the EMP
+// ---------------------------------------------------------------------------
+//
+// knocks out every box — mystery and wonder — for a while. it's a lock in openBlockedBy, so chat is told
+// why (and how long) when it tries, and the dashboard shows it. a second EMP while one is up pushes the end
+// out to whichever is later. not persisted: a restart brings the boxes straight back, which errs the safe way.
+
+const empTimers: { [userId: number]: any } = {};
+
+function startEmp(session: TimerUserSession, seconds: number, what: string){
+    const until = Date.now() + seconds * 1000;
+    const cur = session.emp;
+    const extending = !!(cur && cur.until > Date.now());
+    if (!extending || until > cur!.until)
+        session.emp = { until, what };
+    const end = session.emp!.until;
+    clearTimeout(empTimers[session.userId]);
+    empTimers[session.userId] = setTimeout(() => {
+        delete empTimers[session.userId];
+        if (!session.emp || session.emp.until > Date.now() + 500)
+            return;
+        session.emp = undefined;
+        emitTerminal(session.userId, "EMP — over; boxes can be opened again.", true);
+        chatSay(session, "The EMP has worn off — mystery boxes and wonder boxes are back online!");
+        pushMysteryBox(session);
+    }, Math.max(0, end - Date.now()));
+    const left = shotLength(Math.round((end - Date.now()) / 1000));
+    emitTerminal(session.userId, `EMP — ${what}: no boxes can be opened for ${left}.`, true);
+    chatAnnounce(session, extending
+        ? `${what}! Another EMP — boxes stay offline, now for ${left}.`
+        : `${what}! Mystery boxes and wonder boxes are knocked offline for ${left}.`, "orange");
+    pushMysteryBox(session);
+}
+
 // who a prize is FOR, when it isn't the box on screen: a drop is won by chat, and its winner is whoever
 // finished the game. `test` is a rehearsal, which credits nobody. absent = the box being opened right now.
 export interface EffectFor {
@@ -1443,6 +1732,16 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         addToEndTime(session, -e.seconds, label);
         return;
     }
+    if (e.kind === "emp" && e.seconds > 0){
+        startEmp(session, e.seconds, prize.name || "EMP");
+        return;
+    }
+    if ((e.kind === "emoteOnly" || e.kind === "subOnly") && e.seconds > 0){
+        const mode: ChatMode = e.kind === "emoteOnly" ? "emote" : "subscriber";
+        startChatMode(session, mode, e.seconds, prize.name || (mode === "emote" ? "Emote only" : "Sub only"))
+            .catch((err) => reportError(session.userId, `turning on ${CHAT_MODES[mode].name}`, err));
+        return;
+    }
     if (e.kind === "pauseTimer" && e.seconds > 0){
         pauseTimerFor(session, e.seconds * 1000, label);
         return;
@@ -1477,17 +1776,21 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         nukeChat(session, e.percent, Math.min(MAX_NUKE_SEC, e.seconds), prize.name || "Nuke");
         return;
     }
-    if (e.kind === "raygun" && e.charges > 0 && e.seconds > 0){
+    // the thunder gun's shot length is fixed, and first aid's, so they don't wait on `seconds` being set
+    if ((e.kind === "raygun" && e.charges > 0 && e.seconds > 0) || ((e.kind === "thundergun" || e.kind === "fuckyougun" || e.kind === "firstaid") && e.charges > 0)){
         // the winner is credited, not the target — this prize hands out a weapon rather than firing one, and
         // who it gets fired at is their decision to make later.
+        const gun: GunKind = e.kind;
         const r = recipient(session, ctx);
         const who = r.login;
         if (!who || r.test)
             return; // a rehearsal must not credit a viewer called TEST
-        const held = grantRaygun(session, who, r.name, e.charges);
-        const cfg = mbSettings(session);
-        emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} was given ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} (${held} in hand).`, true);
-        chatSay(session, `@${r.name || who} got ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to time somebody out for ${Math.round(e.seconds / 60)} minute${e.seconds >= 120 ? "s" : ""}. ${held} in hand.`);
+        const held = grantGun(session, gun, who, r.name, e.charges);
+        const g = GUNS[gun];
+        emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} was given ${charges(g, e.charges)} (${held} in hand).`, true);
+        chatSay(session, g.heal
+            ? `@${r.name || who} got ${charges(g, e.charges)} — !${g.command(session)} <name> to heal somebody out of a timeout. ${held} in hand.`
+            : `@${r.name || who} got ${charges(g, e.charges)} — !${g.command(session)} <name> to time somebody out for ${shotLength(gunSeconds(session, gun))}. ${held} in hand.`);
         return;
     }
     if (e.kind === "extraBoxes" && e.boxes > 0){
@@ -1606,6 +1909,146 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             label,
             topCount: e.topCount,
         }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "algebra" && e.seconds > 0 && (e.boxes > 0 || e.rewardSeconds > 0)){
+        // an equation goes up; the first chatter to type x gets the boxes and/or puts time on the timer. a
+        // rehearsal plays for real — the time included, like a chant's — but gives nobody boxes.
+        const cfg = mbSettings(session);
+        const real = !recipient(session, ctx).test;
+        const eq = makeEquation(e.difficulty);
+        const boxes = e.boxes;
+        const res = startChallenge(session, {
+            kind: "algebra",
+            title: prize.name || "SOLVE FOR X",
+            subtitle: "",
+            unit: "",
+            seconds: e.seconds,
+            goal: 1,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: "SOLVED!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "TIME'S UP!",
+            holdSec: Math.max(cfg.revealHoldSec, 8),
+            announce: true,
+            phrase: eq.text,
+            rewardSeconds: e.rewardSeconds,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: 0,
+            label,
+            guessNumber: eq.answer,
+            prizeBoxes: boxes,
+            test: !real,
+        }, true, (login: string, name: string) => {
+            if (!real || !login || boxes <= 0)
+                return;
+            grantMysteryBox(session, login, name, boxes, prize.name || "solve for x");
+            chatSay(session, `@${name} you have ${boxCount(session, login)} mystery box${boxCount(session, login) === 1 ? "" : "es"} — !${cfg.command} open to open one.`);
+        });
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "shell" && e.seconds > 0 && e.boxes > 0){
+        // the opener picks a shell by typing its number; the prize is under one of them. a rehearsal plays it
+        // for real with nobody in particular picking (anybody's number counts) and pays nobody.
+        const cfg = mbSettings(session);
+        const r = recipient(session, ctx);
+        const real = !!r.login && !r.test;
+        const shells = Math.max(2, e.shells || 3);
+        const boxes = e.boxes;
+        const res = startChallenge(session, {
+            kind: "shell",
+            title: prize.name || "SHELL GAME",
+            subtitle: "",
+            unit: "",
+            seconds: e.seconds,
+            goal: 1,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: "FOUND IT!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "WRONG SHELL!",
+            holdSec: Math.max(cfg.revealHoldSec, 8),
+            announce: true,
+            phrase: "",
+            rewardSeconds: 0,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: real ? String(r.login).toLowerCase() : "",
+            patientZeroName: real ? (r.name || r.login) : "",
+            timeoutSeconds: 0,
+            label,
+            shells,
+            shellImage: e.shellImage,
+            guessNumber: 1 + Math.floor(Math.random() * shells),
+            prizeBoxes: boxes,
+            test: !real,
+        }, true, (login: string, name: string) => {
+            if (!real || !login)
+                return;
+            grantMysteryBox(session, login, name, boxes, prize.name || "shell game");
+            chatSay(session, `@${name} you have ${boxCount(session, login)} mystery box${boxCount(session, login) === 1 ? "" : "es"} — !${cfg.command} open to open one.`);
+        });
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
+        return;
+    }
+    if (e.kind === "voteup" && e.seconds > 0 && e.boxes > 0){
+        // vote 'em out turned round: chat @s who they want to WIN, and the most-voted gets the boxes. a
+        // rehearsal plays for real but gives nobody anything.
+        const cfg = mbSettings(session);
+        const r = recipient(session, ctx);
+        const real = !r.test;
+        const boxes = e.boxes;
+        const res = startChallenge(session, {
+            kind: "voteup",
+            title: prize.name || "VOTE 'EM UP",
+            subtitle: "",
+            unit: "VOTES",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: "THE VOTES ARE IN!",
+            failSound: "",
+            failVolume: 1,
+            failText: "THE VOTES ARE IN!",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: "",
+            rewardSeconds: 0,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: 0,
+            label,
+            prizeBoxes: boxes,
+            test: !real,
+        }, true, (login: string, name: string) => {
+            if (!real || !login)
+                return;
+            grantMysteryBox(session, login, name, boxes, prize.name || "vote 'em up");
+            chatSay(session, `@${name} you have ${boxCount(session, login)} mystery box${boxCount(session, login) === 1 ? "" : "es"} — !${cfg.command} open to open one.`);
+        });
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
         return;
@@ -1918,6 +2361,12 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0 ? `adds ${mins(e.seconds)}` : "adds nothing (set the seconds)";
     if (e.kind === "removeTime")
         return e.seconds > 0 ? `takes ${mins(e.seconds)}` : "takes nothing (set the seconds)";
+    if (e.kind === "emp")
+        return e.seconds > 0 ? `stops anybody opening a mystery or wonder box for ${mins(e.seconds)}` : "disables nothing (set the seconds)";
+    if (e.kind === "emoteOnly")
+        return e.seconds > 0 ? `turns chat emote-only for ${mins(e.seconds)}` : "does nothing (set the seconds)";
+    if (e.kind === "subOnly")
+        return e.seconds > 0 ? `turns chat sub-only for ${mins(e.seconds)}` : "does nothing (set the seconds)";
     if (e.kind === "pauseTimer")
         return e.seconds > 0 ? `pauses the timer ${mins(e.seconds)}` : "pauses nothing (set the seconds)";
     if (e.kind === "timebomb")
@@ -1935,6 +2384,18 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0
             ? `the opener is "it"; @-ing whoever is it steals it; it at ${mins(e.seconds)} wins ${e.boxes} box${e.boxes === 1 ? "" : "es"}`
             : "plays nothing (set how long it runs)";
+    if (e.kind === "algebra")
+        return e.seconds > 0 && (e.boxes > 0 || e.rewardSeconds > 0)
+            ? `chat has ${mins(e.seconds)} to solve a difficulty ${e.difficulty} equation; the first right answer wins ${[e.boxes > 0 ? `${e.boxes} box${e.boxes === 1 ? "" : "es"}` : "", e.rewardSeconds > 0 ? `+${mins(e.rewardSeconds)}` : ""].filter((x) => x).join(" and ")}`
+            : "solves nothing (set how long, and boxes and/or time)";
+    if (e.kind === "shell")
+        return e.seconds > 0 && e.boxes > 0
+            ? `the opener picks 1 of ${e.shells} shells within ${mins(e.seconds)}; the right one wins ${e.boxes} box${e.boxes === 1 ? "" : "es"}`
+            : "plays nothing (set how long they get and the boxes)";
+    if (e.kind === "voteup")
+        return e.seconds > 0 && e.boxes > 0
+            ? `chat @s for ${mins(e.seconds)}; the most-voted wins ${e.boxes} box${e.boxes === 1 ? "" : "es"}`
+            : "votes on nothing (set how long it runs and the boxes)";
     if (e.kind === "vote")
         return e.seconds > 0 && e.timeoutSeconds > 0
             ? `chat @s for ${mins(e.seconds)}; the top ${e.topCount} are timed out ${mins(e.timeoutSeconds)}`
@@ -1957,6 +2418,18 @@ export function describeEffect(effect: any): string {
         return e.charges > 0 && e.seconds > 0
             ? `gives the winner ${e.charges} ray gun shot${e.charges === 1 ? "" : "s"}, ${mins(e.seconds)} each`
             : "gives nothing (set the shots and the seconds)";
+    if (e.kind === "thundergun")
+        return e.charges > 0
+            ? `gives the winner ${e.charges} thunder gun ${shots(e.charges)}, ${mins(THUNDERGUN_SEC)} each`
+            : "gives nothing (set the shots)";
+    if (e.kind === "fuckyougun")
+        return e.charges > 0
+            ? `gives the winner ${e.charges} fuck you gun ${shots(e.charges)}, 24 hours each`
+            : "gives nothing (set the shots)";
+    if (e.kind === "firstaid")
+        return e.charges > 0
+            ? `gives the winner ${e.charges} first aid kit${e.charges === 1 ? "" : "s"}, each ending somebody's timeout`
+            : "gives nothing (set the kits)";
     if (e.kind === "doubleTime")
         return "doubles the time of the winner's next contribution";
     if (e.kind === "extraBoxes")
@@ -2109,48 +2582,59 @@ export function testMysteryBox(session: TimerUserSession, prizeId: string, kind:
 // the ray gun
 // ---------------------------------------------------------------------------
 
-// how long one shot times somebody out for. the prize that granted the charges says, but a charge doesn't
-// remember which prize it came from, so the CURRENT ray gun prize's setting is what a shot is worth — which
-// also means the operator can retune it without invalidating shots people are already holding.
-export function raygunSeconds(session: TimerUserSession): number {
-    const prize = mbSettings(session).prizes.concat(wbSettings(session).prizes).find((p: any) => p.effect && p.effect.kind === "raygun" && p.effect.seconds > 0);
+// how long one shot times somebody out for. the thunder gun's is fixed. the ray gun's comes from the prize
+// that granted the charges, but a charge doesn't remember which prize it came from, so the CURRENT ray gun
+// prize's setting is what a shot is worth — which also means the operator can retune it without invalidating
+// shots people are already holding.
+export function gunSeconds(session: TimerUserSession, gun: GunKind): number {
+    if (gun === "thundergun")
+        return THUNDERGUN_SEC;
+    if (gun === "firstaid")
+        return FIRST_AID_SEC;
+    if (gun === "fuckyougun")
+        return FUCK_YOU_GUN_SEC;
+    const prize = mbSettings(session).prizes.find((p: any) => p.effect && p.effect.kind === "raygun" && p.effect.seconds > 0);
     return prize ? Math.min(MAX_NUKE_SEC, prize.effect.seconds) : 600;
 }
 
 // fire one. the charge is spent up front and handed back if the shot doesn't land, because the alternative —
 // checking first — can't tell the difference between a name nobody has and a name twitch will refuse.
-export async function shootRaygun(session: TimerUserSession, shooter: any, shooterName: any, target: any): Promise<{ ok: boolean, message: string }> {
+export async function shootGun(session: TimerUserSession, gun: GunKind, shooter: any, shooterName: any, target: any): Promise<{ ok: boolean, message: string }> {
+    const g = GUNS[gun];
     const key = boxKey(shooter);
     const who = str(shooterName, MAX_NAME) || key;
     const at = resolveTarget(session, target);
     if (!key)
         return { ok: false, message: "" };
     if (!at)
-        return { ok: false, message: `@${who} shoot who? Try !${mbSettings(session).raygunCommand} someone.` };
-    if (raygunCount(session, key) < 1)
-        return { ok: false, message: `@${who} you have no ray gun shots left.` };
-    const secs = raygunSeconds(session);
+        return { ok: false, message: `@${who} ${g.heal ? "heal" : "shoot"} who? Try !${g.command(session)} someone.` };
+    if (gunCount(session, gun, key) < 1)
+        return { ok: false, message: `@${who} you have no ${g.name} ${g.unit}s left.` };
+    const secs = gunSeconds(session, gun);
 
-    grantRaygun(session, key, who, -1);
-    const res = await chatTimeoutOne(session, at, secs, `ray gun — ${who}`);
+    grantGun(session, gun, key, who, -1);
+    const res = await chatTimeoutOne(session, at, secs, `${g.name} — ${who}`, g.heal);
     if (res.blocked){
         // it hit — it just hit a shield. the shot is spent, the same as if it had landed; the block itself
         // has already been said in chat.
-        emitTerminal(session.userId, `RAYGUN — ${who} shot ${at}, who blocked it; ${raygunCount(session, key)} shot(s) left.`, true);
+        emitTerminal(session.userId, `${g.tag} — ${who} shot ${at}, who blocked it; ${gunCount(session, gun, key)} shot(s) left.`, true);
         return { ok: true, message: "" };
     }
     if (!res.ok){
         // it didn't land, so they keep the shot. a charge silently eaten by a typo'd name would be the
         // worst possible outcome for something won from a prize.
-        grantRaygun(session, key, who, 1);
-        return { ok: false, message: `@${who} that shot missed — ${res.message}. You keep it.` };
+        grantGun(session, gun, key, who, 1);
+        return { ok: false, message: `@${who} that ${g.heal ? "didn't work" : "shot missed"} — ${res.message}. You keep it.` };
     }
-    const left = raygunCount(session, key);
-    const mins = Math.round(secs / 60);
-    emitTerminal(session.userId, `RAYGUN — ${who} shot ${at} (${secs}s); ${left} shot${left === 1 ? "" : "s"} left.`, true);
+    const left = gunCount(session, gun, key);
+    if (g.heal){
+        emitTerminal(session.userId, `${g.tag} — ${who} healed ${at}; ${charges(g, left)} left.`, true);
+        return { ok: true, message: `@${who} used first aid on @${at} — back on their feet! ${charges(g, left)} left.` };
+    }
+    emitTerminal(session.userId, `${g.tag} — ${who} shot ${at} (${secs}s); ${left} ${shots(left)} left.`, true);
     return {
         ok: true,
-        message: `@${who} shot @${at} with the ray gun — ${mins >= 1 ? `${mins} minute${mins === 1 ? "" : "s"}` : `${secs} seconds`} in the shadow realm. ${left} shot${left === 1 ? "" : "s"} left.`,
+        message: `@${who} shot @${at} with the ${g.name} — ${shotLength(secs)} ${g.flavor}. ${left} ${shots(left)} left.`,
     };
 }
 
@@ -2158,32 +2642,35 @@ export async function shootRaygun(session: TimerUserSession, shooter: any, shoot
 // chat
 // ---------------------------------------------------------------------------
 
-// "!raygun <name>" fires one; "!raygun" on its own says how many are left. open to every chatter, since the
-// whole point is that a viewer won them. returns true if the line was consumed.
+// "!raygun <name>" / "!thundergun <name>" fires one; the command on its own says how many are left. open to
+// every chatter, since the whole point is that a viewer won them. returns true if the line was consumed.
 export function handleRaygunChat(session: TimerUserSession, login: string, displayName: string, text: string): boolean {
-    const cfg = mbSettings(session);
     const body = String(text || "").trim();
     if (!body.startsWith("!"))
         return false;
     const parts = body.slice(1).split(/\s+/);
-    if (parts[0].toLowerCase() !== cfg.raygunCommand)
+    const head = parts[0].toLowerCase();
+    // the ray gun wins if the two commands have been set the same
+    const gun = GUN_KINDS.find((k) => GUNS[k].command(session) === head);
+    if (!gun)
         return false;
+    const g = GUNS[gun];
     const who = String(displayName || login || "");
 
     if (!parts[1]){
-        const n = raygunCount(session, login);
+        const n = gunCount(session, gun, login);
         if (tellNow(session.userId, String(login || "")))
             chatSay(session, n > 0
-                ? `@${who} you have ${n} ray gun shot${n === 1 ? "" : "s"} — !${cfg.raygunCommand} <name> to use one.`
-                : `@${who} you have no ray gun shots.`);
+                ? `@${who} you have ${charges(g, n)} — !${g.command(session)} <name> to use one.`
+                : `@${who} you have no ${g.name} ${g.unit}s.`);
         return true;
     }
-    shootRaygun(session, login, who, parts[1]).then((res) => {
+    shootGun(session, gun, login, who, parts[1]).then((res) => {
         // a hit is always announced — that's the whole point of shooting somebody in front of chat. a miss
         // is rate limited like any other refusal, so a wrong name typed over and over can't flood.
         if (res.message && (res.ok || tellNow(session.userId, String(login || ""))))
             chatSay(session, res.message);
-    }).catch((err) => reportError(session.userId, "firing a ray gun", err));
+    }).catch((err) => reportError(session.userId, `firing a ${g.name}`, err));
     return true;
 }
 
@@ -2256,7 +2743,7 @@ export function remindUnopened(session: TimerUserSession, login: string, display
     const who = str(displayName, MAX_NAME) || key;
     const boxLine = n > 0 ? `you have ${n} unopened mystery box${n === 1 ? "" : "es"} — type !${cfg.command} open to open ${n === 1 ? "it" : "one"}!` : "";
     const wbLine = w > 0 ? `${n > 0 ? "You also have" : "you have"} ${w} unopened wonder box${w === 1 ? "" : "es"} — type !${wcfg.command} open to open ${w === 1 ? "it" : "one"}!` : "";
-    const dtName = doubleTimeName(cfg, wcfg.prizes);
+    const dtName = doubleTimeName(cfg);
     const dtLine = doubles > 0
         ? `${n > 0 || w > 0 ? "You also have" : "you have"} ${doubles > 1 ? `${doubles} ${dtName}` : dtName} ready — your next sub, cheer or donation is worth DOUBLE time!`
         : "";
@@ -2268,6 +2755,11 @@ export function remindUnopened(session: TimerUserSession, login: string, display
 // "!mb open" and "!mb count" are open to EVERY chatter — they're spending their own box and asking about
 // their own wallet. the actions that name somebody else (give / take / stop / test) are mod-only.
 // `may` is the Permissions tab's say on the mod-only actions; it reports its own refusals
+function fmtWait(ms: number): string {
+    const s = Math.ceil(ms / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ""}`;
+}
+
 export function handleMysteryBoxChat(session: TimerUserSession, login: string, displayName: string, text: string, isMod: boolean,
     may: (key: string) => boolean = () => true): boolean {
     const body = String(text || "").trim();
@@ -2293,6 +2785,14 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         if (!cfg.allowOpening){
             if (boxCount(session, self.login, kind) > 0 && tellNow(session.userId, self.login))
                 chatSay(session, `@${self.displayName} ${word}es can't be opened right now — hang on to it, yours is safe.`);
+            return true;
+        }
+        // the cooldown between openings, likewise chat's alone. only somebody holding a box hears about it,
+        // and only once in a while, for the same reasons as every other refusal below.
+        const wait = cooldownLeft(session, kind);
+        if (wait > 0){
+            if (boxCount(session, self.login, kind) > 0 && tellNow(session.userId, self.login))
+                chatSay(session, `@${self.displayName} ${word}es are cooling down — try again in ${fmtWait(wait)}.`);
             return true;
         }
         const res = openMysteryBox(session, self.login, self.displayName, kind);

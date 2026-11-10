@@ -157,7 +157,7 @@ const Terminal: React.FC<{
 					</Text>
 				)}
 				{entries.length === 0 ? (
-					<Text color="gray.500">No timer actions logged yet. Type a command below — try "help".</Text>
+					<Text color="subtle">No timer actions logged yet. Type a command below — try "help".</Text>
 				) : (
 					entries.map((e, i) =>
 						e.line !== undefined ? (

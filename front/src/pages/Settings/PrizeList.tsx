@@ -18,6 +18,8 @@ type CardProps = {
 	prize: any;
 	odds: number;
 	live: boolean;
+	wonderOdds: number;
+	wonderLive: boolean;
 	events: any[];
 	textBoxes: any[];
 	listId: string;
@@ -27,10 +29,17 @@ type CardProps = {
 	onRemove: (id: string) => void;
 };
 
-const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, events, textBoxes, listId, patchPrize, patchEffect, onTest, onRemove }) => {
+const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, wonderOdds, wonderLive, events, textBoxes, listId, patchPrize, patchEffect, onTest, onRemove }) => {
 	const img = prizeImageSrc(p.image);
+	// a prize is greyed out only when neither box can land on it
+	const inEither = live || wonderLive;
+	const badge = (o: number, w: number, isLive: boolean) => (
+		<Badge colorScheme={o > 0 ? "blue" : w <= 0 && p.gag && isLive ? "purple" : "gray"}>
+			{o > 0 ? `${o.toFixed(2)}%` : !isLive ? "other profile" : w <= 0 && p.gag ? "0% — on the reel" : "never"}
+		</Badge>
+	);
 	return (
-		<Box borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled && live ? 1 : 0.55}>
+		<Box borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled && inEither ? 1 : 0.55}>
 			<Flex gap={3} wrap="wrap">
 				{/* the art, at the shape the reel draws it */}
 				<Box
@@ -39,7 +48,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, event
 					flex="0 0 auto"
 					borderWidth="1px"
 					borderRadius="md"
-					bg="gray.50"
+					bg="panel"
 					display="flex"
 					alignItems="center"
 					justifyContent="center"
@@ -47,7 +56,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, event
 				>
 					{img
 						? <img src={img} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-						: <Text fontSize="xs" color="gray.400">no art</Text>}
+						: <Text fontSize="xs" color="faint">no art</Text>}
 				</Box>
 
 				<VStack align="stretch" spacing={2} flex="1" minW="280px">
@@ -69,7 +78,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, event
 							onChange={(e) => patchPrize(p.id, { profile: e.target.value }, `pr${p.id}`)}
 						/>
 						<HStack spacing={1}>
-							<Text fontSize="sm" color="gray.600">Rarity</Text>
+							<Text fontSize="sm" color="muted">Mystery rarity</Text>
 							<NumberField
 								width="90px"
 								min={0}
@@ -80,23 +89,34 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, event
 							{/* two decimals throughout: rounding to whole numbers hid the difference between a
 							    1-in-200 prize and a 1-in-2000 one, which is exactly the end of the range the weights
 							    are being tuned at */}
-							<Badge colorScheme={odds > 0 ? "blue" : p.weight <= 0 && p.gag && live ? "purple" : "gray"}>
-								{odds > 0 ? `${odds.toFixed(2)}%` : !live ? "other profile" : p.weight <= 0 && p.gag ? "0% — on the reel" : "never"}
-							</Badge>
+							{badge(odds, p.weight, live)}
 						</HStack>
-						{/* rarity 0 can never be won; this keeps it scrolling past anyway, as a gag */}
-						{p.weight <= 0 && (
+						{/* the same prize's rarity in the wonder box — 0 keeps it out of the wonder box */}
+						<HStack spacing={1}>
+							<Text fontSize="sm" color="muted">Wonder rarity</Text>
+							<NumberField
+								width="90px"
+								min={0}
+								max={1000}
+								value={p.wonderWeight}
+								onCommit={(n) => patchPrize(p.id, { wonderWeight: n }, `ww${p.id}`)}
+							/>
+							{badge(wonderOdds, p.wonderWeight, wonderLive)}
+						</HStack>
+						{/* rarity 0 can never be won; this keeps it scrolling past anyway, as a gag (in whichever box
+						    it's at 0 in) */}
+						{(p.weight <= 0 || p.wonderWeight <= 0) && (
 							<Checkbox
 								size="sm"
 								isChecked={!!p.gag}
 								onChange={(e) => patchPrize(p.id, { gag: e.target.checked })}
 								title="It can never be won at rarity 0, but it still flies past on the reel."
 							>
-								<Text fontSize="sm" color="gray.600">Show on reel anyway</Text>
+								<Text fontSize="sm" color="muted">Show on reel anyway</Text>
 							</Checkbox>
 						)}
 						<HStack spacing={1}>
-							<Text fontSize="sm" color="gray.600">On</Text>
+							<Text fontSize="sm" color="muted">On</Text>
 							<Switch
 								size="sm"
 								isChecked={p.enabled}
@@ -141,7 +161,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, event
 								<option key={f} value={f}>{f}</option>
 							))}
 						</Select>
-						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
 							type="range"
 							min={0}
@@ -162,7 +182,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, event
 					<Divider />
 
 					<HStack spacing={2} wrap="wrap">
-						<Text fontSize="sm" color="gray.600">Does</Text>
+						<Text fontSize="sm" color="muted">Does</Text>
 						<Select
 							size="sm"
 							maxW="220px"
@@ -199,7 +219,9 @@ const PrizeList: React.FC<{
 	textBoxes: any[];
 	listId: string;
 	what: string; // "box" / "wonder box", for the help text
-}> = ({ prizes, activeProfile, patch, onTest, events, textBoxes, listId, what }) => {
+	// the wonder box's profile, which picks which prizes are in play there. its own picker is on its tab.
+	wonderProfile: string;
+}> = ({ prizes, activeProfile, patch, onTest, events, textBoxes, listId, what, wonderProfile }) => {
 	const stableEvents = useStable(events);
 	const stableTextBoxes = useStable(textBoxes);
 
@@ -224,14 +246,18 @@ const PrizeList: React.FC<{
 	const live = (p: any) => p.enabled && p.weight > 0 && inActiveProfile(activeProfile, p);
 	const inPlay = prizes.filter(live);
 	const total = inPlay.reduce((sum, p) => sum + p.weight, 0);
+	const liveW = (p: any) => p.enabled && p.wonderWeight > 0 && inActiveProfile(wonderProfile, p);
+	const inPlayW = prizes.filter(liveW);
+	const totalW = inPlayW.reduce((sum, p) => sum + p.wonderWeight, 0);
 
 	return (
 		<>
 			<Flex align="center" gap={3} mb={2} wrap="wrap">
 				<Text fontWeight="bold">Prizes</Text>
-				<Text fontSize="sm" color="gray.600">
-					Rarity is a weight, not a percentage — the odds beside each one are what it works out to. Rarity 0
-					can never be won; tick <b>Show on reel anyway</b> to keep it flying past as a gag.
+				<Text fontSize="sm" color="muted">
+					One list for both boxes: each prize has a <b>Mystery rarity</b> and a <b>Wonder rarity</b>. Rarity is
+					a weight, not a percentage — the odds beside each one are what it works out to in that box. Rarity 0
+					keeps it out of that box; tick <b>Show on reel anyway</b> to keep it flying past as a gag.
 				</Text>
 				<Box flex="1" />
 				<Button size="sm" onClick={addPrize}>Add prize</Button>
@@ -240,7 +266,7 @@ const PrizeList: React.FC<{
 			{/* which set is in play. a prize with no profile is always in, so this only ever ADDS to the pile —
 			    switching can't leave the box with nothing to give. */}
 			<Flex align="center" gap={2} mb={3} wrap="wrap">
-				<Text fontSize="sm" color="gray.600">Playing</Text>
+				<Text fontSize="sm" color="muted">Playing</Text>
 				<Select
 					size="sm"
 					maxW="220px"
@@ -255,8 +281,11 @@ const PrizeList: React.FC<{
 				<Badge colorScheme={inPlay.length ? "green" : "red"}>
 					{inPlay.length} prize{inPlay.length === 1 ? "" : "s"} in play
 				</Badge>
+				<Badge colorScheme={inPlayW.length ? "purple" : "gray"}>
+					{inPlayW.length} in the wonder box
+				</Badge>
 				{prizes.length > inPlay.length && (
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						{prizes.length - inPlay.length} disabled, at rarity 0, or set aside for another profile
 					</Text>
 				)}
@@ -273,7 +302,7 @@ const PrizeList: React.FC<{
 			</datalist>
 
 			{prizes.length === 0 && (
-				<Text fontSize="sm" color="gray.500" mb={3}>
+				<Text fontSize="sm" color="subtle" mb={3}>
 					No prizes yet. Add one, drop its art into <Code fontSize="xs">front/public/prizes</Code>, and pick
 					what it does. Nobody can open a {what} until something can be won.
 				</Text>
@@ -286,6 +315,8 @@ const PrizeList: React.FC<{
 						prize={p}
 						odds={total && live(p) ? (p.weight / total) * 100 : 0}
 						live={inActiveProfile(activeProfile, p)}
+						wonderOdds={totalW && liveW(p) ? (p.wonderWeight / totalW) * 100 : 0}
+						wonderLive={inActiveProfile(wonderProfile, p)}
 						events={stableEvents}
 						textBoxes={stableTextBoxes}
 						listId={listId}

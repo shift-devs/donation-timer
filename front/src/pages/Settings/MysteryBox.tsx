@@ -18,6 +18,9 @@ import {
 	setMysteryBoxSettings,
 	giveMysteryBox,
 	giveRaygun,
+	giveThundergun,
+	giveFirstAid,
+	giveFuckYouGun,
 	giveDoubleTime,
 	giveShield,
 	renameMysteryBoxOwner,
@@ -99,6 +102,21 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const gunners = Object.keys(guns)
 		.map((k) => ({ key: k, name: guns[k].name || k, count: guns[k].count || 0 }))
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// unfired thunder gun shots — the ray gun's twin, with its own wallet
+	const tguns: { [key: string]: any } = settings.thunderguns || {};
+	const thunderers = Object.keys(tguns)
+		.map((k) => ({ key: k, name: tguns[k].name || k, count: tguns[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// unfired fuck you gun shots
+	const fyg: { [key: string]: any } = settings.fuckYouGuns || {};
+	const fuckers = Object.keys(fyg)
+		.map((k) => ({ key: k, name: fyg[k].name || k, count: fyg[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// unused first aid kits
+	const kits: { [key: string]: any } = settings.firstAid || {};
+	const medics = Object.keys(kits)
+		.map((k) => ({ key: k, name: kits[k].name || k, count: kits[k].count || 0 }))
+		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 	// banked double time prizes, waiting on the holder's next contribution
 	const dbl: { [key: string]: any } = settings.doubleTime || {};
 	const doublers = Object.keys(dbl)
@@ -145,14 +163,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 	return (
 		<Box maxW="960px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				One OBS <b>Browser</b> source for mystery boxes (and wonder boxes — see the Wonder Box tab). Boxes are
 				earned from bingo, gifted subs, channel points and raffles; firesales earn wonder boxes instead. A
 				holder spends one by typing <Code fontSize="xs">!{draft.command} open</Code> in chat, and the source
 				spins through the prize art and stops on what they won. The prize's effect then fires for real —
 				time, a pause, a clip, whatever it's set to.
 			</Text>
-			<Text fontSize="sm" color="gray.600" mb={3}>
+			<Text fontSize="sm" color="muted" mb={3}>
 				Size the source <b>4:3</b> (800×600 or 1024×768), same as the Firesale source. It draws nothing
 				between opens, so it can stay in the scene permanently. <b>Only one box opens at a time</b> — anyone
 				else who types while a box is open is ignored and keeps theirs. Everything here applies immediately —
@@ -170,7 +188,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Text fontWeight="bold">Live</Text>
 					{badge}
 					{phase !== "idle" && (
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							<b>{run.opener}</b> ({runKind})
 							{phase === "spinning" && run.endsAt ? ` — landing in ${Math.max(0, Math.ceil((run.endsAt - Date.now()) / 1000))}s` : ""}
 							{phase === "reveal" && run.prize ? ` won ${run.prize.name || run.prize.id}` : ""}
@@ -198,7 +216,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				{pause && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="orange">{pause.rollMs ? "TIMEBOMB" : "TIMER PAUSED"}</Badge>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{countdown(pause.until - Date.now())} left — {pause.reason}
 							{pause.rollMs ? ` (each contribution resets it to ${Math.round(pause.rollMs / 1000)}s)` : ""}
 						</Text>
@@ -209,7 +227,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				{juke && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="blue">JUKEBOX</Badge>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{juke.track} — {countdown(Date.now() - juke.startedAt)} in ({juke.name}); boxes still open over it
 						</Text>
 						<Button size="xs" onClick={() => stopJukebox(ws)}>Stop</Button>
@@ -219,7 +237,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				{schizo && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="pink">SCHIZO</Badge>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{countdown(schizo.until - Date.now())} left — the source is reading chat aloud ({schizo.name}); boxes still open over it
 						</Text>
 						<Button size="xs" onClick={() => stopSchizo(ws)}>Stop</Button>
@@ -229,7 +247,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				{boost && (
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="red">x{boost.factor} ON EVERYTHING</Badge>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{countdown(boost.until - Date.now())} left — {boost.reason}
 						</Text>
 						<Button size="xs" onClick={() => endTimeBoost(ws)}>End now</Button>
@@ -237,7 +255,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				)}
 
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.500">Test spin</Text>
+					<Text fontSize="sm" color="subtle">Test spin</Text>
 					<Select size="sm" maxW="220px" value={openPrize} onChange={(e) => setOpenPrize(e.target.value)}>
 						<option value="">(a fair draw)</option>
 						{draft.prizes.map((p: any) => (
@@ -247,7 +265,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Button size="sm" onClick={() => testMysteryBox(ws, openPrize)} isDisabled={!draft.prizes.length}>
 						Spin
 					</Button>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						Spends nobody's box — but the prize's effect fires for real, exactly as it would in front of chat.
 					</Text>
 				</HStack>
@@ -259,16 +277,19 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Text fontWeight="bold">Quick revive</Text>
 					{reviveBadge}
 					{revivePhase === "running" && (
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{revive.kind !== "subpoints" ? <><b>{revive.title}</b> — </> : null}
-							{revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "vote" && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — {countdown(revive.endsAt - Date.now())} left
+							{revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote", "voteup", "shell", "algebra"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "algebra" ? <> — <b>{revive.equation}</b> ({revive.wrongAnswers || 0} wrong so far)</> : null}{revive.kind === "shell" ? <> — <b>{revive.shellPlayer ? `@${revive.shellPlayer}` : "anybody (test)"}</b> picks 1 to {revive.shells}</> : null}{(revive.kind === "vote" || revive.kind === "voteup") && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — {countdown(revive.endsAt - Date.now())} left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</>
 								: revive.kind === "potato" ? <><b>@{revive.holder}</b> was holding it after <b>{revive.points}</b> passes</>
 								: revive.kind === "cup" ? <><b>@{revive.holder}</b> wins</>
+								: revive.kind === "algebra" ? (revive.winner ? <><b>@{revive.winner}</b> solved it — x = {revive.xAnswer}</> : <>nobody solved it — x = {revive.xAnswer}</>)
+								: revive.kind === "shell" ? (revive.shellPick ? <><b>@{revive.shellPickedBy}</b> picked #{revive.shellPick}; it was under #{revive.shellAnswer}</> : <>no pick; it was under #{revive.shellAnswer}</>)
+								: revive.kind === "voteup" ? <>winner: <b>{(revive.board || []).slice(0, 1).map((v: any) => `@${v.name}`).join("") || "nobody"}</b></>
 								: revive.kind === "vote" ? <>voted out: <b>{(revive.board || []).slice(0, revive.topCount || 1).map((v: any) => `@${v.name}`).join(", ") || "nobody"}</b></>
 								: revive.kind === "weenie" ? (revive.saidBy ? <><b>@{revive.saidBy}</b> said it</> : <>nobody said it</>) : <>chat got <b>{revive.points} / {revive.goal}</b> {String(revive.unit || "sub points").toLowerCase()}</>}
 						</Text>
@@ -289,7 +310,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						</Button>
 					)}
 				</Flex>
-				<Text fontSize="xs" color="gray.500" mb={3}>
+				<Text fontSize="xs" color="subtle" mb={3}>
 					Chat gets <b>{qr.seconds}s</b> to put up <b>{qr.points}</b> sub points, on the Mystery Box source. Points
 					are weighted the way Twitch weights them: Tier 1 and Prime count 1, Tier 2 counts 2, Tier 3 counts 6,
 					and a gift bomb counts every sub in it. A YouTube or Kick membership counts 1. Subs a mod adds by hand
@@ -300,28 +321,28 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				<VStack align="stretch" spacing={2}>
 					<HStack spacing={2} wrap="wrap">
-						<Text fontSize="sm" color="gray.600">Chat gets</Text>
+						<Text fontSize="sm" color="muted">Chat gets</Text>
 						<NumberField width="90px" min={5} max={3600} value={qr.seconds} onCommit={(n) => patchRevive({ seconds: n }, "qrsec")} />
-						<Text fontSize="sm" color="gray.600">seconds to reach</Text>
+						<Text fontSize="sm" color="muted">seconds to reach</Text>
 						<NumberField width="90px" min={1} max={100000} value={qr.points} onCommit={(n) => patchRevive({ points: n }, "qrpts")} />
-						<Text fontSize="sm" color="gray.600">sub points. Result stays up</Text>
+						<Text fontSize="sm" color="muted">sub points. Result stays up</Text>
 						<NumberField width="80px" min={1} max={60} value={qr.holdSec} onCommit={(n) => patchRevive({ holdSec: n }, "qrhold")} />
-						<Text fontSize="sm" color="gray.600">s</Text>
+						<Text fontSize="sm" color="muted">s</Text>
 						<HStack spacing={1} ml={2}>
 							<Switch size="sm" isChecked={qr.announce} onChange={(e) => patchRevive({ announce: e.target.checked })} />
-							<Text fontSize="sm" color="gray.600">Announce in chat</Text>
+							<Text fontSize="sm" color="muted">Announce in chat</Text>
 						</HStack>
 					</HStack>
 
 					<HStack spacing={2} wrap="wrap">
-						<Text fontSize="sm" color="gray.600">Title</Text>
+						<Text fontSize="sm" color="muted">Title</Text>
 						<Input
 							size="sm"
 							maxW="220px"
 							value={qr.title}
 							onChange={(e) => patchRevive({ title: e.target.value }, "qrtitle")}
 						/>
-						<Text fontSize="sm" color="gray.600" ml={2}>Music loop</Text>
+						<Text fontSize="sm" color="muted" ml={2}>Music loop</Text>
 						<Select
 							size="sm"
 							maxW="240px"
@@ -333,7 +354,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								<option key={f} value={f}>{f}</option>
 							))}
 						</Select>
-						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
 							type="range"
 							min={0}
@@ -342,7 +363,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							value={qr.musicVolume}
 							onChange={(e) => patchRevive({ musicVolume: Number(e.target.value) }, "qrmv")}
 						/>
-						<Text fontSize="xs" color="gray.500">loops while the clock runs, stops the moment it&apos;s decided</Text>
+						<Text fontSize="xs" color="subtle">loops while the clock runs, stops the moment it&apos;s decided</Text>
 					</HStack>
 
 					<HStack spacing={2} wrap="wrap">
@@ -358,7 +379,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								<option key={f} value={f}>{f}</option>
 							))}
 						</Select>
-						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
 							type="range"
 							min={0}
@@ -389,7 +410,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 								<option key={f} value={f}>{f}</option>
 							))}
 						</Select>
-						<Text fontSize="sm" color="gray.600">Vol</Text>
+						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
 							type="range"
 							min={0}
@@ -413,13 +434,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 				<Flex align="center" gap={3} mb={2} wrap="wrap">
 					<Text fontWeight="bold">Boxes owed</Text>
-					<Text fontSize="sm" color="gray.600">
+					<Text fontSize="sm" color="muted">
 						{outstanding} unopened across {owners.length} {owners.length === 1 ? "person" : "people"}
 					</Text>
 				</Flex>
 
 				{owners.length === 0 && (
-					<Text fontSize="sm" color="gray.500" mb={2}>
+					<Text fontSize="sm" color="subtle" mb={2}>
 						Nobody is holding a box yet. They come from bingo, gifted subs, channel points and raffles —
 						or hand one out below.
 					</Text>
@@ -455,14 +476,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</HStack>
 
 				<Divider my={2} />
-				<Text fontSize="xs" color="gray.500" mb={2}>
+				<Text fontSize="xs" color="subtle" mb={2}>
 					A box can be credited to a display name (a bingo winner, a gifter) that isn't the Twitch login
 					that types <Code fontSize="xs">!{draft.command} open</Code>. When they differ, move the boxes
 					across — mystery boxes, wonder boxes and everything else they hold go together:
 				</Text>
 				<HStack spacing={2} wrap="wrap">
 					<Input size="sm" maxW="180px" placeholder="From (the name above)" value={mergeFrom} onChange={(e) => setMergeFrom(e.target.value)} />
-					<Text fontSize="sm" color="gray.500">→</Text>
+					<Text fontSize="sm" color="subtle">→</Text>
 					<Input size="sm" maxW="180px" placeholder="To (their Twitch login)" value={mergeTo} onChange={(e) => setMergeTo(e.target.value)} />
 					<Button
 						size="sm"
@@ -478,7 +499,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Text fontWeight="bold">Ray gun shots</Text>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							unfired — each one times somebody out with{" "}
 							<Code fontSize="xs">!{draft.raygunCommand} &lt;name&gt;</Code>
 						</Text>
@@ -496,11 +517,77 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</Box>
 			)}
 
+			{thunderers.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">Thunder gun shots</Text>
+						<Text fontSize="sm" color="muted">
+							unfired — each one times somebody out for 20 minutes with{" "}
+							<Code fontSize="xs">!{draft.thundergunCommand} &lt;name&gt;</Code>
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{thunderers.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="purple">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveThundergun(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveThundergun(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
+			{fuckers.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">Fuck you gun shots</Text>
+						<Text fontSize="sm" color="muted">
+							unfired — each one times somebody out for 24 hours with{" "}
+							<Code fontSize="xs">!{draft.fuckYouGunCommand} &lt;name&gt;</Code>
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{fuckers.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="orange">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveFuckYouGun(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveFuckYouGun(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
+			{medics.length > 0 && (
+				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
+					<Flex align="center" gap={3} mb={2} wrap="wrap">
+						<Text fontWeight="bold">First aid kits</Text>
+						<Text fontSize="sm" color="muted">
+							unused — each one ends somebody's timeout with{" "}
+							<Code fontSize="xs">!{draft.firstAidCommand} &lt;name&gt;</Code>
+						</Text>
+					</Flex>
+					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
+						{medics.map((g) => (
+							<Flex key={g.key} align="center" gap={2} fontSize="sm">
+								<Text flex="1" minW="140px">{g.name}</Text>
+								<Badge colorScheme="green">{g.count}</Badge>
+								<Button size="xs" variant="ghost" onClick={() => giveFirstAid(ws, g.key, 1)}>+1</Button>
+								<Button size="xs" variant="ghost" onClick={() => giveFirstAid(ws, g.key, -1)}>−1</Button>
+							</Flex>
+						))}
+					</VStack>
+				</Box>
+			)}
+
 			{doublers.length > 0 && (
 				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Text fontWeight="bold">Double time</Text>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							banked — each one doubles that person's next contribution
 						</Text>
 					</Flex>
@@ -521,7 +608,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Text fontWeight="bold">{shName}</Text>
-						<Text fontSize="sm" color="gray.600">
+						<Text fontSize="sm" color="muted">
 							banked — each one blocks that person's next timeout from the bot
 						</Text>
 					</Flex>
@@ -548,6 +635,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				textBoxes={textBoxes}
 				listId="mb-profiles"
 				what="box"
+				wonderProfile={(settings.wonderBoxSettings && settings.wonderBoxSettings.activeProfile) || ""}
 			/>
 
 			{/* ---- how it behaves ---- */}
@@ -567,8 +655,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="sm">Chat can open them</Text>
 					</HStack>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Command</Text>
-						<Text fontSize="sm" color="gray.500">!</Text>
+						<Text fontSize="sm" color="muted">Cooldown</Text>
+						<NumberField width="80px" min={0} max={3600} value={draft.cooldownSec} onCommit={(n) => patch({ cooldownSec: n }, "cooldown")} />
+						<Text fontSize="sm" color="muted">sec after a box finishes</Text>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">Command</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
 						<Input
 							size="sm"
 							maxW="110px"
@@ -577,8 +670,8 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						/>
 					</HStack>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Ray gun</Text>
-						<Text fontSize="sm" color="gray.500">!</Text>
+						<Text fontSize="sm" color="muted">Ray gun</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
 						<Input
 							size="sm"
 							maxW="110px"
@@ -586,13 +679,44 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							onChange={(e) => patch({ raygunCommand: e.target.value.replace(/^!/, "") }, "rcmd")}
 						/>
 					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">Thunder gun</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.thundergunCommand}
+							onChange={(e) => patch({ thundergunCommand: e.target.value.replace(/^!/, "") }, "tcmd")}
+						/>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">Fuck you gun</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.fuckYouGunCommand}
+							onChange={(e) => patch({ fuckYouGunCommand: e.target.value.replace(/^!/, "") }, "fycmd")}
+						/>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">First aid</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.firstAidCommand}
+							onChange={(e) => patch({ firstAidCommand: e.target.value.replace(/^!/, "") }, "facmd")}
+						/>
+					</HStack>
 				</HStack>
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					Chat types <Code fontSize="xs">!{draft.command} open</Code> to open one and{" "}
 					<Code fontSize="xs">!{draft.command} count</Code> to ask how many they have.
 					{" "}Turning <b>Chat can open them</b> off holds the spins back without stopping anyone earning —
 					boxes still bank up and you can still open and test them from here. Turning <b>Mystery boxes</b>{" "}
-					off stops the earning too.
+					off stops the earning too. <b>Cooldown</b> makes chat wait that long after any box (mystery or
+					wonder) finishes before opening the next mystery box; 0 means no wait.
 				</Text>
 				<HStack spacing={3} wrap="wrap">
 					<HStack spacing={2}>
@@ -604,9 +728,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						<Text fontSize="sm">Remind people with unopened boxes or an unspent {dtName} when they chat</Text>
 					</HStack>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">at most once every</Text>
+						<Text fontSize="sm" color="muted">at most once every</Text>
 						<NumberField width="80px" min={5} max={1440} value={draft.remindEveryMin} onCommit={(n) => patch({ remindEveryMin: n }, "remind")} />
-						<Text fontSize="sm" color="gray.600">min per person</Text>
+						<Text fontSize="sm" color="muted">min per person</Text>
 					</HStack>
 				</HStack>
 
@@ -628,9 +752,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						onChange={(e) => patch({ pointsReward: e.target.value }, "ptsr")}
 					/>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">gives</Text>
+						<Text fontSize="sm" color="muted">gives</Text>
 						<NumberField width="70px" min={1} max={99} value={draft.pointsBoxes} onCommit={(n) => patch({ pointsBoxes: n }, "ptsb")} />
-						<Text fontSize="sm" color="gray.600">box{draft.pointsBoxes === 1 ? "" : "es"}</Text>
+						<Text fontSize="sm" color="muted">box{draft.pointsBoxes === 1 ? "" : "es"}</Text>
 					</HStack>
 					{draft.pointsEnabled && (
 						!pts.authorized
@@ -643,7 +767,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				{draft.pointsEnabled && pts.authorized && !pts.pointsOk && pts.pointsError && (
 					<Text fontSize="xs" color="red.300">{pts.pointsError}</Text>
 				)}
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					Make the reward on Twitch (Creator Dashboard → Viewer Rewards → Channel Points) and type its title here.
 					Redeeming it puts boxes in the viewer&apos;s wallet. It doesn&apos;t open one, so it never clashes with a box
 					that&apos;s already running; they open it with <Code fontSize="xs">!{draft.command} open</Code> when they like.
@@ -654,12 +778,12 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				<HStack spacing={3} wrap="wrap">
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Spin for</Text>
+						<Text fontSize="sm" color="muted">Spin for</Text>
 						<NumberField width="90px" min={1} max={30} value={draft.spinSec} onCommit={(n) => patch({ spinSec: n }, "spin")} />
-						<Text fontSize="sm" color="gray.500">sec</Text>
+						<Text fontSize="sm" color="subtle">sec</Text>
 					</HStack>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">flying past</Text>
+						<Text fontSize="sm" color="muted">flying past</Text>
 						<NumberField
 							width="100px"
 							min={MIN_SPIN_TILES}
@@ -667,16 +791,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							value={draft.spinTiles}
 							onCommit={(n) => patch({ spinTiles: n }, "tiles")}
 						/>
-						<Text fontSize="sm" color="gray.500">prizes</Text>
+						<Text fontSize="sm" color="subtle">prizes</Text>
 					</HStack>
 					<HStack spacing={1}>
-						<Text fontSize="sm" color="gray.600">Hold the prize</Text>
+						<Text fontSize="sm" color="muted">Hold the prize</Text>
 						<NumberField width="90px" min={1} max={60} value={draft.revealHoldSec} onCommit={(n) => patch({ revealHoldSec: n }, "hold")} />
-						<Text fontSize="sm" color="gray.500">sec</Text>
+						<Text fontSize="sm" color="subtle">sec</Text>
 					</HStack>
 				</HStack>
 
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					That averages <b>{(draft.spinTiles / draft.spinSec).toFixed(1)} prizes a second</b> — nearer{" "}
 					{((draft.spinTiles / draft.spinSec) * 3).toFixed(0)} off the line, easing down to a stop on the
 					one that won. The spin always takes the seconds you set, so sending more past it makes the reel
@@ -684,14 +808,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</Text>
 
 				<HStack spacing={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.600">Spin music</Text>
+					<Text fontSize="sm" color="muted">Spin music</Text>
 					<Select size="sm" maxW="260px" value={draft.music} onChange={(e) => patch({ music: e.target.value })}>
 						<option value="">(none)</option>
 						{SOUNDS.map((f) => (
 							<option key={f} value={f}>{f}</option>
 						))}
 					</Select>
-					<Text fontSize="sm" color="gray.600">Vol</Text>
+					<Text fontSize="sm" color="muted">Vol</Text>
 					<input
 						type="range"
 						min={0}
@@ -704,7 +828,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				<HStack spacing={4} wrap="wrap">
 					<HStack spacing={2}>
-						<Text fontSize="sm" color="gray.600">Fill</Text>
+						<Text fontSize="sm" color="muted">Fill</Text>
 						<Select
 							size="sm"
 							maxW="150px"
@@ -719,11 +843,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 						)}
 					</HStack>
 					<HStack spacing={2}>
-						<Text fontSize="sm" color="gray.600">Title</Text>
+						<Text fontSize="sm" color="muted">Title</Text>
 						<input type="color" value={draft.titleColor} onChange={(e) => patch({ titleColor: e.target.value }, "title")} />
 					</HStack>
 					<HStack spacing={2}>
-						<Text fontSize="sm" color="gray.600">Names</Text>
+						<Text fontSize="sm" color="muted">Names</Text>
 						<input type="color" value={draft.nameColor} onChange={(e) => patch({ nameColor: e.target.value }, "name")} />
 					</HStack>
 				</HStack>
@@ -732,7 +856,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 			{/* ---- what earns a box ---- */}
 			<Text fontWeight="bold" mb={2}>What earns a box</Text>
 			<VStack align="stretch" spacing={3} mb={5} opacity={draft.enabled ? 1 : 0.6}>
-				<Text fontSize="xs" color="gray.500">
+				<Text fontSize="xs" color="subtle">
 					Firesales earn <b>wonder boxes</b> now — their settings are on the Wonder Box tab. Bingo winners
 					earn mystery boxes (3 / 2 / 1 for the first three), and so do raffles and the channel points
 					reward above.
@@ -745,15 +869,15 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					</HStack>
 					{draft.giftSubsEnabled && (<>
 						<HStack spacing={2} wrap="wrap" mb={2}>
-							<Text fontSize="sm" color="gray.600">One box per</Text>
+							<Text fontSize="sm" color="muted">One box per</Text>
 							<NumberField width="80px" min={1} max={1000} value={draft.giftSubsPerBox} onCommit={(n) => patch({ giftSubsPerBox: n }, "gift")} />
-							<Text fontSize="sm" color="gray.600">gifted subs,</Text>
+							<Text fontSize="sm" color="muted">gifted subs,</Text>
 							<Select size="sm" maxW="160px" value={draft.giftSubsMode} onChange={(e) => patch({ giftSubsMode: e.target.value })}>
 								<option value="batch">All at once</option>
 								<option value="cumulative">Cumulative</option>
 							</Select>
 						</HStack>
-						<Text fontSize="xs" color="gray.500">
+						<Text fontSize="xs" color="subtle">
 							{draft.giftSubsMode === "cumulative"
 								? <>Every <b>{draft.giftSubsPerBox}</b> subs someone gifts earns them a box, however many gifts it takes — the leftover carries over to their next gift.</>
 								: <>Someone has to gift <b>{draft.giftSubsPerBox}</b> subs in one go to earn a box (twice that in one go earns two). Smaller gifts don&apos;t add up.</>}
@@ -768,13 +892,13 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 									</Button>
 								</Flex>
 								{gifters.length === 0 && (
-									<Text fontSize="xs" color="gray.500">Nobody is part of the way there yet.</Text>
+									<Text fontSize="xs" color="subtle">Nobody is part of the way there yet.</Text>
 								)}
 								<VStack align="stretch" spacing={0} maxH="160px" overflowY="auto">
 									{gifters.map((g) => (
 										<Flex key={g.key} align="center" gap={2}>
 											<Text fontSize="sm" flex="1">{g.name}</Text>
-											<Text fontSize="sm" color="gray.600">{g.count} / {draft.giftSubsPerBox}</Text>
+											<Text fontSize="sm" color="muted">{g.count} / {draft.giftSubsPerBox}</Text>
 										</Flex>
 									))}
 								</VStack>
@@ -784,7 +908,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</Box>
 			</VStack>
 
-			<Text fontSize="xs" color="gray.500">
+			<Text fontSize="xs" color="subtle">
 				Prize art lives in <Code fontSize="xs">front/public/prizes</Code> and sounds in{" "}
 				<Code fontSize="xs">front/public/media</Code>. Both lists are read when the site starts, so a file
 				dropped in while it's running needs a restart before it shows up here.

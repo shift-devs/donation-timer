@@ -159,7 +159,7 @@ const ProductRow: React.FC<RowProps> = React.memo(({ id, name, faded, image, usd
 						<Box boxSize='36px' bg='whiteAlpha.200' borderRadius='md' />
 					)}
 				</Box>
-				<Text noOfLines={1} color={faded ? "gray.500" : undefined}>{name}</Text>
+				<Text noOfLines={1} color={faded ? "subtle" : undefined}>{name}</Text>
 				{usd > 0 && <Text fontSize='sm' color='gray.400' ml={2} flexShrink={0}>${usd}</Text>}
 				<Spacer />
 				<HStack>

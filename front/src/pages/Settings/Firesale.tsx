@@ -126,13 +126,13 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 
 	return (
 		<Box maxW="900px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				One OBS <b>Browser</b> source for Fourthwall giveaways. When Fourthwall announces a giveaway in
 				Twitch chat, this starts itself: the music loops, <b>FIRESALE</b> flashes in the middle, and everyone
 				who types <Code fontSize="xs">!{draft.command}</Code> bounces around the frame like a DVD logo. When
 				Fourthwall announces the winner, that name goes up in the middle.
 			</Text>
-			<Text fontSize="sm" color="gray.600" mb={3}>
+			<Text fontSize="sm" color="muted" mb={3}>
 				Size the source <b>4:3</b> (like a CRT) — 800×600 or 1024×768. The overlay draws nothing at all
 				between giveaways, so it can stay in the scene permanently. Everything here applies immediately —
 				no Save.
@@ -149,7 +149,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					<Text fontWeight="bold">Live</Text>
 					{!active && <Badge>IDLE</Badge>}
 					{runs.length > 1 && <Badge colorScheme="purple">{runs.length} AT ONCE</Badge>}
-					{active && <Text fontSize="sm" color="gray.600">{run.total} people entered in total</Text>}
+					{active && <Text fontSize="sm" color="muted">{run.total} people entered in total</Text>}
 				</Flex>
 
 				{/* one row per giveaway. each carries its OWN count and deadline, because a viewer who entered
@@ -161,9 +161,9 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 							<b>{r.prize || "(no prize named)"}</b>
 							{r.gifter ? ` — ${r.gifter}` : ""}
 						</Text>
-						<Text color="gray.600">{r.total} in</Text>
+						<Text color="muted">{r.total} in</Text>
 						{r.phase === "running" && r.endsAt && (
-							<Text color="gray.600">{countdown(r.endsAt - Date.now())} left</Text>
+							<Text color="muted">{countdown(r.endsAt - Date.now())} left</Text>
 						)}
 						{/* a multi-item giveaway is announced one winner per message, so a run can hold several */}
 						{r.phase === "winner" && (
@@ -181,13 +181,13 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					</Wrap>
 				)}
 				{active && run.total > entrants.length && (
-					<Text fontSize="xs" color="gray.500" mb={2}>
+					<Text fontSize="xs" color="subtle" mb={2}>
 						Showing the {entrants.length} most recent of {run.total} — those are the names on screen.
 					</Text>
 				)}
 
 				<HStack spacing={2} mb={2} wrap="wrap">
-					<Text fontSize="sm" color="gray.500">Test run</Text>
+					<Text fontSize="sm" color="subtle">Test run</Text>
 					<NumberInput
 						size="sm"
 						maxW="90px"
@@ -198,7 +198,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					>
 						<NumberInputField />
 					</NumberInput>
-					<Text fontSize="sm" color="gray.500">sec</Text>
+					<Text fontSize="sm" color="subtle">sec</Text>
 					<Button size="sm" colorScheme="red" onClick={() => startFiresale(ws, testSec, "", "")}>
 						{active ? "Add another" : "Start"}
 					</Button>
@@ -230,7 +230,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					>
 						Set winner
 					</Button>
-					<Text fontSize="xs" color="gray.500">
+					<Text fontSize="xs" color="subtle">
 						Only needed if Fourthwall&apos;s winner announcement never lands.
 					</Text>
 				</HStack>
@@ -241,15 +241,15 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 			{/* ---- config ---- */}
 			<VStack align="stretch" spacing={3}>
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Start automatically</Text>
+					<Text color="subtle" w="150px">Start automatically</Text>
 					<Switch isChecked={draft.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						Off = Fourthwall&apos;s announcements are ignored and runs are started from here or the Terminal.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Announced by</Text>
+					<Text color="subtle" w="150px">Announced by</Text>
 					<Input
 						size="sm"
 						w="180px"
@@ -257,13 +257,13 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						placeholder="fourthwall"
 						onChange={(e) => patch({ botName: e.currentTarget.value }, "botName")}
 					/>
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						The Twitch account whose giveaway announcements count. Blank = trust any mod.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Entry command</Text>
+					<Text color="subtle" w="150px">Entry command</Text>
 					<Flex align="center">
 						<Text mr={1}>!</Text>
 						<Input
@@ -274,13 +274,13 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 							onChange={(e) => patch({ command: e.currentTarget.value.replace(/^!/, "") }, "command")}
 						/>
 					</Flex>
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						What chatters type. Not case sensitive, and one entry per person.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Music</Text>
+					<Text color="subtle" w="150px">Music</Text>
 					<Select size="sm" w="280px" value={draft.music} onChange={(e) => patch({ music: e.currentTarget.value })}>
 						<option value="">(silent)</option>
 						{MUSIC.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -297,11 +297,11 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						value={draft.volume}
 						onChange={(e) => patch({ volume: Number(e.currentTarget.value) }, "volume")}
 					/>
-					<Text color="gray.500" w="46px">{Math.round(draft.volume * 100)}%</Text>
+					<Text color="subtle" w="46px">{Math.round(draft.volume * 100)}%</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Announcer</Text>
+					<Text color="subtle" w="150px">Announcer</Text>
 					<Select size="sm" w="280px" value={draft.announcer} onChange={(e) => patch({ announcer: e.currentTarget.value })}>
 						<option value="">(none)</option>
 						{MUSIC.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -318,15 +318,15 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						value={draft.announcerVolume}
 						onChange={(e) => patch({ announcerVolume: Number(e.currentTarget.value) }, "announcerVolume")}
 					/>
-					<Text color="gray.500" w="46px">{Math.round(draft.announcerVolume * 100)}%</Text>
+					<Text color="subtle" w="46px">{Math.round(draft.announcerVolume * 100)}%</Text>
 				</Flex>
-				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+				<Text fontSize="xs" color="subtle" ml="158px" mt={-1}>
 					Played once over the top of the music when a firesale starts. A source that loads into a giveaway
 					already in progress stays quiet and just joins the music.
 				</Text>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Win sound</Text>
+					<Text color="subtle" w="150px">Win sound</Text>
 					<Select size="sm" w="280px" value={draft.winSound} onChange={(e) => patch({ winSound: e.currentTarget.value })}>
 						<option value="">(none)</option>
 						{MUSIC.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -343,16 +343,16 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						value={draft.winVolume}
 						onChange={(e) => patch({ winVolume: Number(e.currentTarget.value) }, "winVolume")}
 					/>
-					<Text color="gray.500" w="46px">{Math.round(draft.winVolume * 100)}%</Text>
+					<Text color="subtle" w="46px">{Math.round(draft.winVolume * 100)}%</Text>
 				</Flex>
-				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+				<Text fontSize="xs" color="subtle" ml="158px" mt={-1}>
 					Played when a winner goes up, and the looping music <b>stops</b> at that moment so it lands in the
 					clear. With several giveaways open the music keeps going until the last one resolves — cutting it
 					while chat is still entering another would leave the overlay silent mid-firesale.
 				</Text>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Entry window</Text>
+					<Text color="subtle" w="150px">Entry window</Text>
 					<NumberInput
 						size="sm"
 						maxW="100px"
@@ -363,22 +363,22 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						sec — only used when the announcement doesn&apos;t say (it usually says &quot;in the next 180 seconds&quot;).
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Countdown on stream</Text>
+					<Text color="subtle" w="150px">Countdown on stream</Text>
 					<Switch isChecked={draft.showCountdown} onChange={(e) => patch({ showCountdown: e.target.checked })} />
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						Off = the overlay just says TYPE !{draft.command}. The entry window still runs either way — this
 						is only whether viewers see the clock.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Wait for winner</Text>
+					<Text color="subtle" w="150px">Wait for winner</Text>
 					<NumberInput
 						size="sm"
 						maxW="100px"
@@ -389,13 +389,13 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						sec on DRAWING… before giving up on Fourthwall and picking one of the entrants at random.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Hold the winner</Text>
+					<Text color="subtle" w="150px">Hold the winner</Text>
 					<NumberInput
 						size="sm"
 						maxW="100px"
@@ -406,11 +406,11 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.500" fontSize="xs">sec on screen before the overlay clears itself.</Text>
+					<Text color="subtle" fontSize="xs">sec on screen before the overlay clears itself.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Names on screen</Text>
+					<Text color="subtle" w="150px">Names on screen</Text>
 					<NumberInput
 						size="sm"
 						maxW="100px"
@@ -421,18 +421,18 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 					>
 						<NumberInputField />
 					</NumberInput>
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						The most recent this many bounce around. Everyone else is still entered, still counted, and can
 						still win.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Colours</Text>
+					<Text color="subtle" w="150px">Colours</Text>
 					<Input type="color" w="42px" p={1} cursor="pointer" value={draft.titleColor} onChange={(e) => patch({ titleColor: e.currentTarget.value }, "titleColor")} />
-					<Text color="gray.500">FIRESALE</Text>
+					<Text color="subtle">FIRESALE</Text>
 					<Input type="color" w="42px" p={1} cursor="pointer" value={draft.nameColor} onChange={(e) => patch({ nameColor: e.currentTarget.value }, "nameColor")} />
-					<Text color="gray.500">winner</Text>
+					<Text color="subtle">winner</Text>
 					<Input
 						type="color"
 						w="42px"
@@ -442,7 +442,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						value={draft.bgColor === "transparent" ? "#00ff00" : draft.bgColor}
 						onChange={(e) => patch({ bgColor: e.currentTarget.value }, "bgColor")}
 					/>
-					<Text color="gray.500">fill</Text>
+					<Text color="subtle">fill</Text>
 					<Button size="xs" isDisabled={draft.bgColor === "transparent"} onClick={() => patch({ bgColor: "transparent" })}>
 						transparent
 					</Button>
@@ -451,7 +451,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 
 			<Divider my={4} />
 
-			<Text fontSize="xs" color="gray.500">
+			<Text fontSize="xs" color="subtle">
 				A <b>transparent</b> fill needs no Color Key filter — OBS composites the overlay straight over your
 				scene. Pick a colour instead if you&apos;d rather key it out. The bouncing names always carry their
 				own black outline, so they stay readable over anything.

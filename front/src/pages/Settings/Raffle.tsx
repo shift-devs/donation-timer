@@ -138,7 +138,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 
 	const soundRow = (label: string, file: string, fileKey: string, volume: number, volKey: string, none: string) => (
 		<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-			<Text color="gray.500" w="150px">{label}</Text>
+			<Text color="subtle" w="150px">{label}</Text>
 			<Select size="sm" w="280px" value={file} onChange={(e) => patch({ [fileKey]: e.currentTarget.value })}>
 				<option value="">{none}</option>
 				{MUSIC.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -155,19 +155,19 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 				value={volume}
 				onChange={(e) => patch({ [volKey]: Number(e.currentTarget.value) }, volKey)}
 			/>
-			<Text color="gray.500" w="46px">{Math.round(volume * 100)}%</Text>
+			<Text color="subtle" w="46px">{Math.round(volume * 100)}%</Text>
 		</Flex>
 	);
 
 	return (
 		<Box maxW="900px" mx="auto" textAlign="left">
-			<Text fontSize="sm" color="gray.600" mb={2}>
+			<Text fontSize="sm" color="muted" mb={2}>
 				One OBS <b>Browser</b> source for raffles you run yourself. Set it up below and hit <b>Start</b>: the
 				music loops, <b>{draft.title || "RAFFLE"}</b> flashes in the middle, and everyone who types{" "}
 				<Code fontSize="xs">!{draft.command}</Code> bounces around the frame. When entries close, the app draws{" "}
 				{draft.winners === 1 ? "a winner" : `${draft.winners} winners`} at random and puts them up in the middle.
 			</Text>
-			<Text fontSize="sm" color="gray.600" mb={3}>
+			<Text fontSize="sm" color="muted" mb={3}>
 				It&apos;s the firesale&apos;s overlay, so size it the same — <b>4:3</b>, e.g. 800×600. It draws nothing
 				between raffles, so it can stay in the scene permanently.
 			</Text>
@@ -182,12 +182,12 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 				<Flex align="center" gap={3} mb={2} wrap="wrap">
 					<Text fontWeight="bold">Live</Text>
 					{badge}
-					{r && <Text fontSize="sm" color="gray.600">{r.total} entered</Text>}
+					{r && <Text fontSize="sm" color="muted">{r.total} entered</Text>}
 					{phase === "running" && r.endsAt > 0 && (
-						<Text fontSize="sm" color="gray.600">{countdown(r.endsAt - Date.now())} left</Text>
+						<Text fontSize="sm" color="muted">{countdown(r.endsAt - Date.now())} left</Text>
 					)}
 					{phase === "running" && !r.endsAt && (
-						<Text fontSize="sm" color="gray.600">open until you draw</Text>
+						<Text fontSize="sm" color="muted">open until you draw</Text>
 					)}
 				</Flex>
 
@@ -207,7 +207,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 					</Wrap>
 				)}
 				{r && run.total > entrants.length && (
-					<Text fontSize="xs" color="gray.500" mb={2}>
+					<Text fontSize="xs" color="subtle" mb={2}>
 						Showing the {entrants.length} most recent of {run.total} — those are the names on screen.
 					</Text>
 				)}
@@ -216,7 +216,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 					<Button size="sm" colorScheme="red" onClick={start}>{r ? "Restart" : "Start raffle"}</Button>
 					<Button size="sm" isDisabled={phase !== "running"} onClick={() => drawRaffle(ws)}>Draw now</Button>
 					<Button size="sm" isDisabled={!r} onClick={() => stopRaffle(ws)}>Clear</Button>
-					{r && <Text fontSize="xs" color="gray.500">Restart throws away this raffle&apos;s entries.</Text>}
+					{r && <Text fontSize="xs" color="subtle">Restart throws away this raffle&apos;s entries.</Text>}
 				</HStack>
 			</Box>
 
@@ -226,7 +226,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 			<Text fontWeight="bold" mb={2}>The raffle</Text>
 			<VStack align="stretch" spacing={3} mb={5}>
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Title</Text>
+					<Text color="subtle" w="150px">Title</Text>
 					<Input
 						size="sm"
 						w="220px"
@@ -235,11 +235,11 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 						placeholder="RAFFLE"
 						onChange={(e) => patch({ title: e.currentTarget.value }, "title")}
 					/>
-					<Text color="gray.500" fontSize="xs">The big word in the middle of the overlay.</Text>
+					<Text color="subtle" fontSize="xs">The big word in the middle of the overlay.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Prize</Text>
+					<Text color="subtle" w="150px">Prize</Text>
 					<Input
 						size="sm"
 						w="320px"
@@ -248,11 +248,11 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 						placeholder="e.g. Signed poster"
 						onChange={(e) => patch({ prize: e.currentTarget.value }, "prize")}
 					/>
-					<Text color="gray.500" fontSize="xs">Optional — shown under the title and with the winners.</Text>
+					<Text color="subtle" fontSize="xs">Optional — shown under the title and with the winners.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Entry command</Text>
+					<Text color="subtle" w="150px">Entry command</Text>
 					<Flex align="center">
 						<Text mr={1}>!</Text>
 						<Input
@@ -263,24 +263,24 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 							onChange={(e) => patch({ command: e.currentTarget.value.replace(/^!/, "") }, "command")}
 						/>
 					</Flex>
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						One entry per person.
 						{clashesWithFiresale ? " Same as the firesale's, so one entry joins both while both are open." : ""}
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Entry window</Text>
+					<Text color="subtle" w="150px">Entry window</Text>
 					<NumberField width="100px" min={0} max={3600} value={draft.entrySec} onCommit={(n) => patch({ entrySec: n }, "entrySec")} />
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						sec{draft.entrySec === 0 ? " — 0 means it stays open until you hit Draw now." : ". 0 = open until you hit Draw now."}
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Winners</Text>
+					<Text color="subtle" w="150px">Winners</Text>
 					<NumberField width="100px" min={1} max={MAX_RAFFLE_WINNERS} value={draft.winners} onCommit={(n) => patch({ winners: n }, "winners")} />
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						Drawn at random, nobody twice. If fewer people enter, everyone who entered wins.
 					</Text>
 				</Flex>
@@ -294,12 +294,12 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 					{draft.giveBoxes && (<>
 						<HStack spacing={2} wrap="wrap">
 							<NumberField width="80px" min={1} max={99} value={draft.boxesPerWinner} onCommit={(n) => patch({ boxesPerWinner: n }, "boxes")} />
-							<Text fontSize="sm" color="gray.600">
+							<Text fontSize="sm" color="muted">
 								box{draft.boxesPerWinner === 1 ? "" : "es"} for each winner, banked the moment they&apos;re drawn
 							</Text>
 						</HStack>
 						{!mbOn && (
-							<Text fontSize="xs" color="orange.500" mt={1}>
+							<Text fontSize="xs" color="warn" mt={1}>
 								Mystery boxes are switched off on the Mystery Box tab, so none will be given out until they&apos;re back on.
 							</Text>
 						)}
@@ -307,17 +307,17 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 				</Box>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Announce in chat</Text>
+					<Text color="subtle" w="150px">Announce in chat</Text>
 					<Switch isChecked={draft.announceInChat} onChange={(e) => patch({ announceInChat: e.target.checked })} />
-					<Text color="gray.500" fontSize="xs">Posts the winners as a Twitch announcement from the bot account.</Text>
+					<Text color="subtle" fontSize="xs">Posts the winners as a Twitch announcement from the bot account.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">As a command</Text>
+					<Text color="subtle" w="150px">As a command</Text>
 					<Code fontSize="xs" p={2} flex="1" minW="200px" overflowX="auto" whiteSpace="nowrap">{command}</Code>
 					<Button size="sm" onClick={copyCommand}>Copy</Button>
 				</Flex>
-				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+				<Text fontSize="xs" color="subtle" ml="158px" mt={-1}>
 					Starts this raffle from the Terminal, from chat as a mod (<Code fontSize="xs">!{command}</Code>), or from an
 					event&apos;s terminal command.
 				</Text>
@@ -328,46 +328,46 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 			<VStack align="stretch" spacing={3}>
 				{soundRow("Music", draft.music, "music", draft.volume, "volume", "(silent)")}
 				{soundRow("Announcer", draft.announcer, "announcer", draft.announcerVolume, "announcerVolume", "(none)")}
-				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+				<Text fontSize="xs" color="subtle" ml="158px" mt={-1}>
 					Played once over the music when a raffle starts.
 				</Text>
 				{soundRow("Win sound", draft.winSound, "winSound", draft.winVolume, "winVolume", "(none)")}
-				<Text fontSize="xs" color="gray.500" ml="158px" mt={-1}>
+				<Text fontSize="xs" color="subtle" ml="158px" mt={-1}>
 					Played when the winners go up. The music stops at that moment so it lands in the clear.
 				</Text>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Countdown on stream</Text>
+					<Text color="subtle" w="150px">Countdown on stream</Text>
 					<Switch isChecked={draft.showCountdown} onChange={(e) => patch({ showCountdown: e.target.checked })} />
-					<Text color="gray.500" fontSize="xs">Shown next to TYPE !{draft.command.toUpperCase()} when there&apos;s an entry window.</Text>
+					<Text color="subtle" fontSize="xs">Shown next to TYPE !{draft.command.toUpperCase()} when there&apos;s an entry window.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Drawing suspense</Text>
+					<Text color="subtle" w="150px">Drawing suspense</Text>
 					<NumberField width="100px" min={0} max={30} value={draft.drawSec} onCommit={(n) => patch({ drawSec: n }, "drawSec")} />
-					<Text color="gray.500" fontSize="xs">sec on DRAWING… before the winners go up.</Text>
+					<Text color="subtle" fontSize="xs">sec on DRAWING… before the winners go up.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Hold the winners</Text>
+					<Text color="subtle" w="150px">Hold the winners</Text>
 					<NumberField width="100px" min={1} max={600} value={draft.winnerHoldSec} onCommit={(n) => patch({ winnerHoldSec: n }, "hold")} />
-					<Text color="gray.500" fontSize="xs">sec on screen before the overlay clears itself.</Text>
+					<Text color="subtle" fontSize="xs">sec on screen before the overlay clears itself.</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Names on screen</Text>
+					<Text color="subtle" w="150px">Names on screen</Text>
 					<NumberField width="100px" min={1} max={200} value={draft.maxBouncers} onCommit={(n) => patch({ maxBouncers: n }, "bouncers")} />
-					<Text color="gray.500" fontSize="xs">
+					<Text color="subtle" fontSize="xs">
 						The most recent this many bounce around. Everyone else is still entered and can still win.
 					</Text>
 				</Flex>
 
 				<Flex align="center" gap={2} wrap="wrap" fontSize="sm">
-					<Text color="gray.500" w="150px">Colours</Text>
+					<Text color="subtle" w="150px">Colours</Text>
 					<Input type="color" w="42px" p={1} cursor="pointer" value={draft.titleColor} onChange={(e) => patch({ titleColor: e.currentTarget.value }, "titleColor")} />
-					<Text color="gray.500">title</Text>
+					<Text color="subtle">title</Text>
 					<Input type="color" w="42px" p={1} cursor="pointer" value={draft.nameColor} onChange={(e) => patch({ nameColor: e.currentTarget.value }, "nameColor")} />
-					<Text color="gray.500">winners</Text>
+					<Text color="subtle">winners</Text>
 					<Input
 						type="color"
 						w="42px"
@@ -377,7 +377,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 						value={draft.bgColor === "transparent" ? "#00ff00" : draft.bgColor}
 						onChange={(e) => patch({ bgColor: e.currentTarget.value }, "bgColor")}
 					/>
-					<Text color="gray.500">fill</Text>
+					<Text color="subtle">fill</Text>
 					<Button size="xs" isDisabled={draft.bgColor === "transparent"} onClick={() => patch({ bgColor: "transparent" })}>
 						transparent
 					</Button>
@@ -386,7 +386,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 
 			<Divider my={4} />
 
-			<Text fontSize="xs" color="gray.500">
+			<Text fontSize="xs" color="subtle">
 				One raffle at a time — starting another replaces the one on screen. A mystery box can&apos;t be opened
 				while a raffle is up, the same as during a firesale.
 				<br />

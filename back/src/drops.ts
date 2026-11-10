@@ -49,6 +49,7 @@ const MAX_WORD = 60;
 const MAX_SECRETS = 50;
 const MAX_HINTS = 20;
 const MAX_HINT = 120;
+const MAX_IMAGE_HINTS = 10;
 const MAX_PATH = 300;
 const MAX_TEXT = 80;
 const MAX_QUEUE = 10;
@@ -58,7 +59,7 @@ const PUMP_MS = 2000;
 
 // the rewards that ARE a minigame of their own. a drop is already a challenge, and the source runs one at a
 // time, so one of these as the prize would be turned away the moment it was won.
-const NOT_A_DROP = ["chant", "infection", "rollcall", "potato", "cup", "vote", "weenie"];
+const NOT_A_DROP = ["chant", "infection", "rollcall", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra"];
 
 export const GAME_KINDS = ["chant", "count", "subpoints", "scramble", "secret", "guess"];
 
@@ -106,9 +107,10 @@ export const DEFAULT_GAME = {
     pool: "",
     // chant: the phrases, one drawn per drop. scramble: the words, likewise.
     words: [] as string[],
-    // secret: the phrases to guess, each with the hints that can go up for it. one phrase is drawn per
-    // drop, then one of its hints.
-    secrets: [] as { phrase: string, hints: string[] }[],
+    // secret: the phrases to guess, each with the hints that can go up for it — words, pictures, or both.
+    // one phrase is drawn per drop, then one of its hints, text or image alike. an image is a file in
+    // public/prizes or a full url, the same as a prize's art.
+    secrets: [] as { phrase: string, hints: string[], images: string[] }[],
     times: 20,
     streak: false,
     // count: where it starts and ends. guess: the range the number is picked from, both ends included.
@@ -192,6 +194,12 @@ function normalizeGame(raw: any, i: number, pools: any[]): any | null {
                             .filter((h: string, j: number, all: string[]) => h && all.indexOf(h) === j)
                             .slice(0, MAX_HINTS)
                         : [],
+                    images: Array.isArray(s.images)
+                        ? s.images
+                            .map((h: any) => str(h, MAX_PATH).trim())
+                            .filter((h: string, j: number, all: string[]) => h && all.indexOf(h) === j)
+                            .slice(0, MAX_IMAGE_HINTS)
+                        : [],
                 }))
             : [],
         times: numIn(raw.times, 1, 10000, d.times),
@@ -267,9 +275,9 @@ export function dropSettings(session: TimerUserSession): any {
     return session.dropSettings || (session.dropSettings = normalizeDrops(null));
 }
 
-// a secret that can go up: it has a phrase, and a hint to point at it
+// a secret that can go up: it has a phrase, and a hint to point at it (words or a picture)
 function hinted(s: any): boolean {
-    return !!(s.phrase && s.hints.length);
+    return !!(s.phrase && (s.hints.length || s.images.length));
 }
 
 // a game that can actually be played: the phrase or word games need something to say
@@ -601,7 +609,15 @@ function gameSpec(cfg: any, reward: any, game: any, test: boolean): ChallengeSpe
         const secret: any = oneOf(game.secrets.filter(hinted));
         base.unit = "";
         base.answer = secret.phrase;
-        base.phrase = oneOf(secret.hints) as string;
+        // text and image hints are one pool, so a phrase with 2 of each shows a picture half the time
+        const pick = Math.floor(Math.random() * (secret.hints.length + secret.images.length));
+        if (pick < secret.hints.length){
+            base.phrase = secret.hints[pick];
+            base.hintImage = "";
+        } else {
+            base.phrase = "";
+            base.hintImage = secret.images[pick - secret.hints.length];
+        }
     } else if (game.kind === "guess"){
         // either way round on the tab; the number is drawn with both ends in play
         const lo = Math.min(game.from, game.to), hi = Math.max(game.from, game.to);

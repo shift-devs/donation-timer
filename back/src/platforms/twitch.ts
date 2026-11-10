@@ -7,7 +7,7 @@ import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, isBingoSender, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
 import { recordChatter, pruneChatters } from "../chat";
-import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection, creditPing, creditWeenie } from "../quickRevive";
+import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection, creditPing, creditWeenie, creditShell, creditAlgebra } from "../quickRevive";
 import { runDropCommand } from "../drops";
 import { modRefusal, eventPermission, mbPermission } from "../chatPermissions";
 
@@ -135,6 +135,10 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         creditCount(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         creditScramble(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         creditGuess(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        // a shell game's pick: the opener typing a shell's number
+        creditShell(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        // a solve-for-x answer
+        creditAlgebra(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // a roll call's answer, from whoever is being called
         creditRollCall(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // an infected chatter @-ing somebody passes it on
