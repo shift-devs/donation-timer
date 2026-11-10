@@ -6,6 +6,7 @@ import MaskedUrl from "../../MaskedUrl";
 import { timerTextStyle, renderTimerText, TIMER_FONTS } from "../../Timer";
 import { parseSourceUrl, hexParam, oneOfParam, intParam } from "../../wizardUrl";
 import { BASE_URL } from "../../Consts";
+import NumberField from "../../NumberField";
 
 const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 	ws,
@@ -40,6 +41,20 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 		bgTimer.current = setTimeout(() => setWidgetSettings(ws, { bgColor: v }), 300);
 	};
 	const changeAlign = (v: string) => setWidgetSettings(ws, { align: v });
+
+	// the highest-hour pulse: the record the server keeps, and the colour the digits pulse while the timer is
+	// back inside that hour. same local-echo-then-debounce as the background picker.
+	const ws0: any = settings.widgetSettings || {};
+	const peakHour = Number(ws0.peakHour) || 0;
+	const peakEnabled = !!ws0.peakEnabled;
+	const [peakLocal, setPeakLocal] = useState<string | null>(null);
+	const peakTimer = useRef<any>(null);
+	const peakColor = peakLocal ?? (ws0.peakColor || "#ff3b3b");
+	const changePeakColor = (v: string) => {
+		setPeakLocal(v);
+		clearTimeout(peakTimer.current);
+		peakTimer.current = setTimeout(() => setWidgetSettings(ws, { peakColor: v }), 300);
+	};
 
 	// widget browser-source builder: pick a look, check the preview, copy a /widget url that carries it.
 	// everything lives in the url (no saved state) like the progress-bar wizards, so one shop can run
@@ -179,6 +194,35 @@ const Controls: React.FC<{ ws: any; token: string | null; settings: any }> = ({
 			<Text fontSize="xs" color="gray.400">
 				Justifies the digits on the /widget browser source. The timer at the top of this page stays
 				centered. Open widgets update live.
+			</Text>
+			<HStack justify="space-between" wrap="wrap">
+				<HStack>
+					<Switch isChecked={peakEnabled} onChange={(e) => setWidgetSettings(ws, { peakEnabled: e.target.checked })} />
+					<Text>Pulse in the highest hour</Text>
+				</HStack>
+				<HStack>
+					<Input
+						type="color"
+						value={peakColor}
+						onChange={(e) => changePeakColor(e.currentTarget.value)}
+						w="52px"
+						p={1}
+						cursor="pointer"
+					/>
+					<Code>{peakColor}</Code>
+					<Text fontSize="sm" color="gray.400">record</Text>
+					{/* editable, because the record only starts being kept from this version on — a timer that
+					    already hit 299 before then needs telling */}
+					<NumberField width="90px" min={0} max={100000} value={peakHour} onCommit={(n) => setWidgetSettings(ws, { peakHour: n })} />
+					<Text fontSize="sm" color="gray.400">h</Text>
+				</HStack>
+			</HStack>
+			<Text fontSize="xs" color="gray.400">
+				The timer remembers the highest hour it has ever shown — reach 299:00:00 and 299 is the record; reach
+				300 and it moves up. Set the record by hand if the timer was already higher before this was
+				added; 0 clears it. While the timer is back inside that hour (299:xx:xx), the digits pulse this
+				colour, on the /widget sources and the timer at the top of this page, until it drops below it. A
+				timebomb&apos;s freeze colour takes over while one is running.
 			</Text>
 			<Divider />
 			<Text fontSize="xs" color="gray.400">

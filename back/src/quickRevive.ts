@@ -308,7 +308,9 @@ function subtitleFor(spec: ChallengeSpec): string {
     if (spec.kind === "rollcall")
         return `ANSWER WHEN YOU'RE CALLED — +${sayTime(spec.rewardSeconds).toUpperCase()} EACH`;
     if (spec.kind === "potato")
-        return `@ SOMEONE TO PASS IT${spec.rewardSeconds > 0 ? ` — +${sayTime(spec.rewardSeconds).toUpperCase()} PER PASS` : ""}`;
+        // the stakes go on screen for as long as it runs: the potato is only frightening if chat can see what
+        // holding it at the end costs
+        return `@ SOMEONE TO PASS IT${spec.rewardSeconds > 0 ? ` — +${sayTime(spec.rewardSeconds).toUpperCase()} PER PASS` : ""} — HOLDER GETS TIMED OUT FOR ${sayTime(spec.timeoutSeconds).toUpperCase()}`;
     if (spec.kind === "cup")
         return `@ WHOEVER IS IT TO STEAL IT — ${spec.prizeBoxes} BOX${spec.prizeBoxes === 1 ? "" : "ES"} AT THE END`;
     if (spec.kind === "vote")
@@ -912,8 +914,10 @@ export function creditRollCall(session: TimerUserSession, text: string, login = 
 // (so chat sees "@Bob" and not "bob"), keyed by login. nothing spreads from the healthy, and nothing spreads
 // after the clock — a message that crosses the deadline arrives too late to count.
 // MODS AND THE BROADCASTER CAN'T CATCH IT. they can't be timed out, so infecting them would be a name on the
-// board that never pays off; the one way a mod is in the game is by opening the box themselves. "mod" is as
-// far as the chat roster knows — somebody who hasn't typed in the last ten minutes is taken at face value.
+// board that never pays off; the one way a mod is in the game is by opening the box themselves.
+// ONE PING PER LINE, AND ONLY PEOPLE WHO ARE AROUND. chat worked out it could paste a list of names and time
+// out hundreds at once, so only the FIRST @name in a line counts, and only somebody who has spoken in the
+// last ten minutes (the roster's activity window) can catch it.
 const MENTION = /@([a-zA-Z0-9_]{1,25})/g;
 export function spreadInfection(session: TimerUserSession, login: string, text: string){
     const qr = getQuickRevive(session);
@@ -926,21 +930,20 @@ export function spreadInfection(session: TimerUserSession, login: string, text: 
         return;
     const roster = chatters(session);
     const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
-    const caught: string[] = [];
-    let m: RegExpExecArray | null;
-    MENTION.lastIndex = 0;
-    while ((m = MENTION.exec(String(text || "")))){
-        const key = m[1].toLowerCase();
-        if (key === from || qr.infected[key])
-            continue;
-        if (key === channel || (roster[key] && roster[key].mod))
-            continue;
-        qr.infected[key] = m[1];
-        qr.names.push(m[1]);
-        caught.push(m[1]);
-    }
-    if (!caught.length)
+    const first = mentionsIn(text)[0];
+    if (!first)
         return;
+    const key = first.key;
+    if (key === from || qr.infected[key])
+        return;
+    if (key === channel || (roster[key] && roster[key].mod) || isBot(session, key))
+        return;
+    if (!roster[key] || roster[key].t < Date.now() - ACTIVE_WINDOW_MS)
+        return; // hasn't spoken lately — not in the room to catch it
+    const typed = roster[key].name || first.typed;
+    qr.infected[key] = typed;
+    qr.names.push(typed);
+    const caught = [typed];
     qr.points = Object.keys(qr.infected).length;
     if (qr.names.length > 50)
         qr.names.splice(0, qr.names.length - 50);
@@ -1034,8 +1037,16 @@ export function creditPing(session: TimerUserSession, login: string, displayName
         if (from !== qr.holder)
             return;
         const to = pings.find((p) => p.key !== from && p.key !== qr.passedBy && !untouchable(session, p.key));
-        if (!to)
+        if (!to){
+            // tried to dump it on a mod (or the broadcaster): say so, or it just looks like the pass broke.
+            // once per holder per few seconds, so a holder spamming a mod's name can't make the bot flood.
+            const mod = pings.find((p) => p.key !== from && untouchable(session, p.key) && !isBot(session, p.key));
+            if (mod && now - (qr.modWarnAt || 0) > 5000){
+                qr.modWarnAt = now;
+                chatSay(session, `@${String(displayName || login)} you can't pass the potato to a moderator — @ somebody else!`);
+            }
             return;
+        }
         qr.passedBy = from;
         qr.holder = to.key;
         qr.holderName = chatterName(session, to.key) !== to.key ? chatterName(session, to.key) : to.typed;
@@ -1056,8 +1067,9 @@ export function creditPing(session: TimerUserSession, login: string, displayName
         return;
     }
     if (spec.kind === "cup"){
-        // @-ing whoever is it steals it. being it already, there's nothing to steal.
-        if (from === qr.holder || !pings.some((p) => p.key === qr.holder))
+        // @-ing whoever is it steals it. being it already, there's nothing to steal. only the FIRST @name in a
+        // line counts — a pasted list of names that happens to include whoever is it is not a steal.
+        if (from === qr.holder || pings[0].key !== qr.holder)
             return;
         qr.passedBy = qr.holder;
         qr.holder = from;

@@ -1,6 +1,21 @@
 import { TimerUserSession } from "./types";
 import { emitSync, emitTerminal, reportError } from "./bus";
 import { logTimerEvent } from "./log";
+import { normalizeWidgetSettings } from "./widgetSettings";
+
+// the highest whole hour the timer has ever shown. it only ever goes UP, here, as the deadline moves — so
+// reaching 300:00:00 makes 300 the new mark, and dropping back under it changes nothing. the timer sources
+// pulse while they're back inside that hour (see Timer.tsx).
+function notePeakHour(session: TimerUserSession){
+    const hours = Math.floor((session.endTime - Date.now()) / 3600000);
+    if (!(hours >= 1))
+        return;
+    const w = normalizeWidgetSettings(session.widgetSettings);
+    if (hours <= w.peakHour)
+        return;
+    session.widgetSettings = { ...w, peakHour: hours };
+    emitTerminal(session.userId, `TIMER — new highest hour: ${hours}.`, true);
+}
 
 export function setEndTime(session: TimerUserSession, newEndTime: number){
     if (!Number.isFinite(newEndTime)){
@@ -16,6 +31,7 @@ export function setEndTime(session: TimerUserSession, newEndTime: number){
     newEndTime = Math.round(newEndTime);
     console.log(`Setting ${session.name}'s endTime to ${newEndTime}!`);
     session.endTime = newEndTime;
+    notePeakHour(session);
     emitSync(session.userId);
 }
 

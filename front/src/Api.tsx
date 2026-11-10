@@ -187,8 +187,14 @@ export function boxBoardCommand(ws: WebSocket, action: "add" | "take" | "set", n
 }
 
 // hand someone boxes by hand, or take them back with a negative count
-export function giveMysteryBox(ws: WebSocket, name: string, count: number) {
-	send(ws, { event: "giveMysteryBox", name: name, count: count });
+// the wonder box tab's settings, same arrangement as the mystery box's
+export function setWonderBoxSettings(ws: WebSocket, settings: any) {
+	send(ws, { event: "setWonderBoxSettings", settings: settings });
+	return 1;
+}
+
+export function giveMysteryBox(ws: WebSocket, name: string, count: number, kind: "mystery" | "wonder" = "mystery") {
+	send(ws, { event: "giveMysteryBox", name: name, count: count, kind: kind });
 	return 1;
 }
 
@@ -221,8 +227,8 @@ export function clearGiftSubProgress(ws: WebSocket) {
 }
 
 // spin the reel onto a prize for real, without spending anybody's box. the effect fires.
-export function testMysteryBox(ws: WebSocket, prizeId: string) {
-	send(ws, { event: "testMysteryBox", prizeId: prizeId });
+export function testMysteryBox(ws: WebSocket, prizeId: string, kind: "mystery" | "wonder" = "mystery") {
+	send(ws, { event: "testMysteryBox", prizeId: prizeId, kind: kind });
 	return 1;
 }
 

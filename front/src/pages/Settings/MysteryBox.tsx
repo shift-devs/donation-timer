@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
 	Badge,
 	Box,
@@ -9,7 +9,6 @@ import {
 	HStack,
 	Input,
 	Select,
-	Checkbox,
 	Switch,
 	Text,
 	VStack,
@@ -36,53 +35,28 @@ import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
 import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
-import { canonMysteryBox, prizeImageSrc, prizeOdds, prizeProfiles, inActiveProfile, countdown, EFFECT_KINDS, MIN_SPIN_TILES, MAX_SPIN_TILES, DEFAULT_PRIZE } from "../../mysterybox";
-import EffectFields, { PRIZE_IMAGES, SOUNDS } from "./EffectFields";
+import { canonMysteryBox, countdown, MIN_SPIN_TILES, MAX_SPIN_TILES } from "../../mysterybox";
+import { SOUNDS } from "./EffectFields";
+import PrizeList from "./PrizeList";
+import { useSyncedDraft } from "./useSyncedDraft";
 
-
-const SEND_DEBOUNCE = 300; // colour pickers and typing fire continuously; the socket rate-limits per connection
-
-// The mystery box is what putting an item up for firesale earns you. Fourthwall announces a giveaway, the
-// gifter is credited one box, and they spend it with "!mb open" in chat — which takes over the /mysterybox
+// The mystery box is earned from bingo, gifted subs, channel points and raffles (firesales earn the wonder box
+// now — see WonderBox.tsx). The holder spends it with "!mb open" in chat, which takes over the /mysterybox
 // browser source and lands on a prize whose effect then fires for real. Everything here applies immediately —
 // no Save.
-const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any; revive: any; products: any[] | null }> = ({ ws, token, settings, run, revive, products }) => {
+const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: any; revive: any }> = ({ ws, token, settings, run, revive }) => {
 	const toast = useToast();
 
-	const server = canonMysteryBox(settings.mysteryBoxSettings || {});
-	const serverStr = JSON.stringify(server);
-	const [draft, setDraft] = useState<any>(server);
-	// between an edit and its sync the server's copy is OLDER than the screen, so following it would undo
-	// keystrokes; once it agrees again we go back to following it. mirrors the Firesale tab.
-	const sentRef = useRef(serverStr);
-	const pendingRef = useRef(0);
-	const timers = useRef<{ [key: string]: any }>({});
+	const send = useCallback((next: any) => setMysteryBoxSettings(ws, next), [ws]);
+	const { draft, patch } = useSyncedDraft(settings.mysteryBoxSettings, canonMysteryBox, send);
+	const onTest = useCallback((id: string) => testMysteryBox(ws, id, "mystery"), [ws]);
 	const [giveName, setGiveName] = useState("");
 	const [giveCount, setGiveCount] = useState(1);
 	const [mergeFrom, setMergeFrom] = useState("");
 	const [mergeTo, setMergeTo] = useState("");
 	const [openPrize, setOpenPrize] = useState<string>("");
-	const [itemRule, setItemRule] = useState("");
 	// the live open and the pause both carry deadlines, so the countdowns here tick on their own
 	const [, setTick] = useState(0);
-
-	useEffect(() => {
-		if (serverStr === sentRef.current) {
-			pendingRef.current = 0;
-			return;
-		}
-		if (pendingRef.current && Date.now() - pendingRef.current < 10000)
-			return;
-		setDraft(server);
-		sentRef.current = serverStr;
-		pendingRef.current = 0;
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [serverStr]);
-
-	useEffect(() => () => {
-		for (const key of Object.keys(timers.current))
-			clearTimeout(timers.current[key]);
-	}, []);
 
 	const phase: string = (run && run.phase) || "idle";
 	const pause = settings.timerPause || null;
@@ -102,49 +76,8 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 		return () => clearInterval(id);
 	}, [ticking]);
 
-	const later = (key: string, fn: () => void, delay: number) => {
-		clearTimeout(timers.current[key]);
-		timers.current[key] = setTimeout(fn, delay);
-	};
-
-	// mark the screen as ahead of the server, then push (now, or coalesced for the controls that fire per pixel)
-	const patch = (p: any, key?: string) => {
-		const next = { ...draft, ...p };
-		setDraft(next);
-		sentRef.current = JSON.stringify(canonMysteryBox(next));
-		pendingRef.current = Date.now();
-		if (key)
-			later(key, () => setMysteryBoxSettings(ws, next), SEND_DEBOUNCE);
-		else
-			setMysteryBoxSettings(ws, next);
-	};
-
-	// one prize changed. the whole list goes back every time, which is what keeps the server's copy and this
-	// one the same shape — the normalizer there rebuilds it from scratch either way.
-	const patchPrize = (id: string, p: any, key?: string) =>
-		patch({ prizes: draft.prizes.map((z: any) => (z.id === id ? { ...z, ...p } : z)) }, key);
-
-	const patchEffect = (id: string, p: any, key?: string) =>
-		patch({ prizes: draft.prizes.map((z: any) => (z.id === id ? { ...z, effect: { ...z.effect, ...p } } : z)) }, key);
-
 	// the quick revive's settings ride inside the same blob, so they go up the same way
-	const patchRevive = (p: any, key?: string) => patch({ quickRevive: { ...draft.quickRevive, ...p } }, key);
-
-	const addPrize = () => {
-		// ids only have to be unique within the list, and a timestamp is the cheapest way to be sure of that
-		const id = `p${Date.now().toString(36)}`;
-		patch({ prizes: [...draft.prizes, { ...DEFAULT_PRIZE, id, name: `Prize ${draft.prizes.length + 1}`, effect: { ...DEFAULT_PRIZE.effect } }] });
-	};
-
-	const removePrize = (id: string) => patch({ prizes: draft.prizes.filter((z: any) => z.id !== id) });
-
-	const addItemRule = () => {
-		const v = itemRule.trim();
-		if (!v || draft.firesaleItems.includes(v))
-			return;
-		patch({ firesaleItems: [...draft.firesaleItems, v] });
-		setItemRule("");
-	};
+	const patchRevive = (p: any, key?: string) => patch((d: any) => ({ quickRevive: { ...d.quickRevive, ...p } }), key);
 
 	const url = `${BASE_URL}/mysterybox?token=${encodeURIComponent(token || "")}`;
 
@@ -185,9 +118,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
 	// what the /events and /text effects can point at
-	// the profiles that exist, and what the current one leaves in play
-	const profiles = prizeProfiles(draft.prizes, draft.activeProfile);
-	const inPlay = draft.prizes.filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(draft.activeProfile, p));
 	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
 	// the broadcaster authorization the channel points listener rides on
 	const pts: any = (settings.connections && settings.connections.twitchSubs) || {};
@@ -196,6 +126,8 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const dtName = dtPrize ? dtPrize.name : "double time";
 	const textBoxes: any[] = Array.isArray(settings.textBoxes) ? settings.textBoxes : [];
 
+	// both kinds of box spin on the one source; say which one this is
+	const runKind = run && run.kind === "wonder" ? "wonder box" : "mystery box";
 	const badge = phase === "spinning"
 		? <Badge colorScheme="purple">SPINNING</Badge>
 		: phase === "reveal"
@@ -214,10 +146,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	return (
 		<Box maxW="960px" mx="auto" textAlign="left">
 			<Text fontSize="sm" color="gray.600" mb={2}>
-				One OBS <b>Browser</b> source for mystery boxes. Putting an item up for firesale earns the gifter
-				one box; they spend it by typing <Code fontSize="xs">!{draft.command} open</Code> in chat, and the
-				source spins through the prize art and stops on what they won. The prize's effect then fires for
-				real — time, a pause, a clip, whatever it's set to.
+				One OBS <b>Browser</b> source for mystery boxes (and wonder boxes — see the Wonder Box tab). Boxes are
+				earned from bingo, gifted subs, channel points and raffles; firesales earn wonder boxes instead. A
+				holder spends one by typing <Code fontSize="xs">!{draft.command} open</Code> in chat, and the source
+				spins through the prize art and stops on what they won. The prize's effect then fires for real —
+				time, a pause, a clip, whatever it's set to.
 			</Text>
 			<Text fontSize="sm" color="gray.600" mb={3}>
 				Size the source <b>4:3</b> (800×600 or 1024×768), same as the Firesale source. It draws nothing
@@ -238,7 +171,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{badge}
 					{phase !== "idle" && (
 						<Text fontSize="sm" color="gray.600">
-							<b>{run.opener}</b>
+							<b>{run.opener}</b> ({runKind})
 							{phase === "spinning" && run.endsAt ? ` — landing in ${Math.max(0, Math.ceil((run.endsAt - Date.now()) / 1000))}s` : ""}
 							{phase === "reveal" && run.prize ? ` won ${run.prize.name || run.prize.id}` : ""}
 						</Text>
@@ -487,8 +420,8 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				{owners.length === 0 && (
 					<Text fontSize="sm" color="gray.500" mb={2}>
-						Nobody is holding a box yet. One is credited each time Fourthwall announces a giveaway, to
-						whoever it names as the gifter.
+						Nobody is holding a box yet. They come from bingo, gifted subs, channel points and raffles —
+						or hand one out below.
 					</Text>
 				)}
 
@@ -523,9 +456,9 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 
 				<Divider my={2} />
 				<Text fontSize="xs" color="gray.500" mb={2}>
-					A firesale box is credited to the name <b>Fourthwall</b> printed, which is a display name and
-					isn't always the Twitch login that types <Code fontSize="xs">!{draft.command} open</Code>. When
-					they differ, move the boxes across:
+					A box can be credited to a display name (a bingo winner, a gifter) that isn't the Twitch login
+					that types <Code fontSize="xs">!{draft.command} open</Code>. When they differ, move the boxes
+					across — mystery boxes, wonder boxes and everything else they hold go together:
 				</Text>
 				<HStack spacing={2} wrap="wrap">
 					<Input size="sm" maxW="180px" placeholder="From (the name above)" value={mergeFrom} onChange={(e) => setMergeFrom(e.target.value)} />
@@ -606,203 +539,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 			)}
 
 			{/* ---- the prizes ---- */}
-			<Flex align="center" gap={3} mb={2} wrap="wrap">
-				<Text fontWeight="bold">Prizes</Text>
-				<Text fontSize="sm" color="gray.600">
-					Rarity is a weight, not a percentage — the odds beside each one are what it works out to.
-				</Text>
-				<Box flex="1" />
-				<Button size="sm" onClick={addPrize}>Add prize</Button>
-			</Flex>
-
-			{/* which set is in play. a prize with no profile is always in, so this only ever ADDS to the pile
-			    — switching can't leave the box with nothing to give. */}
-			<Flex align="center" gap={2} mb={3} wrap="wrap">
-				<Text fontSize="sm" color="gray.600">Playing</Text>
-				<Select
-					size="sm"
-					maxW="220px"
-					value={draft.activeProfile}
-					onChange={(e) => patch({ activeProfile: e.target.value })}
-				>
-					<option value="">(no profile — just the always-on prizes)</option>
-					{profiles.map((n) => (
-						<option key={n} value={n}>{n}</option>
-					))}
-				</Select>
-				<Badge colorScheme={inPlay.length ? "green" : "red"}>
-					{inPlay.length} prize{inPlay.length === 1 ? "" : "s"} in play
-				</Badge>
-				{draft.prizes.length > inPlay.length && (
-					<Text fontSize="xs" color="gray.500">
-						{draft.prizes.length - inPlay.length} set aside for another profile
-					</Text>
-				)}
-				{!inPlay.length && draft.prizes.length > 0 && (
-					<Text fontSize="xs" color="red.300">
-						Nothing can be won right now — every prize is disabled, zero-rarity, or in another profile.
-					</Text>
-				)}
-			</Flex>
-
-			{/* every profile that has been named on a prize, so the field below can autocomplete them */}
-			<datalist id="mb-profiles">
-				{profiles.map((n) => <option key={n} value={n} />)}
-			</datalist>
-
-			{draft.prizes.length === 0 && (
-				<Text fontSize="sm" color="gray.500" mb={3}>
-					No prizes yet. Add one, drop its art into <Code fontSize="xs">front/public/prizes</Code>, and pick
-					what it does.
-				</Text>
-			)}
-
-			<VStack align="stretch" spacing={3} mb={5}>
-				{draft.prizes.map((p: any) => {
-					const odds = prizeOdds(draft.prizes, p, draft.activeProfile);
-					const live = inActiveProfile(draft.activeProfile, p);
-					const img = prizeImageSrc(p.image);
-					return (
-						<Box key={p.id} borderWidth="1px" borderRadius="md" p={3} opacity={p.enabled && live ? 1 : 0.55}>
-							<Flex gap={3} wrap="wrap">
-								{/* the art, at the shape the reel draws it */}
-								<Box
-									w="86px"
-									h="86px"
-									flex="0 0 auto"
-									borderWidth="1px"
-									borderRadius="md"
-									bg="gray.50"
-									display="flex"
-									alignItems="center"
-									justifyContent="center"
-									overflow="hidden"
-								>
-									{img
-										? <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-										: <Text fontSize="xs" color="gray.400">no art</Text>}
-								</Box>
-
-								<VStack align="stretch" spacing={2} flex="1" minW="280px">
-									<HStack spacing={2} wrap="wrap">
-										<Input
-											size="sm"
-											maxW="200px"
-											placeholder="Prize name"
-											value={p.name}
-											onChange={(e) => patchPrize(p.id, { name: e.target.value }, `n${p.id}`)}
-										/>
-										<Input
-											size="sm"
-											maxW="150px"
-											list="mb-profiles"
-											placeholder="always on"
-											title="Leave blank and this prize is in play whatever profile is selected. Type a name to make it part of that profile only."
-											value={p.profile}
-											onChange={(e) => patchPrize(p.id, { profile: e.target.value }, `pr${p.id}`)}
-										/>
-										<HStack spacing={1}>
-											<Text fontSize="sm" color="gray.600">Rarity</Text>
-											<NumberField
-												width="90px"
-												min={0}
-												max={1000}
-												value={p.weight}
-												onCommit={(n) => patchPrize(p.id, { weight: n }, `w${p.id}`)}
-											/>
-											{/* two decimals throughout: rounding to whole numbers hid the difference between
-											    a 1-in-200 prize and a 1-in-2000 one, which is exactly the end of the range
-											    the weights are being tuned at */}
-											<Badge colorScheme={odds > 0 ? "blue" : "gray"}>
-												{odds > 0 ? `${odds.toFixed(2)}%` : live ? "never" : "other profile"}
-											</Badge>
-										</HStack>
-										<HStack spacing={1}>
-											<Text fontSize="sm" color="gray.600">On</Text>
-											<Switch
-												size="sm"
-												isChecked={p.enabled}
-												onChange={(e) => patchPrize(p.id, { enabled: e.target.checked })}
-											/>
-										</HStack>
-										<Box flex="1" />
-										<Button size="xs" onClick={() => testMysteryBox(ws, p.id)}>Test</Button>
-										<Button size="xs" variant="ghost" colorScheme="red" onClick={() => removePrize(p.id)}>Delete</Button>
-									</HStack>
-
-									<HStack spacing={2} wrap="wrap">
-										<Select
-											size="sm"
-											maxW="200px"
-											value={PRIZE_IMAGES.includes(p.image) ? p.image : ""}
-											onChange={(e) => patchPrize(p.id, { image: e.target.value })}
-										>
-											<option value="">(art: none)</option>
-											{PRIZE_IMAGES.map((f) => (
-												<option key={f} value={f}>{f}</option>
-											))}
-										</Select>
-										<Input
-											size="sm"
-											maxW="240px"
-											placeholder="…or an image URL"
-											value={PRIZE_IMAGES.includes(p.image) ? "" : p.image}
-											onChange={(e) => patchPrize(p.id, { image: e.target.value }, `i${p.id}`)}
-										/>
-									</HStack>
-
-									<HStack spacing={2} wrap="wrap">
-										<Select
-											size="sm"
-											maxW="240px"
-											value={p.sound}
-											onChange={(e) => patchPrize(p.id, { sound: e.target.value })}
-										>
-											<option value="">(sound: none)</option>
-											{SOUNDS.map((f) => (
-												<option key={f} value={f}>{f}</option>
-											))}
-										</Select>
-										<Text fontSize="sm" color="gray.600">Vol</Text>
-										<input
-											type="range"
-											min={0}
-											max={1}
-											step={0.05}
-											value={p.volume}
-											onChange={(e) => patchPrize(p.id, { volume: Number(e.target.value) }, `v${p.id}`)}
-										/>
-										<Input
-											size="sm"
-											maxW="220px"
-											placeholder="Line under the name on stream"
-											value={p.blurb}
-											onChange={(e) => patchPrize(p.id, { blurb: e.target.value }, `b${p.id}`)}
-										/>
-									</HStack>
-
-									<Divider />
-
-									<HStack spacing={2} wrap="wrap">
-										<Text fontSize="sm" color="gray.600">Does</Text>
-										<Select
-											size="sm"
-											maxW="220px"
-											value={p.effect.kind}
-											onChange={(e) => patchEffect(p.id, { kind: e.target.value })}
-										>
-											{EFFECT_KINDS.map((k) => (
-												<option key={k.key} value={k.key}>{k.label}</option>
-											))}
-										</Select>
-									</HStack>
-									<EffectFields prize={p} patchEffect={patchEffect} events={events} textBoxes={textBoxes} />
-								</VStack>
-							</Flex>
-						</Box>
-					);
-				})}
-			</VStack>
+			<PrizeList
+				prizes={draft.prizes}
+				activeProfile={draft.activeProfile}
+				patch={patch}
+				onTest={onTest}
+				events={events}
+				textBoxes={textBoxes}
+				listId="mb-profiles"
+				what="box"
+			/>
 
 			{/* ---- how it behaves ---- */}
 			<Text fontWeight="bold" mb={2}>Behaviour</Text>
@@ -986,77 +732,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 			{/* ---- what earns a box ---- */}
 			<Text fontWeight="bold" mb={2}>What earns a box</Text>
 			<VStack align="stretch" spacing={3} mb={5} opacity={draft.enabled ? 1 : 0.6}>
-				<Box borderWidth="1px" borderRadius="md" p={3}>
-					<HStack spacing={2} mb={draft.grantOnFiresale ? 2 : 0}>
-						<Switch isChecked={draft.grantOnFiresale} onChange={(e) => patch({ grantOnFiresale: e.target.checked })} />
-						<Text fontSize="sm" fontWeight="bold">Firesales</Text>
-						{!draft.grantOnFiresale && <Badge>OFF</Badge>}
-					</HStack>
-					{draft.grantOnFiresale && (<>
-						<HStack spacing={1} mb={2}>
-							<Text fontSize="sm" color="gray.600">Each item put up earns the gifter</Text>
-							<NumberField width="70px" min={1} max={99} value={draft.firesaleBoxes} onCommit={(n) => patch({ firesaleBoxes: n }, "fsb")} />
-							<Text fontSize="sm" color="gray.600">box{draft.firesaleBoxes === 1 ? "" : "es"}</Text>
-						</HStack>
-						<Text fontSize="xs" color="gray.500" mb={2}>
-							{draft.firesaleItems.length === 0
-								? "Nothing ticked, so every Fourthwall giveaway earns the gifter a box. Tick some to narrow it down."
-								: `Only giveaways of these earn a box — ${draft.firesaleItems.length} picked.`}
-						</Text>
-						{products === null && (
-							<Text fontSize="xs" color="gray.500">Loading your Fourthwall products…</Text>
-						)}
-						{products !== null && products.length === 0 && (
-							<Text fontSize="xs" color="gray.500">
-								No products loaded — connect Fourthwall, or type an item name in the box below.
-							</Text>
-						)}
-						<VStack align="stretch" spacing={0} maxH="200px" overflowY="auto" mb={2}>
-							{(products || []).map((p: any) => (
-								<Checkbox
-									key={p.id}
-									size="sm"
-									isChecked={draft.firesaleItems.includes(p.name)}
-									onChange={(e) => patch({
-										firesaleItems: e.target.checked
-											? [...draft.firesaleItems, p.name]
-											: draft.firesaleItems.filter((n: string) => n !== p.name),
-									})}
-								>
-									<Text fontSize="sm">{p.name}</Text>
-								</Checkbox>
-							))}
-						</VStack>
-						{/* anything ticked that ISN'T one of the loaded products — a name typed by hand, or a
-						    product that has since been renamed or delisted. it would otherwise vanish from the
-						    list while still silently deciding who gets a box. */}
-						{draft.firesaleItems.filter((n: string) => !(products || []).some((p: any) => p.name === n)).map((n: string) => (
-							<Flex key={n} align="center" gap={2} mb={1}>
-								<Badge colorScheme="purple">match</Badge>
-								<Text fontSize="sm" flex="1">{n}</Text>
-								<Button size="xs" variant="ghost" onClick={() => patch({ firesaleItems: draft.firesaleItems.filter((x: string) => x !== n) })}>
-									remove
-								</Button>
-							</Flex>
-						))}
-						<HStack spacing={2} mt={1}>
-							<Input
-								size="sm"
-								maxW="280px"
-								placeholder="…or part of an item name, e.g. box of 8"
-								value={itemRule}
-								onChange={(e) => setItemRule(e.target.value)}
-								onKeyDown={(e) => { if (e.key === "Enter") addItemRule(); }}
-							/>
-							<Button size="sm" isDisabled={!itemRule.trim()} onClick={addItemRule}>Add</Button>
-						</HStack>
-						<Text fontSize="xs" color="gray.500" mt={1}>
-							Matched against what Fourthwall announces, ignoring case — a partial name is enough, so
-							&quot;collector&quot; covers every collector&apos;s edition.
-						</Text>
-					</>)}
-				</Box>
-
+				<Text fontSize="xs" color="gray.500">
+					Firesales earn <b>wonder boxes</b> now — their settings are on the Wonder Box tab. Bingo winners
+					earn mystery boxes (3 / 2 / 1 for the first three), and so do raffles and the channel points
+					reward above.
+				</Text>
 				<Box borderWidth="1px" borderRadius="md" p={3}>
 					<HStack spacing={2} mb={draft.giftSubsEnabled ? 2 : 0}>
 						<Switch isChecked={draft.giftSubsEnabled} onChange={(e) => patch({ giftSubsEnabled: e.target.checked })} />

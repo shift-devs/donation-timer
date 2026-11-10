@@ -74,6 +74,7 @@ export const DEFAULT_PRIZE = {
 	profile: "",
 	enabled: true,
 	weight: 10,
+	gag: false,
 	image: "",
 	sound: "",
 	volume: 1,
@@ -97,14 +98,15 @@ export const EFFECT_KINDS: { key: string; label: string; needs: string[]; hint: 
 	{ key: "timeBoost", label: "Multiply all contributions", needs: ["factor", "seconds", "loopSound"], hint: "A bonfire sale: for this long, every sub, cheer, donation and order grants multiplied time. A typed \"time\" command is left alone, so you can still correct the clock. Overlapping sales take the later end and the bigger multiplier rather than compounding." },
 	{ key: "nuke", label: "Nuke chat", needs: ["percent", "seconds"], hint: "Times out a random share of the people who have actually typed in the last 10 minutes. Mods and the broadcaster are left out — Twitch refuses a timeout on them, so counting them would make the share a lie. Needs a bot account with mod powers in chat; until then it reports who it would have hit." },
 	{ key: "raygun", label: "Ray gun (shots to spend later)", needs: ["charges", "seconds"], hint: "Credits the winner with shots they keep and fire whenever they like, with \"!raygun <name>\", timing that person out. A shot that doesn't land — a name nobody has, a mod Twitch refuses — is handed back. Needs a bot account with mod powers." },
-	{ key: "extraBoxes", label: "More mystery boxes", needs: ["boxes"], hint: "Hands the winner more boxes, which they can open straight away — so this one can chain into itself. The odds shown are for a single spin; set the rarity with that in mind. A test spin credits nobody." },
+	{ key: "extraBoxes", label: "More boxes (same kind)", needs: ["boxes"], hint: "Hands the winner more boxes of the kind they just opened (a mystery box pays mystery boxes, a wonder box pays wonder boxes), which they can open straight away — so this one can chain into itself. The odds shown are for a single spin; set the rarity with that in mind. A test spin credits nobody." },
+	{ key: "wonderBoxes", label: "Wonder boxes", needs: ["boxes"], hint: "Hands the winner wonder boxes, which they open with the wonder box's own command once this box is done (only one box spins at a time). A test spin credits nobody." },
 	{ key: "doubleTime", label: "Double time (next contribution x2)", needs: [], hint: "Banks a double for the winner: the next sub, cheer, donation, membership or order they make is worth twice the time. Stacks with a bonfire sale. Matched by name, so it only works where the platform says who gave it — an anonymous gift can't spend it. Winning it twice banks two. A test spin credits nobody." },
 	{ key: "chant", label: "Chant rounds (say a phrase X times for time)", needs: ["chants", "rounds", "reward", "unique", "streak", "loopSound", "resultSounds"], hint: "WarioWare-style: each round draws one chant from the list at random — \"say movies 20 times in 60 seconds\" — and clearing it starts the next with a fresh clock. Clear every round and the time goes on the timer through the usual cap; run out of time in any round and it's over. With \"one per person\" on, the number is how many DIFFERENT chatters say it — saying it again doesn't count twice. Off, every chat line that contains the phrase counts once, whoever typed it. With \"in a row\" on, any line that doesn't say it puts the count back to zero (the bot's own lines don't). A test spin runs it for real." },
-	{ key: "infection", label: "Infection (@ to spread, then timeouts)", needs: ["seconds", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is patient zero, announced in chat. Anyone infected can @ someone to infect them, and the clock and the infected count show on the Mystery Box source. When the time runs out, everyone infected is timed out. Mods and the broadcaster can't catch it — the only way a mod is in it is by opening the box — and are never timed out. Needs a bot account with mod powers; a test spin picks a random recent chatter as patient zero." },
+	{ key: "infection", label: "Infection (@ to spread, then timeouts)", needs: ["seconds", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is patient zero, announced in chat. Anyone infected can @ someone to infect them — only the first @name in a message counts, and only somebody who has typed in the last 10 minutes can catch it, so pasting a list of names does nothing extra — and the clock and the infected count show on the Mystery Box source. When the time runs out, everyone infected is timed out. Mods and the broadcaster can't catch it — the only way a mod is in it is by opening the box — and are never timed out. Needs a bot account with mod powers; a test spin picks a random recent chatter as patient zero." },
 	{ key: "rollcall", label: "Roll call (answer when called, time per answer)", needs: ["seconds", "answerSeconds", "reward", "phrases", "loopSound", "resultSounds"], hint: "For as long as it runs, the bot calls on one chatter at a time — anyone who has typed in the last 10 minutes, but not the bot or the broadcaster — and they have so many seconds to say the phrase (one drawn from the list per call). Answer or not, the next person is called; nobody gets a second turn until everyone around has had one. When it ends, every answer puts the time set here on the timer, through the usual cap. Box opens wait until it's over, like a chant. Needs a bot account to call names in chat; a test spin runs it for real." },
 	{ key: "shield", label: "Timeout shield (blocks the bot's timeouts)", needs: ["charges"], hint: "Banks blocks for the winner: the next timeouts the bot would give them — a nuke, a ray gun shot, an infection, a hot potato, a vote — are shrugged off instead, one block each, and chat is told. Won twice, it stacks. A mod can't be timed out anyway, so a mod's blocks are never spent. A test spin credits nobody." },
-	{ key: "potato", label: "Hot potato (@ to pass, holder timed out)", needs: ["seconds", "reward", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is holding the potato. Whoever holds it passes it by @-ing somebody, and every pass puts the time set here on the timer. Whoever is holding it when the clock runs out is timed out. It can't be passed to a mod or the broadcaster (they can't be timed out), nor straight back to whoever just passed it — two people batting it back and forth would farm the timer. Needs a bot account with mod powers; a test spin hands it to a random recent chatter." },
-	{ key: "cup", label: "Cup and ball (@ whoever is it to steal it, win boxes)", needs: ["seconds", "boxes", "loopSound", "winSound"], hint: "The opener is \"it\". Anybody who @s whoever is it steals it and becomes it themselves. Whoever is it when the clock runs out wins the boxes. A test spin starts it on a random recent chatter and gives nobody the boxes." },
+	{ key: "potato", label: "Hot potato (@ to pass, holder timed out)", needs: ["seconds", "reward", "timeoutSeconds", "loopSound", "endSound"], hint: "The opener is holding the potato. Whoever holds it passes it by @-ing somebody, and every pass puts the time set here on the timer. Whoever is holding it when the clock runs out is timed out. It can't be passed to a mod or the broadcaster (they can't be timed out, and the bot tells the holder so), nor straight back to whoever just passed it — two people batting it back and forth would farm the timer. Needs a bot account with mod powers; a test spin hands it to a random recent chatter." },
+	{ key: "cup", label: "Cup and ball (@ whoever is it to steal it, win boxes)", needs: ["seconds", "boxes", "loopSound", "winSound"], hint: "The opener is \"it\". Anybody who @s whoever is it steals it and becomes it themselves — the @ has to be the first name in their message, so a pasted list of names doesn't count. Whoever is it when the clock runs out wins the boxes. A test spin starts it on a random recent chatter and gives nobody the boxes." },
 	{ key: "vote", label: "Vote 'em out (most @'d are timed out)", needs: ["seconds", "topCount", "timeoutSeconds", "loopSound", "endSound"], hint: "For as long as it runs, chat votes by @-ing people; the standings show on the Mystery Box source. Votes are counted by how many DIFFERENT people @'d someone, so spamming a name does nothing. A tie goes to whoever got there first. When the clock runs out, the top few are timed out. Mods, the broadcaster and the bot can't be voted for. Needs a bot account with mod powers." },
 	{ key: "weenie", label: "Weenie hunt (nobody say the phrase, for time)", needs: ["seconds", "phrases", "reward", "loopSound", "resultSounds"], hint: "One phrase from the list goes up on the Mystery Box source. If nobody in chat says it before the clock runs out, the time goes on the timer. The first person to say it — anywhere in a message — loses it for everyone, and the source names them. The bot's own lines don't count." },
 	{ key: "jukebox", label: "Jukebox (a long track in the background)", needs: ["track"], hint: "Plays one clip through on the Mystery Box source — minutes long is fine — and gets out of the way: boxes keep opening over it, and it ends when the clip does. A second jukebox landing while one plays replaces it." },
@@ -144,6 +146,7 @@ export function canonPrize(raw: any, i: number) {
 		profile: typeof r.profile === "string" ? r.profile.slice(0, 60).trim() : d.profile,
 		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
 		weight: numIn(r.weight, 0, 1000, d.weight),
+		gag: !!r.gag,
 		image: typeof r.image === "string" ? r.image.slice(0, 300) : d.image,
 		sound: typeof r.sound === "string" ? r.sound.slice(0, 300) : d.sound,
 		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
@@ -197,6 +200,43 @@ export function canonPrize(raw: any, i: number) {
 			text: typeof e.text === "string" ? e.text.slice(0, 500) : "",
 			command: typeof e.command === "string" ? e.command.slice(0, 1000) : "",
 		},
+	};
+}
+
+// the wonder box: a second wheel, earned by firesales, with its own prizes and wallet. same rules as
+// back/src/mysterybox.ts's normalizeWonderBox. it spins on the /mysterybox source with the mystery box's look.
+export const DEFAULT_WONDERBOX = {
+	enabled: true,
+	allowOpening: true,
+	command: "wb",
+	activeProfile: "",
+	grantOnFiresale: true,
+	firesaleItems: [] as string[],
+	firesaleBoxes: 1,
+	music: "",
+	volume: 0.7,
+	prizes: [] as any[],
+};
+
+export function canonWonderBox(raw: any) {
+	const r = raw && typeof raw === "object" ? raw : {};
+	const d = DEFAULT_WONDERBOX;
+	return {
+		enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
+		allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
+		command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
+		activeProfile: typeof r.activeProfile === "string" ? r.activeProfile.slice(0, 60).trim() : "",
+		grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
+		firesaleItems: Array.isArray(r.firesaleItems)
+			? r.firesaleItems
+				.map((v: any) => (typeof v === "string" ? v.slice(0, 200).trim() : ""))
+				.filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
+				.slice(0, 50)
+			: d.firesaleItems,
+		firesaleBoxes: numIn(r.firesaleBoxes, 1, 99, d.firesaleBoxes),
+		music: typeof r.music === "string" ? r.music.slice(0, 300) : d.music,
+		volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
+		prizes: (Array.isArray(r.prizes) ? r.prizes : []).map(canonPrize),
 	};
 }
 

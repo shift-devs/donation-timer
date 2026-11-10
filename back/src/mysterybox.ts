@@ -68,7 +68,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "weenie"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "raygun", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "weenie", "wonderBoxes"];
 const BOMB_REWARDS = ["time", "boxes"];
 // how long a jukebox track may run before the server gives up waiting to hear it finished. the SOURCE says
 // when the clip ends (it's the only thing that knows), but a source that isn't open never will, and a
@@ -174,6 +174,9 @@ export const DEFAULT_PRIZE = {
     // weight above zero. so 1 against three 10s is roughly a 3% prize, and the operator never has to make
     // the numbers add up to anything in particular.
     weight: 10,
+    // a visual gag: at rarity 0 it can never be won, but with this on it still scrolls past on the reel —
+    // the near-miss on something chat can see but nobody will ever get
+    gag: false,
     // a file in public/prizes, or a full url. this is what cycles past in the reel.
     image: "",
     // a file in public/media, played once when the reel lands on this prize
@@ -295,6 +298,7 @@ function normalizePrize(raw: any, i: number): any | null {
         profile: str(raw.profile, 60).trim(),
         enabled: raw.enabled === undefined ? d.enabled : !!raw.enabled,
         weight: numIn(raw.weight, 0, 1000, d.weight),
+        gag: !!raw.gag,
         image: str(raw.image, MAX_PATH),
         sound: str(raw.sound, MAX_PATH),
         volume: Math.min(1, Math.max(0, Number.isFinite(Number(raw.volume)) ? Number(raw.volume) : d.volume)),
@@ -360,6 +364,77 @@ export function normalizeMysteryBox(raw: any): any {
     };
 }
 
+// ---------------------------------------------------------------------------
+// the wonder box
+// ---------------------------------------------------------------------------
+//
+// a second prize wheel with its own prizes, its own wallet and its own chat command, earned by FIRESALES only
+// (the mystery box keeps bingo, gifted subs, channel points and raffles). it isn't a profile of the mystery box
+// because a mystery box prize can hand out wonder boxes. it spins on the same /mysterybox source with the
+// mystery box's reel settings and colours, and the same one-at-a-time lock covers both: a wonder box can't
+// start over a mystery box and vice versa.
+
+export type BoxKind = "mystery" | "wonder";
+
+export const DEFAULT_WONDERBOX = {
+    enabled: true,
+    allowOpening: true,
+    command: "wb",
+    activeProfile: "",
+    // the firesale earning rules, which used to be on the mystery box (see normalizeWonderBox's seeding)
+    grantOnFiresale: true,
+    firesaleItems: [] as string[],
+    firesaleBoxes: 1,
+    // blank = play the mystery box's spin music
+    music: "",
+    volume: 0.7,
+    prizes: [] as any[],
+};
+
+// `seed` is the mystery box's settings. a channel that has never saved a wonder box gets the firesale rules
+// the mystery box had, so moving firesales over doesn't change WHICH giveaways earn a box or how many.
+export function normalizeWonderBox(raw: any, seed?: any): any {
+    const d = DEFAULT_WONDERBOX;
+    let r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    if (!Object.keys(r).length && seed && typeof seed === "object")
+        r = { grantOnFiresale: seed.grantOnFiresale, firesaleItems: seed.firesaleItems, firesaleBoxes: seed.firesaleBoxes };
+    return {
+        enabled: r.enabled === undefined ? d.enabled : !!r.enabled,
+        allowOpening: r.allowOpening === undefined ? d.allowOpening : !!r.allowOpening,
+        command: (typeof r.command === "string" ? r.command.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.command,
+        activeProfile: str(r.activeProfile, 60).trim(),
+        grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
+        firesaleItems: Array.isArray(r.firesaleItems)
+            ? r.firesaleItems
+                .map((v: any) => str(v, 200).trim())
+                .filter((v: string, i: number, all: string[]) => v && all.indexOf(v) === i)
+                .slice(0, 50)
+            : d.firesaleItems,
+        firesaleBoxes: numIn(r.firesaleBoxes, 1, MAX_EXTRA_BOXES, d.firesaleBoxes),
+        music: str(r.music, MAX_PATH),
+        volume: Math.min(1, Math.max(0, Number.isFinite(Number(r.volume)) ? Number(r.volume) : d.volume)),
+        prizes: normalizePrizes(r.prizes),
+    };
+}
+
+export function wbSettings(session: TimerUserSession): any {
+    return session.wonderBoxSettings || (session.wonderBoxSettings = normalizeWonderBox(null, session.mysteryBoxSettings));
+}
+
+// the settings of one kind of box. both carry enabled / allowOpening / command / activeProfile / music /
+// volume / prizes, which is all the spinning and the chat half need.
+export function boxSettings(session: TimerUserSession, kind: BoxKind): any {
+    return kind === "wonder" ? wbSettings(session) : mbSettings(session);
+}
+
+export function boxWord(kind: BoxKind): string {
+    return kind === "wonder" ? "wonder box" : "mystery box";
+}
+
+function boxesWord(kind: BoxKind, n: number): string {
+    return `${boxWord(kind)}${n === 1 ? "" : "es"}`;
+}
+
 // what an item name is compared as. fourthwall writes its product names with em dashes and curly quotes and
 // the announcement carries them through verbatim, so a rule typed with a plain hyphen would never match the
 // item it names — which would look like the feature is simply broken.
@@ -373,13 +448,13 @@ export function matchable(s: any): string {
         .trim();
 }
 
-// does a giveaway of this item earn the gifter a box?
+// does a giveaway of this item earn the gifter a (wonder) box?
 // an empty list means every giveaway does — that's what this did before the list existed, and it's the
 // right default for somebody who hasn't thought about it yet.
 // a rule matches if the announced item CONTAINS it, so "box of 8" covers "Box of 8 Packs - 10 Years
 // Running" without the operator having to reproduce fourthwall's full product name exactly.
 export function earnsBoxFor(session: TimerUserSession, prize: any): boolean {
-    const rules = mbSettings(session).firesaleItems;
+    const rules = wbSettings(session).firesaleItems;
     if (!rules.length)
         return true;
     const item = matchable(prize);
@@ -402,13 +477,19 @@ export function inActiveProfile(cfg: any, prize: any): boolean {
 }
 
 // the prizes that can actually be landed on: enabled, worth something, and in the set that's in play.
-function winnablePrizes(session: TimerUserSession): any[] {
-    const cfg = mbSettings(session);
+function winnablePrizes(session: TimerUserSession, kind: BoxKind = "mystery"): any[] {
+    const cfg = boxSettings(session, kind);
     return cfg.prizes.filter((p: any) => p.enabled && p.weight > 0 && inActiveProfile(cfg, p));
 }
 
-export function findPrize(session: TimerUserSession, key: any): any | null {
-    const prizes = mbSettings(session).prizes;
+// the gags: rarity 0, so never drawn, but switched on to be SEEN on the reel
+function gagPrizes(session: TimerUserSession, kind: BoxKind): any[] {
+    const cfg = boxSettings(session, kind);
+    return cfg.prizes.filter((p: any) => p.enabled && p.weight <= 0 && p.gag && inActiveProfile(cfg, p));
+}
+
+export function findPrize(session: TimerUserSession, key: any, kind: BoxKind = "mystery"): any | null {
+    const prizes = boxSettings(session, kind).prizes;
     const want = String(key || "").trim();
     if (!want)
         return null;
@@ -438,8 +519,16 @@ export function mbBoxes(session: TimerUserSession): Ledger {
     return session.mysteryBoxes || (session.mysteryBoxes = {});
 }
 
-export function boxCount(session: TimerUserSession, login: any): number {
-    return ledgerCount(mbBoxes(session), login);
+export function wbBoxes(session: TimerUserSession): Ledger {
+    return session.wonderBoxes || (session.wonderBoxes = {});
+}
+
+export function boxLedger(session: TimerUserSession, kind: BoxKind): Ledger {
+    return kind === "wonder" ? wbBoxes(session) : mbBoxes(session);
+}
+
+export function boxCount(session: TimerUserSession, login: any, kind: BoxKind = "mystery"): number {
+    return ledgerCount(boxLedger(session, kind), login);
 }
 
 // the last few giveaways a box was minted for, per user. twitch can deliver the same announcement twice, and
@@ -474,13 +563,13 @@ export function alreadyMintedFor(userId: number, rawKey: string): boolean {
 }
 
 // hand someone boxes (or take them, with a negative n). returns what they hold afterwards.
-export function grantMysteryBox(session: TimerUserSession, login: any, displayName: any, n = 1, why = ""): number {
-    const next = ledgerGrant(mbBoxes(session), login, displayName, n);
+export function grantMysteryBox(session: TimerUserSession, login: any, displayName: any, n = 1, why = "", kind: BoxKind = "mystery"): number {
+    const next = ledgerGrant(boxLedger(session, kind), login, displayName, n);
     // they know they just got it, so the first reminder waits a full cooldown from here
     if (n > 0)
         markReminded(session.userId, ledgerKey(login));
     if (why && n > 0)
-        emitTerminal(session.userId, `MYSTERYBOX — ${str(displayName, MAX_NAME) || ledgerKey(login)} earned ${n === 1 ? "a box" : `${n} boxes`} (${why}); they hold ${next}.`, true);
+        emitTerminal(session.userId, `${kind === "wonder" ? "WONDERBOX" : "MYSTERYBOX"} — ${str(displayName, MAX_NAME) || ledgerKey(login)} earned ${n === 1 ? `a ${boxWord(kind)}` : `${n} ${boxesWord(kind, n)}`} (${why}); they hold ${next}.`, true);
     emitSync(session.userId); // the tab lists the ledger, so it has to see this promptly
     return next;
 }
@@ -649,38 +738,88 @@ export function grantShield(session: TimerUserSession, login: any, displayName: 
 // the last order a double was spent on, per user and holder, so its bonus pieces get doubled too
 const doubledRefs: { [userId: number]: { [login: string]: { ref: string, at: number } } } = {};
 const DOUBLED_REF_MS = 60 * 1000;
+// orders with no username that have already had their "couldn't match" note, so it isn't repeated per piece
+const blankNoted: { [userId: number]: Set<string> } = {};
 
 // how much a contribution's time is multiplied by because its giver is holding a double. spends one when
 // it applies. 1 = no double. called from events.ts once the contribution is known to put time on.
+// whose double a contribution's giver is holding. the giver's name is what the PLATFORM says, which for a
+// twitch sub is the login but for a fourthwall order is the shop username — free text the buyer typed, often
+// their twitch display name with spaces or capitals ("Big Spender" for bigspender). an order of fifty boxes
+// that didn't double because the names differed by a space is exactly what this has to catch. so: the login
+// as given, then a display name somebody has chatted under, then the holders themselves compared loosely
+// (letters and digits only). the loose match only counts when exactly one holder fits, so it can't guess.
+function doubleHolderFor(session: TimerUserSession, from: any): string {
+    const held = mbDoubleTime(session);
+    const key = ledgerKey(from);
+    if (!key)
+        return "";
+    if (ledgerCount(held, key) > 0)
+        return key;
+    const byName = chatterByDisplayName(session, from);
+    if (byName && ledgerCount(held, byName) > 0)
+        return byName;
+    const loose = (v: any) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const want = loose(from);
+    if (!want)
+        return "";
+    const fits = Object.keys(held).filter((k) => ledgerCount(held, k) > 0 && (loose(k) === want || loose(held[k].name) === want));
+    return fits.length === 1 ? fits[0] : "";
+}
+
 export function spendDoubleTime(session: TimerUserSession, event: TimerEvent): number {
     if (event.manual || event.anonymous)
         return 1;
-    const key = ledgerKey(event.from);
-    if (!key)
+    const given = ledgerKey(event.from);
+    if (!given){
+        // a shop order with no username at all (checked out by email only) can't be matched to anyone. say so
+        // when doubles are banked, once per order, or it looks exactly like the double silently not working
+        const held = mbDoubleTime(session);
+        const holders = Object.keys(held).filter((k) => ledgerCount(held, k) > 0);
+        const noted = blankNoted[session.userId] || (blankNoted[session.userId] = new Set());
+        if (holders.length && event.platform === "fourthwall" && event.ref && !noted.has(event.ref)){
+            noted.add(event.ref);
+            if (noted.size > 200)
+                noted.delete(noted.values().next().value as string);
+            emitTerminal(session.userId, `MYSTERYBOX — ${event.label}: the order has no Fourthwall username, so no ${doubleTimeName(mbSettings(session))} could be matched to it. Held by: ${holders.slice(0, 10).map((k) => held[k].name || k).join(", ")}${holders.length > 10 ? "…" : ""}.`);
+        }
         return 1;
+    }
     const now = Date.now();
     const mine = doubledRefs[session.userId] || (doubledRefs[session.userId] = {});
-    const last = mine[key];
-    // the rest of an order whose first piece already spent the double
+    // the rest of an order whose first piece already spent the double. keyed by the giver's name as the
+    // platform wrote it, which is the same on every piece of one order.
+    const last = mine[given];
     if (event.ref && last && last.ref === event.ref && now - last.at < DOUBLED_REF_MS)
         return 2;
     const held = mbDoubleTime(session);
-    if (ledgerCount(held, key) < 1)
+    const key = doubleHolderFor(session, event.from);
+    if (!key){
+        // a shop order from somebody who isn't matched while doubles ARE banked: say so, since the operator
+        // can't otherwise tell "they had none" from "their names didn't line up"
+        const holders = Object.keys(held).filter((k) => ledgerCount(held, k) > 0);
+        if (holders.length && event.platform === "fourthwall" && !(last && last.ref === event.ref))
+            emitTerminal(session.userId, `MYSTERYBOX — ${event.label}: no ${doubleTimeName(mbSettings(session))} held under "${str(String(event.from || ""), MAX_NAME)}", so it wasn't doubled. Held by: ${holders.slice(0, 10).map((k) => held[k].name || k).join(", ")}${holders.length > 10 ? "…" : ""}.`);
+        if (event.ref)
+            mine[given] = { ref: event.ref, at: 0 }; // just so the note above isn't repeated per piece
         return 1;
+    }
     const row = held[key];
     const left = grantDoubleTime(session, key, row && row.name, -1);
     if (event.ref)
-        mine[key] = { ref: event.ref, at: now };
+        mine[given] = { ref: event.ref, at: now };
     else
-        delete mine[key];
+        delete mine[given];
     emitTerminal(session.userId, `MYSTERYBOX — ${(row && row.name) || key}'s double time doubled ${event.label}${left ? ` (${left} more held)` : ""}.`, true);
     return 2;
 }
 
 // merge one ledger row into another, for when fourthwall's gifter name isn't the login that spends the box
 export function renameOwner(session: TimerUserSession, from: any, to: any): { ok: boolean, message: string } {
-    const moved = ledgerRename(mbBoxes(session), from, to);
-    if (moved < 0)
+    const movedMb = ledgerRename(mbBoxes(session), from, to);
+    const movedWb = ledgerRename(wbBoxes(session), from, to);
+    const moved = Math.max(0, movedMb) + Math.max(0, movedWb);
+    if (movedMb < 0 && movedWb < 0)
         return { ok: false, message: `Nobody called "${from}" is holding a box, or those are the same name.` };
     // charges follow the boxes: it's the same person being corrected to the same login
     ledgerRename(mbRayguns(session), from, to);
@@ -709,7 +848,7 @@ function slots(userId: number){
 
 export function getMysteryBox(session: TimerUserSession): any {
     if (!session.mysterybox || typeof session.mysterybox !== "object")
-        session.mysterybox = { nonce: 0, phase: "idle", opener: "", openerName: "", prizeId: "", reel: [], startIndex: 0, landIndex: 0, startedAt: 0, endsAt: 0, wonAt: 0, isTest: false };
+        session.mysterybox = { nonce: 0, phase: "idle", kind: "mystery", opener: "", openerName: "", prizeId: "", reel: [], startIndex: 0, landIndex: 0, startedAt: 0, endsAt: 0, wonAt: 0, isTest: false };
     return session.mysterybox;
 }
 
@@ -724,7 +863,10 @@ export function isOpening(session: TimerUserSession): boolean {
 export function mysteryBoxView(session: TimerUserSession): any {
     const cfg = mbSettings(session);
     const mb = getMysteryBox(session);
-    const prize = mb.prizeId ? findPrize(session, mb.prizeId) : null;
+    const kind: BoxKind = mb.kind === "wonder" ? "wonder" : "mystery";
+    const kcfg = boxSettings(session, kind);
+    const prize = mb.prizeId ? findPrize(session, mb.prizeId, kind) : null;
+    const art = (p: any) => ({ id: p.id, name: p.name, image: p.image });
     return {
         active: mb.phase !== "idle",
         nonce: mb.nonce,
@@ -748,7 +890,13 @@ export function mysteryBoxView(session: TimerUserSession): any {
         // every prize, for the reel art and the preload — ids and images only, since the source has no use
         // for the weights or the effects. the ones out of the current profile come too: they aren't on the
         // strip, but a rehearsal can still land on one and the art has to be there when it does.
-        prizes: cfg.prizes.map((p: any) => ({ id: p.id, name: p.name, image: p.image })),
+        // while a box is open it's that kind's prizes (the reel's ids are theirs); idle, both lists, so the
+        // art is preloaded whichever kind opens next
+        prizes: mb.phase !== "idle"
+            ? kcfg.prizes.map(art)
+            : cfg.prizes.concat(wbSettings(session).prizes).map(art),
+        kind,
+        title: kind === "wonder" ? "WONDER BOX" : "MYSTERY BOX",
         // why "!mb open" is being turned away, if it is — the dashboard shows it so the operator isn't left
         // wondering why chat is complaining
         blocked: openBlockedBy(session),
@@ -756,9 +904,10 @@ export function mysteryBoxView(session: TimerUserSession): any {
         jukebox: session.jukebox || null,
         // the schizo prize, while chat is being read aloud — the source speaks, the tab shows how long is left
         schizo: session.schizo || null,
-        command: cfg.command,
-        music: cfg.music,
-        volume: cfg.volume,
+        command: kcfg.command,
+        // a wonder box with no music of its own spins to the mystery box's
+        music: kind === "wonder" && kcfg.music ? kcfg.music : cfg.music,
+        volume: kind === "wonder" && kcfg.music ? kcfg.volume : cfg.volume,
         spinSec: cfg.spinSec,
         spinTiles: cfg.spinTiles,
         revealHoldSec: cfg.revealHoldSec,
@@ -773,8 +922,8 @@ export function pushMysteryBox(session: TimerUserSession){
 }
 
 // weighted pick over the winnable prizes
-function drawPrize(session: TimerUserSession): any | null {
-    const pool = winnablePrizes(session);
+function drawPrize(session: TimerUserSession, kind: BoxKind = "mystery"): any | null {
+    const pool = winnablePrizes(session, kind);
     if (!pool.length)
         return null;
     const total = pool.reduce((sum, p) => sum + p.weight, 0);
@@ -859,14 +1008,16 @@ function arrangeTiles(counts: { [id: string]: number }): string[] {
 // the run is PADDED at both ends. without that the strip would begin with empty space to the left of the
 // first tile and end with empty space to the right of the winner — the two moments chat is looking hardest —
 // and the reel would read as a short filmstrip rather than something that could have kept turning.
-function buildReel(session: TimerUserSession, winnerId: string): { reel: string[], startIndex: number, landIndex: number } {
+function buildReel(session: TimerUserSession, winnerId: string, kind: BoxKind = "mystery"): { reel: string[], startIndex: number, landIndex: number } {
     // only what can actually be won. a disabled or zero-weight prize has no odds to represent, so it has no
-    // business scrolling past — its rate IS zero.
-    const pool = winnablePrizes(session).map((p: any) => ({ id: p.id, weight: p.weight }));
+    // business scrolling past — its rate IS zero. the exception is a gag, switched on to be seen anyway: it
+    // gets weight 0 here, which tileCounts turns into just the floor's two tiles.
+    const pool = winnablePrizes(session, kind).map((p: any) => ({ id: p.id, weight: p.weight }))
+        .concat(gagPrizes(session, kind).map((p: any) => ({ id: p.id, weight: 0 })));
     // the dashboard can rehearse a prize that isn't in the set currently in play; it still has to have tiles
     // on the strip to be turned to, or the reel would stop on something nobody drew
     if (!pool.some((p) => p.id === winnerId)){
-        const odd = findPrize(session, winnerId);
+        const odd = findPrize(session, winnerId, kind);
         if (odd)
             pool.push({ id: odd.id, weight: Math.max(1, odd.weight) });
     }
@@ -944,45 +1095,47 @@ export function openBlockedBy(session: TimerUserSession): string {
 // open one box for someone. this is the only place a box is spent.
 // returns a line for whoever asked; `ok: false` with a blank message means "ignored on purpose, say nothing"
 // — which is what a second opener during a spin gets.
-export function openMysteryBox(session: TimerUserSession, login: any, displayName: any): { ok: boolean, message: string } {
+export function openMysteryBox(session: TimerUserSession, login: any, displayName: any, kind: BoxKind = "mystery"): { ok: boolean, message: string } {
     const cfg = mbSettings(session);
+    const kcfg = boxSettings(session, kind);
     const key = boxKey(login);
     const who = str(displayName, MAX_NAME) || key;
-    if (!cfg.enabled)
+    if (!kcfg.enabled)
         return { ok: false, message: "" };
     if (!key)
         return { ok: false, message: "" };
     // whether they HAVE one is asked before whether now is a good time, so the only people who ever hear
     // "you can't right now" are people who could otherwise have opened one. everybody else gets the honest
     // answer, and a chat full of hopefuls typing !mb open can't turn the bot into a megaphone.
-    if (boxCount(session, key) < 1)
-        return { ok: false, message: `@${who} you have no mystery boxes to open.` };
+    if (boxCount(session, key, kind) < 1)
+        return { ok: false, message: `@${who} you have no ${boxWord(kind)}es to open.` };
     // checked BEFORE the box is spent, so somebody turned away still has theirs
     const blocked = openBlockedBy(session);
     if (blocked)
         return { ok: false, message: `@${who} you can't open a box right now — ${blocked}.` };
-    const prize = drawPrize(session);
+    const prize = drawPrize(session, kind);
     if (!prize){
-        emitTerminal(session.userId, `MYSTERYBOX — ${who} tried to open a box, but no prize is set up to be won. Their box was not spent.`);
+        emitTerminal(session.userId, `${kind === "wonder" ? "WONDERBOX" : "MYSTERYBOX"} — ${who} tried to open a ${boxWord(kind)}, but no prize is set up to be won. Their box was not spent.`);
         return { ok: false, message: "" };
     }
 
-    grantMysteryBox(session, key, who, -1);
+    grantMysteryBox(session, key, who, -1, "", kind);
     const mb = getMysteryBox(session);
     mb.nonce = (mb.nonce || 0) + 1;
     mb.phase = "spinning";
+    mb.kind = kind;
     mb.opener = key;
     mb.openerName = who;
     mb.isTest = false;
     mb.prizeId = prize.id;
-    const strip = buildReel(session, prize.id);
+    const strip = buildReel(session, prize.id, kind);
     mb.reel = strip.reel;
     mb.startIndex = strip.startIndex;
     mb.landIndex = strip.landIndex;
     mb.startedAt = Date.now();
     mb.endsAt = Date.now() + cfg.spinSec * 1000;
     mb.wonAt = 0;
-    emitTerminal(session.userId, `MYSTERYBOX — ${who} is opening a box (${boxCount(session, key)} left)…`, true);
+    emitTerminal(session.userId, `${kind === "wonder" ? "WONDERBOX" : "MYSTERYBOX"} — ${who} is opening a ${boxWord(kind)} (${boxCount(session, key, kind)} left)…`, true);
     pushMysteryBox(session);
 
     const t = slots(session.userId);
@@ -996,7 +1149,7 @@ export function openMysteryBox(session: TimerUserSession, login: any, displayNam
             endMysteryBox(session); // never leave the lock held by a failed open
         }
     }, cfg.spinSec * 1000);
-    return { ok: true, message: `${who} is opening a mystery box…` };
+    return { ok: true, message: `${who} is opening a ${boxWord(kind)}…` };
 }
 
 // the reel stops. the prize goes up and its effect fires for real.
@@ -1007,7 +1160,8 @@ function landMysteryBox(session: TimerUserSession){
         return;
     mb.phase = "reveal";
     mb.wonAt = Date.now();
-    const prize = findPrize(session, mb.prizeId);
+    const kind: BoxKind = mb.kind === "wonder" ? "wonder" : "mystery";
+    const prize = findPrize(session, mb.prizeId, kind);
     emitTerminal(session.userId, `MYSTERYBOX — ${mb.openerName || mb.opener} won ${prize ? (prize.name || prize.id) : "nothing"}!`, true);
     pushMysteryBox(session);
     // tell chat what landed. the reel only says it to whoever is watching the stream at that second, and
@@ -1017,7 +1171,7 @@ function landMysteryBox(session: TimerUserSession){
     // as an ANNOUNCEMENT, not a plain line: a prize landing is the one thing in the chat log worth the
     // highlighted banner twitch draws for /announce, and in a busy chat a plain line is gone in a second.
     if (prize && !mb.isTest)
-        chatAnnounce(session, `@${mb.openerName || mb.opener} opened a mystery box and got ${prize.name || "???"}!`, "purple");
+        chatAnnounce(session, `@${mb.openerName || mb.opener} opened a ${boxWord(kind)} and got ${prize.name || "???"}!`, "purple");
     // the effect comes after the push, so the overlay is already showing the prize when the timer jumps
     if (prize){
         try {
@@ -1046,6 +1200,7 @@ export function endMysteryBox(session: TimerUserSession){
     clearTimeout(t.done);
     t.land = t.done = undefined;
     mb.phase = "idle";
+    mb.kind = "mystery";
     mb.opener = "";
     mb.openerName = "";
     mb.isTest = false;
@@ -1342,9 +1497,23 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const who = r.login;
         if (!who || r.test)
             return;
-        const held = grantMysteryBox(session, who, r.name, e.boxes, prize.name || "a prize");
-        const cfg = mbSettings(session);
-        chatSay(session, `@${r.name || who} won ${e.boxes} more mystery box${e.boxes === 1 ? "" : "es"} — !${cfg.command} open to spend one. ${held} in hand.`);
+        // more of the same kind of box as the one that paid it
+        const kind: BoxKind = !ctx && getMysteryBox(session).kind === "wonder" ? "wonder" : "mystery";
+        const held = grantMysteryBox(session, who, r.name, e.boxes, prize.name || "a prize", kind);
+        const cfg = boxSettings(session, kind);
+        chatSay(session, `@${r.name || who} won ${e.boxes} more ${boxesWord(kind, e.boxes)} — !${cfg.command} open to spend one. ${held} in hand.`);
+        return;
+    }
+    if (e.kind === "wonderBoxes" && e.boxes > 0){
+        // wonder box spins, won inside a mystery box: banked like extra boxes, opened with the wonder box's own
+        // command — only one reel runs at a time, so they can't simply spin straight after
+        const r = recipient(session, ctx);
+        const who = r.login;
+        if (!who || r.test)
+            return;
+        const held = grantMysteryBox(session, who, r.name, e.boxes, prize.name || "a prize", "wonder");
+        const cfg = wbSettings(session);
+        chatSay(session, `@${r.name || who} won ${e.boxes} ${boxesWord("wonder", e.boxes)} — !${cfg.command} open to spend one. ${held} in hand.`);
         return;
     }
     if (e.kind === "shield" && e.charges > 0){
@@ -1792,6 +1961,8 @@ export function describeEffect(effect: any): string {
         return "doubles the time of the winner's next contribution";
     if (e.kind === "extraBoxes")
         return e.boxes > 0 ? `gives the winner ${e.boxes} more box${e.boxes === 1 ? "" : "es"}` : "gives nothing (set the boxes)";
+    if (e.kind === "wonderBoxes")
+        return e.boxes > 0 ? `gives the winner ${e.boxes} wonder box${e.boxes === 1 ? "" : "es"}` : "gives nothing (set the boxes)";
     if (e.kind === "chant"){
         const chants: any[] = Array.isArray(e.chants) ? e.chants : [];
         if (!chants.length)
@@ -1832,38 +2003,40 @@ export function describeEffect(effect: any): string {
 
 // one implementation so the two can't drift, same contract as runFiresaleCommand. `self` is who typed it in
 // chat (blank from the terminal); the actions that name somebody else are gated on `isMod` by the caller.
-export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: string, name: string, count: number },
+export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: string, name: string, count: number, kind?: BoxKind },
     self?: { login: string, displayName: string }): { ok: boolean, message: string } {
-    const cfg = mbSettings(session);
+    const kind: BoxKind = cmd.kind === "wonder" ? "wonder" : "mystery";
+    const cfg = boxSettings(session, kind);
+    const head = kind === "wonder" ? "wb" : "mb";
     const target = cmd.name || (self ? self.login : "");
     const targetName = cmd.name || (self ? self.displayName : "");
 
     if (cmd.action === "open"){
         if (!target)
-            return { ok: false, message: "Usage: mb open <name> — or type !mb open in chat." };
-        return openMysteryBox(session, target, targetName);
+            return { ok: false, message: `Usage: ${head} open <name> — or type !${cfg.command} open in chat.` };
+        return openMysteryBox(session, target, targetName, kind);
     }
     if (cmd.action === "count"){
         if (!target)
-            return { ok: false, message: "Usage: mb count <name>" };
-        const n = boxCount(session, target);
-        return { ok: true, message: `${targetName || target} has ${n} mystery box${n === 1 ? "" : "es"}.` };
+            return { ok: false, message: `Usage: ${head} count <name>` };
+        const n = boxCount(session, target, kind);
+        return { ok: true, message: `${targetName || target} has ${n} ${boxesWord(kind, n)}.` };
     }
     if (cmd.action === "give"){
         if (!cmd.name)
-            return { ok: false, message: "Usage: mb give <name> [count]" };
+            return { ok: false, message: `Usage: ${head} give <name> [count]` };
         const n = Math.max(1, Math.min(9999, Math.trunc(cmd.count) || 1));
-        const held = grantMysteryBox(session, cmd.name, cmd.name, n);
-        return { ok: true, message: `Gave ${cmd.name} ${n} mystery box${n === 1 ? "" : "es"} — they hold ${held}.` };
+        const held = grantMysteryBox(session, cmd.name, cmd.name, n, "", kind);
+        return { ok: true, message: `Gave ${cmd.name} ${n} ${boxesWord(kind, n)} — they hold ${held}.` };
     }
     if (cmd.action === "take"){
         if (!cmd.name)
-            return { ok: false, message: "Usage: mb take <name> [count]" };
-        const have = boxCount(session, cmd.name);
+            return { ok: false, message: `Usage: ${head} take <name> [count]` };
+        const have = boxCount(session, cmd.name, kind);
         if (!have)
-            return { ok: false, message: `${cmd.name} isn't holding any boxes.` };
+            return { ok: false, message: `${cmd.name} isn't holding any ${boxWord(kind)}es.` };
         const n = Math.max(1, Math.min(have, Math.trunc(cmd.count) || 1));
-        const held = grantMysteryBox(session, cmd.name, cmd.name, -n);
+        const held = grantMysteryBox(session, cmd.name, cmd.name, -n, "", kind);
         return { ok: true, message: `Took ${n} box${n === 1 ? "" : "es"} from ${cmd.name} — they hold ${held}.` };
     }
     if (cmd.action === "stop"){
@@ -1885,31 +2058,32 @@ export function runMysteryBoxCommand(session: TimerUserSession, cmd: { action: s
     }
     // test: run the whole sequence on a named prize without spending anybody's box, so the operator can see
     // what a prize looks and sounds like — the effect fires for real, exactly as it would in front of chat
-    const prize = cmd.name ? findPrize(session, cmd.name) : null;
+    const prize = cmd.name ? findPrize(session, cmd.name, kind) : null;
     if (cmd.name && !prize)
         return { ok: false, message: `No prize called "${cmd.name}". Try: ${cfg.prizes.map((p: any) => p.name || p.id).join(", ") || "(none set up)"}.` };
-    return testMysteryBox(session, prize ? prize.id : "");
+    return testMysteryBox(session, prize ? prize.id : "", kind);
 }
 
 // the dashboard's Test: spin the reel for real, landing on a named prize (or a fair draw when none is named),
 // without taking a box off anybody.
-export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok: boolean, message: string } {
+export function testMysteryBox(session: TimerUserSession, prizeId: string, kind: BoxKind = "mystery"): { ok: boolean, message: string } {
     if (isOpening(session))
         return { ok: false, message: "A box is already being opened." };
     if (isReviving(session))
         return { ok: false, message: "A quick revive is running — wait for it to finish." };
-    const prize = prizeId ? findPrize(session, prizeId) : drawPrize(session);
+    const prize = prizeId ? findPrize(session, prizeId, kind) : drawPrize(session, kind);
     if (!prize)
         return { ok: false, message: "No prize is set up to be won yet." };
     const cfg = mbSettings(session);
     const mb = getMysteryBox(session);
     mb.nonce = (mb.nonce || 0) + 1;
     mb.phase = "spinning";
+    mb.kind = kind;
     mb.opener = "test";
     mb.openerName = "TEST";
     mb.isTest = true; // a rehearsal changes the timer for real, but it must not announce itself to chat
     mb.prizeId = prize.id;
-    const strip = buildReel(session, prize.id);
+    const strip = buildReel(session, prize.id, kind);
     mb.reel = strip.reel;
     mb.startIndex = strip.startIndex;
     mb.landIndex = strip.landIndex;
@@ -1939,7 +2113,7 @@ export function testMysteryBox(session: TimerUserSession, prizeId: string): { ok
 // remember which prize it came from, so the CURRENT ray gun prize's setting is what a shot is worth — which
 // also means the operator can retune it without invalidating shots people are already holding.
 export function raygunSeconds(session: TimerUserSession): number {
-    const prize = mbSettings(session).prizes.find((p: any) => p.effect && p.effect.kind === "raygun" && p.effect.seconds > 0);
+    const prize = mbSettings(session).prizes.concat(wbSettings(session).prizes).find((p: any) => p.effect && p.effect.kind === "raygun" && p.effect.seconds > 0);
     return prize ? Math.min(MAX_NUKE_SEC, prize.effect.seconds) : 600;
 }
 
@@ -2043,8 +2217,8 @@ function markReminded(userId: number, login: string){
 
 // what chat calls the double time prize — whatever the operator named it ("Pack-a-Punch"), so the reminder
 // uses the word chat saw on the reel
-function doubleTimeName(cfg: any): string {
-    const p = cfg.prizes.find((x: any) => x.effect && x.effect.kind === "doubleTime" && x.name);
+function doubleTimeName(cfg: any, more: any[] = []): string {
+    const p = cfg.prizes.concat(more).find((x: any) => x.effect && x.effect.kind === "doubleTime" && x.name);
     return p ? p.name : "double time";
 }
 
@@ -2063,9 +2237,11 @@ export function remindUnopened(session: TimerUserSession, login: string, display
         return;
     // boxes chat is being held off from opening aren't worth a nudge yet; a double is spent by contributing,
     // which nothing holds back
+    const wcfg = wbSettings(session);
     const n = cfg.allowOpening ? boxCount(session, key) : 0;
+    const w = wcfg.enabled && wcfg.allowOpening ? boxCount(session, key, "wonder") : 0;
     const doubles = ledgerCount(mbDoubleTime(session), key);
-    if (n < 1 && doubles < 1)
+    if (n < 1 && w < 1 && doubles < 1)
         return;
     const mine = remindedAt[session.userId] || (remindedAt[session.userId] = {});
     const now = Date.now();
@@ -2079,11 +2255,12 @@ export function remindUnopened(session: TimerUserSession, login: string, display
     mine[key] = now;
     const who = str(displayName, MAX_NAME) || key;
     const boxLine = n > 0 ? `you have ${n} unopened mystery box${n === 1 ? "" : "es"} — type !${cfg.command} open to open ${n === 1 ? "it" : "one"}!` : "";
-    const dtName = doubleTimeName(cfg);
+    const wbLine = w > 0 ? `${n > 0 ? "You also have" : "you have"} ${w} unopened wonder box${w === 1 ? "" : "es"} — type !${wcfg.command} open to open ${w === 1 ? "it" : "one"}!` : "";
+    const dtName = doubleTimeName(cfg, wcfg.prizes);
     const dtLine = doubles > 0
-        ? `${n > 0 ? "You also have" : "you have"} ${doubles > 1 ? `${doubles} ${dtName}` : dtName} ready — your next sub, cheer or donation is worth DOUBLE time!`
+        ? `${n > 0 || w > 0 ? "You also have" : "you have"} ${doubles > 1 ? `${doubles} ${dtName}` : dtName} ready — your next sub, cheer or donation is worth DOUBLE time!`
         : "";
-    chatSay(session, `@${who} ${[boxLine, dtLine].filter((l) => l).join(" ")}`);
+    chatSay(session, `@${who} ${[boxLine, wbLine, dtLine].filter((l) => l).join(" ")}`);
 }
 
 // every twitch chat line gets offered here, the same way firesale does it. returns true if the line was
@@ -2093,13 +2270,17 @@ export function remindUnopened(session: TimerUserSession, login: string, display
 // `may` is the Permissions tab's say on the mod-only actions; it reports its own refusals
 export function handleMysteryBoxChat(session: TimerUserSession, login: string, displayName: string, text: string, isMod: boolean,
     may: (key: string) => boolean = () => true): boolean {
-    const cfg = mbSettings(session);
     const body = String(text || "").trim();
     if (!body.startsWith("!"))
         return false;
     const parts = body.slice(1).split(/\s+/);
-    if (parts[0].toLowerCase() !== cfg.command)
+    const head = parts[0].toLowerCase();
+    // the mystery box's command wins if the two have been set the same
+    const kind: BoxKind | "" = head === mbSettings(session).command ? "mystery" : head === wbSettings(session).command ? "wonder" : "";
+    if (!kind)
         return false;
+    const cfg = boxSettings(session, kind);
+    const word = boxWord(kind);
 
     const action = (parts[1] || "").toLowerCase();
     const self = { login: String(login || ""), displayName: String(displayName || login || "") };
@@ -2110,11 +2291,11 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         // prize while chat is held off — turning this off is about timing, not about breaking the operator's
         // own controls.
         if (!cfg.allowOpening){
-            if (boxCount(session, self.login) > 0 && tellNow(session.userId, self.login))
-                chatSay(session, `@${self.displayName} mystery boxes can't be opened right now — hang on to it, yours is safe.`);
+            if (boxCount(session, self.login, kind) > 0 && tellNow(session.userId, self.login))
+                chatSay(session, `@${self.displayName} ${word}es can't be opened right now — hang on to it, yours is safe.`);
             return true;
         }
-        const res = openMysteryBox(session, self.login, self.displayName);
+        const res = openMysteryBox(session, self.login, self.displayName, kind);
         if (res.ok || !res.message){
             // a blank message is the deliberate silence: the feature is off, or there was nothing to say
             if (res.message)
@@ -2134,15 +2315,15 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         // "!mb count <anything>" would otherwise be a way to make the bot repeat arbitrary text.
         const named = resolveTarget(session, parts[2]);
         const who = isMod && named ? named : self.login;
-        const label = isMod && named ? (mbBoxes(session)[boxKey(named)] || {}).name || named : self.displayName;
-        const n = boxCount(session, who);
+        const label = isMod && named ? (boxLedger(session, kind)[boxKey(named)] || {}).name || named : self.displayName;
+        const n = boxCount(session, who, kind);
         // through the chat seam, which reports to the terminal when no bot account is connected — so this
         // answers in chat the moment one is, with no change here.
         // throttled per asker like every other reply: a modded account that answers every "!mb count" is one
         // a few viewers can push past its own rate limit, at which point twitch drops the messages that
         // matter (a prize landing, a ray gun hit) along with the spam.
         if (tellNow(session.userId, self.login))
-            chatSay(session, `@${label} has ${n} mystery box${n === 1 ? "" : "es"}.`);
+            chatSay(session, `@${label} has ${n} ${boxesWord(kind, n)}.`);
         return true;
     }
     if (!isMod)
@@ -2154,6 +2335,7 @@ export function handleMysteryBoxChat(session: TimerUserSession, login: string, d
         action: known,
         name: (parts[2] || "").replace(/^@/, ""),
         count: Number(parts[3]) || 1,
+        kind,
     }, self);
     if (res.message)
         emitTerminal(session.userId, `Chat (${self.login}): ${res.message}`, res.ok);

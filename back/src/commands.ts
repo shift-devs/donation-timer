@@ -77,6 +77,7 @@ export function commandHelp(): string {
     lines.push("    start also takes overrides for that one raffle: winners=3 boxes=2 (0 = none) title=\"BIG RAFFLE\" prize=\"Signed poster\"");
     lines.push("  mb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — mystery boxes");
     lines.push("  mb revive [stop] — start (or call off) the quick revive: chat races the clock for sub points");
+    lines.push("  wb: open <name>, count <name>, give <name> [n], take <name> [n], stop, test [prize] — wonder boxes");
     lines.push("  drop [now] [reward|pool], test [reward|pool], stop, clear, status — drops (now = for real, test = no chat, a pool's name draws from that pool, clear = empty the queue)");
     lines.push("  board: reset, add <name> [n], take <name> [n], set <name> <n> — the box leaderboard (quote a name with spaces)");
     return lines.join("\n");
@@ -84,7 +85,7 @@ export function commandHelp(): string {
 
 // parse a command line into a manual TimerEvent (so it shares rates + the cap with chat), a text-box change, or
 // an error/help.
-export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number }; drop?: { action: string, name: string }; board?: { action: string, name: string, count: number }; error?: string; help?: string } {
+export function parseCommand(text: string): { event?: TimerEvent; text?: { box: string, text: string }; firesale?: { action: string, seconds: number, name: string }; raffle?: { action: string, overrides?: any }; mb?: { action: string, name: string, count: number, kind?: "mystery" | "wonder" }; drop?: { action: string, name: string }; board?: { action: string, name: string, count: number }; error?: string; help?: string } {
     const raw = (text || "").trim();
     if (!raw)
         return { error: "Empty command. Type 'help'." };
@@ -167,17 +168,18 @@ export function parseCommand(text: string): { event?: TimerEvent; text?: { box: 
         return { raffle: { action, overrides } };
     }
 
-    if (head === "mb") {
+    // "wb" is the wonder box: the same actions, on its own prizes and wallet
+    if (head === "mb" || head === "wb") {
         const action = (parts[1] || "").toLowerCase();
         if (!MB_ACTIONS.includes(action))
-            return { error: `Usage: mb ${MB_ACTIONS.join(" | ")} — e.g. "mb give someone 2".` };
+            return { error: `Usage: ${head} ${MB_ACTIONS.join(" | ")} — e.g. "${head} give someone 2".` };
         // every action but stop/test names somebody (or, from chat, defaults to whoever typed it)
         if (["give", "take"].includes(action) && !parts[2])
-            return { error: `Usage: mb ${action} <name> [count]` };
+            return { error: `Usage: ${head} ${action} <name> [count]` };
         const count = parts[3] !== undefined ? Number(parts[3]) : 1;
         if (!Number.isFinite(count))
-            return { error: `Usage: mb ${action} <name> [count]` };
-        return { mb: { action, name: (parts[2] || "").replace(/^@/, ""), count } };
+            return { error: `Usage: ${head} ${action} <name> [count]` };
+        return { mb: { action, name: (parts[2] || "").replace(/^@/, ""), count, kind: head === "wb" ? "wonder" : "mystery" } };
     }
 
     if (head === "drop") {

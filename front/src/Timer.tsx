@@ -138,6 +138,10 @@ const Timer: React.FC<{
 	pausedColor?: string;
 	// beat between the normal colour and that one, rather than simply holding it
 	pausedPulse?: boolean;
+	// the highest whole hour the timer has ever shown, and what to pulse while it's back inside that hour
+	// ("" = off). a freeze's own tint wins while one is holding the clock.
+	peakHour?: number;
+	peakColor?: string;
 	textAlign?: any;
 	color?: any;
 	background?: string;
@@ -145,7 +149,7 @@ const Timer: React.FC<{
 	effect?: string;
 	effectColor?: string;
 	effectWidth?: number;
-}> = ({ endTime, pausedMs = null, pausedColor = "", pausedPulse = false, textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
+}> = ({ endTime, pausedMs = null, pausedColor = "", pausedPulse = false, peakHour = 0, peakColor = "", textAlign = "center", color = "black", background = "#000000", font = "display", effect = "none", effectColor = "", effectWidth = 0 }) => {
 	// the countdown state lives here (the only thing that changes every second) so the pages that mount
 	// the timer don't re-render — and drag their whole tree along — on every tick.
 	const input_seconds = useCountdownSeconds(endTime, pausedMs);
@@ -217,14 +221,18 @@ const Timer: React.FC<{
 	// just trusted from the server: a pulse puts this value inside a <style> element, and a string that
 	// reaches a stylesheet is worth validating at the point it gets written, not only where it came from.
 	const frozenColor = pausedMs !== null && HEX_COLOR.test(pausedColor) ? pausedColor : "";
+	// inside the highest hour the timer has ever reached: 299:xx:xx when the record is 299. checked against
+	// the same seconds the digits are drawn from, so the pulse starts and stops exactly as the hour changes.
+	const atPeak = !frozenColor && peakHour >= 1 && HEX_COLOR.test(peakColor) && Math.floor(input_seconds / 3600) >= peakHour;
+	const pulseColor = frozenColor && pausedPulse ? frozenColor : atPeak ? peakColor : "";
 	// a keyframe per colour rather than one shared rule driven by a css variable: var() inside keyframes is
 	// well supported now but this costs nothing and can't be caught out by whatever chromium OBS ships.
-	const pulseName = frozenColor && pausedPulse ? `tmr-pulse-${frozenColor.slice(1).toLowerCase()}` : "";
+	const pulseName = pulseColor ? `tmr-pulse-${pulseColor.slice(1).toLowerCase()}` : "";
 
 	return (
 		<>
 			{pulseName && (
-				<style>{`@keyframes ${pulseName} { 0%, 100% { color: ${BASE_TIMER_COLOR}; } 50% { color: ${frozenColor}; } }`}</style>
+				<style>{`@keyframes ${pulseName} { 0%, 100% { color: ${BASE_TIMER_COLOR}; } 50% { color: ${pulseColor}; } }`}</style>
 			)}
 			<div
 				className='Timer'

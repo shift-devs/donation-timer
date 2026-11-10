@@ -188,7 +188,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.boxes}
 							onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bx${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="gray.500">{prize.effect.kind === "cup" ? "boxes to whoever is it at the end" : "more boxes"}</Text>
+						<Text fontSize="sm" color="gray.500">{prize.effect.kind === "cup" ? "boxes to whoever is it at the end" : prize.effect.kind === "wonderBoxes" ? `wonder box${prize.effect.boxes === 1 ? "" : "es"}` : "more boxes"}</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("percent") && (

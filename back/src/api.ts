@@ -12,7 +12,7 @@ import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopR
 import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
 import { normalizeChatPermissions, mergeChatPermissions } from "./chatPermissions";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantDoubleTime, grantShield, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
+import { normalizeMysteryBox, normalizeWonderBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantDoubleTime, grantShield, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -133,10 +133,12 @@ function wsSync(ws: TimerWebSocket) {
             // picks the reel straight back up
             mysterybox: mysteryBoxView(curSession),
             mysteryBoxSettings: curSession.mysteryBoxSettings || {},
+            wonderBoxSettings: curSession.wonderBoxSettings || {},
             // the quick revive challenge on that source (idle when there isn't one)
             quickRevive: quickReviveView(curSession),
             // the ledgers, for the dashboard tab's lists of who is holding what
             mysteryBoxes: curSession.mysteryBoxes || {},
+            wonderBoxes: curSession.wonderBoxes || {},
             rayguns: curSession.rayguns || {},
             doubleTime: curSession.doubleTime || {},
             shields: curSession.shields || {},
@@ -772,13 +774,22 @@ export function startApi(){
                     pushMysteryBox(curSession);
                     break;
                 }
+                case "setWonderBoxSettings": {
+                    // the wonder box tab, same arrangement as the mystery box's
+                    const patch = jData.settings && typeof jData.settings === "object" && !Array.isArray(jData.settings)
+                        ? jData.settings
+                        : {};
+                    curSession.wonderBoxSettings = normalizeWonderBox({ ...(curSession.wonderBoxSettings || {}), ...patch });
+                    pushMysteryBox(curSession);
+                    break;
+                }
                 case "giveMysteryBox": {
                     // the operator handing out a box by hand — a firesale whose announcement we missed, or a
-                    // gifter whose fourthwall name didn't match their twitch login
+                    // gifter whose fourthwall name didn't match their twitch login. kind "wonder" is the wonder box.
                     const name = typeof jData.name === "string" ? jData.name.trim() : "";
                     const n = Math.trunc(Number(jData.count) || 1);
                     if (name && n)
-                        grantMysteryBox(curSession, name, name, n);
+                        grantMysteryBox(curSession, name, name, n, "", jData.kind === "wonder" ? "wonder" : "mystery");
                     break;
                 }
                 case "giveRaygun": {
@@ -815,7 +826,7 @@ export function startApi(){
                 case "testMysteryBox":
                     // spin the reel for real onto a named prize (or a fair draw), without spending anyone's box.
                     // the effect fires exactly as it would in front of chat — that's the point of a rehearsal.
-                    ws.send(JSON.stringify({ commandResult: testMysteryBox(curSession, typeof jData.prizeId === "string" ? jData.prizeId : "") }));
+                    ws.send(JSON.stringify({ commandResult: testMysteryBox(curSession, typeof jData.prizeId === "string" ? jData.prizeId : "", jData.kind === "wonder" ? "wonder" : "mystery") }));
                     break;
                 case "stopMysteryBox":
                     endMysteryBox(curSession);

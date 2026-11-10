@@ -138,6 +138,17 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // the wonder box's settings and its ledger (see migration add-wonderbox)
+    wonderBoxSettings: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
+    wonderBoxes: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // gift subs counted toward a box in cumulative mode (see migration add-gift-sub-progress)
     giftSubProgress: {
         type: DataTypes.JSONB,
@@ -290,6 +301,8 @@ export async function dbCreate(inObj: Object){
         rayguns: lvObj.rayguns,
         doubleTime: lvObj.doubleTime,
         shields: lvObj.shields,
+        wonderBoxSettings: lvObj.wonderBoxSettings,
+        wonderBoxes: lvObj.wonderBoxes,
         giftSubProgress: lvObj.giftSubProgress,
         dropSettings: lvObj.dropSettings,
         dropState: lvObj.dropState,
@@ -344,6 +357,8 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 rayguns: curSession.rayguns,
                 doubleTime: curSession.doubleTime,
                 shields: curSession.shields,
+                wonderBoxSettings: curSession.wonderBoxSettings,
+                wonderBoxes: curSession.wonderBoxes,
                 giftSubProgress: curSession.giftSubProgress,
                 dropSettings: curSession.dropSettings,
                 dropState: curSession.dropState,

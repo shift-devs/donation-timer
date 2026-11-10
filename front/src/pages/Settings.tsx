@@ -15,6 +15,7 @@ import Firesale from "./Settings/Firesale";
 import Raffle from "./Settings/Raffle";
 import Drops from "./Settings/Drops";
 import MysteryBox from "./Settings/MysteryBox";
+import WonderBox from "./Settings/WonderBox";
 import BoxBoard from "./Settings/BoxBoard";
 import Permissions from "./Settings/Permissions";
 import { runCommand } from "../Api";
@@ -210,6 +211,8 @@ const Settings: React.FC = () => {
 					pausedMs={(settings as any).timerPause ? (settings as any).timerPause.remainingMs : null}
 					pausedColor={((settings as any).timerPause && (settings as any).timerPause.color) || ""}
 					pausedPulse={!!((settings as any).timerPause && (settings as any).timerPause.pulse)}
+					peakHour={Number((settings as any).widgetSettings && (settings as any).widgetSettings.peakHour) || 0}
+					peakColor={(settings as any).widgetSettings && (settings as any).widgetSettings.peakEnabled ? String((settings as any).widgetSettings.peakColor || "") : ""}
 					textAlign='center'
 				/>
 				<br />
@@ -237,6 +240,7 @@ const Settings: React.FC = () => {
 						<Tab>Firesale</Tab>
 						<Tab>Raffle</Tab>
 						<Tab>Mystery Box</Tab>
+						<Tab>Wonder Box</Tab>
 						<Tab>Drops</Tab>
 						<Tab>Box Board</Tab>
 						<Tab>Permissions</Tab>
@@ -283,7 +287,10 @@ const Settings: React.FC = () => {
 							<Raffle ws={ws} token={token} settings={settings} run={raffle} />
 						</TabPanel>
 						<TabPanel>
-							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} products={fwProducts} />
+							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} />
+						</TabPanel>
+						<TabPanel>
+							<WonderBox ws={ws} settings={settings} run={mysterybox} products={fwProducts} />
 						</TabPanel>
 						<TabPanel>
 							<Drops ws={ws} token={token} settings={settings} revive={quickRevive} />

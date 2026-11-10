@@ -1337,7 +1337,8 @@ const MysteryBox: React.FC = () => {
 						animation: revealed ? undefined : "mb-bob 1200ms ease-in-out infinite",
 					}}
 				>
-					MYSTERY BOX
+					{/* the wonder box spins here too, under its own name */}
+					{String(state.title || "MYSTERY BOX")}
 				</div>
 				<div style={{ color: cfg.nameColor, fontSize: 40, marginBottom: 18, textShadow: outline }}>
 					{state.opener}
@@ -1455,7 +1456,7 @@ const MysteryBox: React.FC = () => {
 			{/* every prize's art, fetched once and never drawn: the first spin of a session would otherwise be
 			    the browser loading images one tile at a time as they scroll into view */}
 			<div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", opacity: 0 }}>
-				{prizes.map((p) => (p.image ? <img key={p.id} src={prizeImageSrc(p.image)} alt="" /> : null))}
+				{prizes.map((p, i) => (p.image ? <img key={`${p.id}-${i}`} src={prizeImageSrc(p.image)} alt="" /> : null))}
 			</div>
 		</div>
 	);

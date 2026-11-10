@@ -71,7 +71,8 @@ export function shieldLedger(session: TimerUserSession): Ledger {
 // what chat calls it — the prize's own name, so the line in chat matches the word on the reel
 function shieldName(session: TimerUserSession): string {
     const mb = session.mysteryBoxSettings;
-    const prizes: any[] = mb && Array.isArray(mb.prizes) ? mb.prizes : [];
+    const wb = session.wonderBoxSettings;
+    const prizes: any[] = (mb && Array.isArray(mb.prizes) ? mb.prizes : []).concat(wb && Array.isArray(wb.prizes) ? wb.prizes : []);
     const p = prizes.find((x: any) => x && x.effect && x.effect.kind === "shield" && x.name);
     return p ? p.name : "timeout shield";
 }

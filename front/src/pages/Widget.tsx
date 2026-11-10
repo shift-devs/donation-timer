@@ -31,6 +31,9 @@ const Widget: React.FC = () => {
 	const [pausedMs, setPausedMs] = useState<number | null>(null);
 	const [pausedColor, setPausedColor] = useState("");
 	const [pausedPulse, setPausedPulse] = useState(false);
+	// the highest-hour pulse (see Timer.tsx): the record, and its colour when switched on
+	const [peakHour, setPeakHour] = useState(0);
+	const [peakColor, setPeakColor] = useState("");
 	const [fetched, setFetched] = useState(false);
 	const [syncBg, setSyncBg] = useState("#00FF00"); // chroma green until the sync says otherwise
 	const [syncAlign, setSyncAlign] = useState("left"); // timer justification, same default as the backend
@@ -64,6 +67,10 @@ const Widget: React.FC = () => {
 					setSyncBg(response.widgetSettings.bgColor);
 				if (response.widgetSettings && typeof response.widgetSettings.align === "string")
 					setSyncAlign(response.widgetSettings.align);
+				if (response.widgetSettings) {
+					setPeakHour(Number(response.widgetSettings.peakHour) || 0);
+					setPeakColor(response.widgetSettings.peakEnabled ? String(response.widgetSettings.peakColor || "") : "");
+				}
 				if (!fetched) {
 					setFetched(true);
 				}
@@ -127,6 +134,8 @@ const Widget: React.FC = () => {
 					pausedMs={pausedMs}
 					pausedColor={pausedColor}
 					pausedPulse={pausedPulse}
+					peakHour={peakHour}
+					peakColor={peakColor}
 					textAlign={align}
 					color={timer_color}
 					background={bgColor}

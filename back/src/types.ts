@@ -81,6 +81,9 @@ export interface TimerUserSession {
     doubleTime: any
     // unspent timeout shields ("PHD Flopper"), same shape again: each one blocks one timeout from the bot
     shields: any
+    // the wonder box: its settings and prize list, and its ledger of unopened boxes (see mysterybox.ts)
+    wonderBoxSettings: any
+    wonderBoxes: any
     // cumulative gift sub tallies toward the next box, same shape again. persisted: it's half-earned
     giftSubProgress: any
     // the box being opened right now: the reel, who is opening it, which prize it lands on. transient, like

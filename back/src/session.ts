@@ -8,7 +8,7 @@ import { normalizeFiresale, endFiresaleTimers } from "./firesale";
 import { normalizeRaffle, endRaffleTimers } from "./raffle";
 import { normalizeBoxBoard, normalizeBoxBoardTally } from "./boxBoard";
 import { normalizeChatPermissions } from "./chatPermissions";
-import { normalizeMysteryBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
+import { normalizeMysteryBox, normalizeWonderBox, normalizeBoxes, endMysteryBoxTimers } from "./mysterybox";
 import { forgetTwitchBot } from "./platforms/twitchBot";
 import { endPauseTimer, endBoostTimer } from "./timer";
 import { endQuickReviveTimers } from "./quickRevive";
@@ -99,6 +99,9 @@ export function loginUser(inObj: Object){
     lvObj.rayguns = normalizeBoxes(lvObj.rayguns);           // and so are unfired ray gun charges
     lvObj.doubleTime = normalizeBoxes(lvObj.doubleTime);     // and unspent double time prizes
     lvObj.shields = normalizeBoxes(lvObj.shields);           // and unspent timeout shields
+    // seeded from the mystery box's firesale rules the first time, since firesales earn wonder boxes now
+    lvObj.wonderBoxSettings = normalizeWonderBox(lvObj.wonderBoxSettings, lvObj.mysteryBoxSettings);
+    lvObj.wonderBoxes = normalizeBoxes(lvObj.wonderBoxes);   // and unopened wonder boxes
     lvObj.giftSubProgress = normalizeBoxes(lvObj.giftSubProgress); // and gift subs counted toward a box
     lvObj.mysterybox = undefined;   // a spin doesn't, for the same reason a firesale run doesn't
     lvObj.quickRevive = undefined;  // nor a quick revive: the clock dies with the process that was running it
