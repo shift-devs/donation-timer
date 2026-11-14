@@ -10,6 +10,7 @@ export const DEFAULT_RAFFLE = {
 	winners: 1,
 	giveBoxes: false,
 	boxesPerWinner: 1,
+	boxKind: "mystery",
 	announceInChat: true,
 	music: "firesale.mp3",
 	volume: 0.6,
@@ -62,6 +63,7 @@ export function canonRaffle(raw: any) {
 		winners: numIn(r.winners, 1, MAX_RAFFLE_WINNERS, d.winners),
 		giveBoxes: r.giveBoxes === undefined ? d.giveBoxes : !!r.giveBoxes,
 		boxesPerWinner: numIn(r.boxesPerWinner, 1, 99, d.boxesPerWinner),
+		boxKind: r.boxKind === "wonder" ? "wonder" : "mystery",
 		announceInChat: r.announceInChat === undefined ? d.announceInChat : !!r.announceInChat,
 		music: str(r.music, 200, d.music),
 		volume: vol(r.volume, d.volume),
@@ -82,7 +84,7 @@ export function canonRaffle(raw: any) {
 // the terminal command that starts this raffle — "raffle start 90 winners=3 boxes=2 prize=\"…\"". anything
 // null/blank is left out, so it falls back to the Raffle tab's setup when run. the parser has no escape for a
 // quote inside a quoted value, so those become apostrophes.
-export function raffleCommand(o: { seconds?: number | null, winners?: number | null, giveBoxes?: boolean | null, boxesPerWinner?: number | null, title?: string, prize?: string }): string {
+export function raffleCommand(o: { seconds?: number | null, winners?: number | null, giveBoxes?: boolean | null, boxesPerWinner?: number | null, boxKind?: string | null, title?: string, prize?: string }): string {
 	const q = (s: string) => `"${s.trim().replace(/["“”]/g, "'")}"`;
 	const parts = ["raffle start"];
 	if (o.seconds != null)
@@ -95,6 +97,8 @@ export function raffleCommand(o: { seconds?: number | null, winners?: number | n
 		parts.push("boxes=0");
 	else if (o.giveBoxes === true)
 		parts.push(`boxes=${o.boxesPerWinner != null ? o.boxesPerWinner : 1}`);
+	if (o.giveBoxes !== false && (o.boxKind === "mystery" || o.boxKind === "wonder"))
+		parts.push(`kind=${o.boxKind}`);
 	if (o.title && o.title.trim())
 		parts.push(`title=${q(o.title)}`);
 	if (o.prize && o.prize.trim())

@@ -127,6 +127,8 @@ function normalizeEventRaffle(raw: any): any {
         winners: inRange(r.winners, 1, 20),
         giveBoxes: typeof r.giveBoxes === "boolean" ? r.giveBoxes : null,
         boxesPerWinner: inRange(r.boxesPerWinner, 1, 99),
+        // mystery or wonder boxes; null = whatever the Raffle tab says
+        boxKind: r.boxKind === "mystery" || r.boxKind === "wonder" ? r.boxKind : null,
     };
 }
 

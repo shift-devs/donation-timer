@@ -16,6 +16,7 @@ import {
 	WrapItem,
 	useToast,
 } from "@chakra-ui/react";
+import Tick from "./Tick";
 import { setRaffleSettings, startRaffle, drawRaffle, stopRaffle } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
@@ -43,7 +44,6 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 	const sentRef = useRef(serverStr);
 	const pendingRef = useRef(0);
 	const timers = useRef<{ [key: string]: any }>({});
-	const [, setTick] = useState(0);
 
 	useEffect(() => {
 		if (serverStr === sentRef.current) {
@@ -65,14 +65,6 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 
 	const r: any = run && Array.isArray(run.runs) && run.runs.length ? run.runs[0] : null;
 	const phase = r ? r.phase : "idle";
-
-	useEffect(() => {
-		if (phase !== "running" || !r.endsAt)
-			return;
-		const id = setInterval(() => setTick((n) => n + 1), 500);
-		return () => clearInterval(id);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [phase, r && r.endsAt]);
 
 	const later = (key: string, fn: () => void, delay: number) => {
 		clearTimeout(timers.current[key]);
@@ -105,6 +97,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 		winners: draft.winners,
 		giveBoxes: draft.giveBoxes,
 		boxesPerWinner: draft.boxesPerWinner,
+		boxKind: draft.boxKind,
 		title: draft.title,
 		prize: draft.prize,
 	});
@@ -125,7 +118,10 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 	};
 
 	const entrants: string[] = run && Array.isArray(run.names) ? run.names : [];
-	const mbOn = !(settings.mysteryBoxSettings && settings.mysteryBoxSettings.enabled === false);
+	// whichever kind of box the winners get, switched on on its own tab
+	const wonder = draft.boxKind === "wonder";
+	const kindSettings = wonder ? settings.wonderBoxSettings : settings.mysteryBoxSettings;
+	const mbOn = !(kindSettings && kindSettings.enabled === false);
 	const clashesWithFiresale = settings.firesaleSettings && settings.firesaleSettings.command === draft.command;
 
 	const badge = phase === "running"
@@ -184,7 +180,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 					{badge}
 					{r && <Text fontSize="sm" color="muted">{r.total} entered</Text>}
 					{phase === "running" && r.endsAt > 0 && (
-						<Text fontSize="sm" color="muted">{countdown(r.endsAt - Date.now())} left</Text>
+						<Text fontSize="sm" color="muted"><Tick>{() => countdown(r.endsAt - Date.now())}</Tick> left</Text>
 					)}
 					{phase === "running" && !r.endsAt && (
 						<Text fontSize="sm" color="muted">open until you draw</Text>
@@ -288,19 +284,23 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 				<Box borderWidth="1px" borderRadius="md" p={3}>
 					<HStack spacing={2} mb={draft.giveBoxes ? 2 : 0}>
 						<Switch isChecked={draft.giveBoxes} onChange={(e) => patch({ giveBoxes: e.target.checked })} />
-						<Text fontSize="sm" fontWeight="bold">Winners get mystery boxes</Text>
+						<Text fontSize="sm" fontWeight="bold">Winners get boxes</Text>
 						{!draft.giveBoxes && <Badge>OFF</Badge>}
 					</HStack>
 					{draft.giveBoxes && (<>
 						<HStack spacing={2} wrap="wrap">
 							<NumberField width="80px" min={1} max={99} value={draft.boxesPerWinner} onCommit={(n) => patch({ boxesPerWinner: n }, "boxes")} />
+							<Select size="sm" maxW="160px" value={draft.boxKind} onChange={(e) => patch({ boxKind: e.target.value })}>
+								<option value="mystery">mystery box{draft.boxesPerWinner === 1 ? "" : "es"}</option>
+								<option value="wonder">wonder box{draft.boxesPerWinner === 1 ? "" : "es"}</option>
+							</Select>
 							<Text fontSize="sm" color="muted">
-								box{draft.boxesPerWinner === 1 ? "" : "es"} for each winner, banked the moment they&apos;re drawn
+								for each winner, banked the moment they&apos;re drawn
 							</Text>
 						</HStack>
 						{!mbOn && (
 							<Text fontSize="xs" color="warn" mt={1}>
-								Mystery boxes are switched off on the Mystery Box tab, so none will be given out until they&apos;re back on.
+								{wonder ? "Wonder boxes are switched off on the Wonder Box tab" : "Mystery boxes are switched off on the Mystery Box tab"}, so none will be given out until they&apos;re back on.
 							</Text>
 						)}
 					</>)}

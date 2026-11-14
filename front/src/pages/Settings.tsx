@@ -35,6 +35,17 @@ let ws: WebSocket;
 let reconnectTimer: any;
 const LOG_CAP = 2000; // keep the live feed bounded — a dashboard tab can stay open for weeks
 
+// a tab panel that only re-renders while it's the one on screen. the panels stay mounted (keepMounted — an
+// unmounted tab would drop its half-typed drafts), but without this every hidden tab re-rendered on every
+// sync, every log line and every countdown tick, so the cost of one tab grew with how many had been opened.
+// when a tab comes back into view it re-renders once with whatever is current. it also renders once on the way
+// OUT, so a tab that reacts to being hidden (the Terminal's scroll-to-bottom on open) sees that change.
+const ActivePanel = React.memo(
+	({ children }: { active: boolean; children: React.ReactNode }) => <>{children}</>,
+	(prev, next) => !prev.active && !next.active,
+);
+ActivePanel.displayName = "ActivePanel";
+
 const Settings: React.FC = () => {
 	const token = localStorage.getItem("identity");
 	const [settings, setSettings] = useState({ slStatus: false });
@@ -52,6 +63,35 @@ const Settings: React.FC = () => {
 	const logLoadingRef = useRef(false);
 	const logRequestedRef = useRef(false);
 	const fwProductsRequestedRef = useRef(false);
+	// the server sends the whole settings blob every 5s and after every change, as freshly parsed objects. the
+	// last JSON seen for each field lets an unchanged field keep its old object, so the memos below it hold —
+	// and a sync where nothing changed at all doesn't re-render anything.
+	const lastJson = useRef<{ [key: string]: string }>({});
+	const settingsRef = useRef<any>(settings);
+	const changed = (name: string, value: any) => {
+		const json = JSON.stringify(value === undefined ? null : value);
+		if (lastJson.current[name] === json)
+			return false;
+		lastJson.current[name] = json;
+		return true;
+	};
+	const applySync = (response: any) => {
+		const prev = settingsRef.current;
+		const next: any = {};
+		let same = Object.keys(prev).length === Object.keys(response).length;
+		for (const key of Object.keys(response)) {
+			if (!changed("s." + key, response[key]) && key in prev) {
+				next[key] = prev[key];
+			} else {
+				next[key] = response[key];
+				same = false;
+			}
+		}
+		if (same)
+			return;
+		settingsRef.current = next;
+		setSettings(next);
+	};
 
 	const updateSeconds = (endTime: number) => {
 		setEndTime(endTime);
@@ -97,14 +137,16 @@ const Settings: React.FC = () => {
 			// push the moment it changes, which carries ONLY this field — so that one has to be taken out here
 			// before setSettings below would replace the whole settings object with it.
 			if ("firesale" in response) {
-				setFiresale(response.firesale);
+				if (changed("firesale", response.firesale))
+					setFiresale(response.firesale);
 				if (!("endTime" in response))
 					return;
 			}
 
 			// the raffle, same two routes as the firesale
 			if ("raffle" in response) {
-				setRaffle(response.raffle);
+				if (changed("raffle", response.raffle))
+					setRaffle(response.raffle);
 				if (!("endTime" in response))
 					return;
 			}
@@ -112,19 +154,27 @@ const Settings: React.FC = () => {
 			// the box being opened right now, same two arrival routes as the firesale above — and taken out
 			// here for the same reason, so a targeted push can't replace the whole settings object with it
 			if ("mysterybox" in response) {
-				setMysterybox(response.mysterybox);
+				if (changed("mysterybox", response.mysterybox))
+					setMysterybox(response.mysterybox);
 				if (!("endTime" in response))
 					return;
 			}
 
 			// the quick revive challenge, same two routes again
 			if ("quickRevive" in response) {
-				setQuickRevive(response.quickRevive);
+				if (changed("quickRevive", response.quickRevive))
+					setQuickRevive(response.quickRevive);
 				if (!("endTime" in response))
 					return;
 			}
 
-			setSettings(response);
+			if ("endTime" in response) {
+				applySync(response);
+			} else {
+				lastJson.current = {};
+				settingsRef.current = response;
+				setSettings(response);
+			}
 
 			if ("endTime" in response) {
 				updateSeconds(response.endTime);
@@ -248,61 +298,61 @@ const Settings: React.FC = () => {
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
 						<TabPanel>
-							<TimePerAction ws={ws} settings={settings} />
+							<ActivePanel active={tabIndex === 0}><TimePerAction ws={ws} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Events ws={ws} settings={settings} products={fwProducts} />
+							<ActivePanel active={tabIndex === 1}><Events ws={ws} settings={settings} products={fwProducts} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Connections ws={ws} settings={settings} />
+							<ActivePanel active={tabIndex === 2}><Connections ws={ws} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Merch ws={ws} endTime={endTime} settings={settings} />
+							<ActivePanel active={tabIndex === 3}><Merch ws={ws} endTime={endTime} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<FourthwallProducts ws={ws} settings={settings} products={fwProducts} error={fwProductsError} />
+							<ActivePanel active={tabIndex === 4}><FourthwallProducts ws={ws} settings={settings} products={fwProducts} error={fwProductsError} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<ChangeTime ws={ws} endTime={endTime} settings={settings} />
+							<ActivePanel active={tabIndex === 5}><ChangeTime ws={ws} endTime={endTime} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Terminal
+							<ActivePanel active={tabIndex === 6}><Terminal
 								entries={log}
 								hasMore={logHasMore}
 								active={tabIndex === 6}
 								onLoadOlder={loadOlder}
 								onCommand={runTerminalCommand}
-							/>
+							/></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<SubCounts ws={ws} token={token} settings={settings} />
+							<ActivePanel active={tabIndex === 7}><SubCounts ws={ws} token={token} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<TextBoxes ws={ws} token={token} settings={settings} />
+							<ActivePanel active={tabIndex === 8}><TextBoxes ws={ws} token={token} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Firesale ws={ws} token={token} settings={settings} run={firesale} />
+							<ActivePanel active={tabIndex === 9}><Firesale ws={ws} token={token} settings={settings} run={firesale} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Raffle ws={ws} token={token} settings={settings} run={raffle} />
+							<ActivePanel active={tabIndex === 10}><Raffle ws={ws} token={token} settings={settings} run={raffle} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} />
+							<ActivePanel active={tabIndex === 11}><MysteryBox ws={ws} token={token} settings={settings} run={mysterybox} revive={quickRevive} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<WonderBox ws={ws} settings={settings} run={mysterybox} products={fwProducts} />
+							<ActivePanel active={tabIndex === 12}><WonderBox ws={ws} settings={settings} run={mysterybox} products={fwProducts} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Drops ws={ws} token={token} settings={settings} revive={quickRevive} />
+							<ActivePanel active={tabIndex === 13}><Drops ws={ws} token={token} settings={settings} revive={quickRevive} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<BoxBoard ws={ws} token={token} settings={settings} products={fwProducts} />
+							<ActivePanel active={tabIndex === 14}><BoxBoard ws={ws} token={token} settings={settings} products={fwProducts} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Permissions ws={ws} settings={settings} />
+							<ActivePanel active={tabIndex === 15}><Permissions ws={ws} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<Controls ws={ws} token={token} settings={settings} />
+							<ActivePanel active={tabIndex === 16}><Controls ws={ws} token={token} settings={settings} /></ActivePanel>
 						</TabPanel>
 					</TabPanels>
 				</Tabs>

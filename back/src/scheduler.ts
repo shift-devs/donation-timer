@@ -137,6 +137,7 @@ function scheduleEventRaffle(session: TimerUserSession, ev: any) {
                 winners: r.winners,
                 giveBoxes: r.giveBoxes,
                 boxesPerWinner: r.boxesPerWinner,
+                boxKind: r.boxKind,
             });
         } catch (err) {
             reportError(session.userId, `starting event "${ev.name || ev.id}" raffle`, err);

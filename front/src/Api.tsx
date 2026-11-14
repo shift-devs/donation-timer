@@ -199,6 +199,10 @@ export function giveMysteryBox(ws: WebSocket, name: string, count: number, kind:
 }
 
 // hand out (or take back) fuck you gun shots by hand
+export function giveIceStaff(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveIceStaff", name: name, count: count });
+}
+
 export function giveFuckYouGun(ws: WebSocket, name: string, count: number) {
 	send(ws, { event: "giveFuckYouGun", name: name, count: count });
 	return 1;

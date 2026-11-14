@@ -2,7 +2,7 @@ import React, { useCallback, useMemo } from "react";
 import { Badge, Box, Button, Checkbox, Code, Divider, Flex, HStack, Input, Select, Switch, Text, VStack } from "@chakra-ui/react";
 import NumberField from "../../NumberField";
 import { prizeImageSrc, prizeProfiles, inActiveProfile, EFFECT_KINDS, DEFAULT_PRIZE } from "../../mysterybox";
-import EffectFields, { PRIZE_IMAGES, SOUNDS } from "./EffectFields";
+import EffectFields, { PRIZE_IMAGES, PRIZE_IMAGE_OPTIONS, SOUND_OPTIONS } from "./EffectFields";
 
 // the prize list, shared by the Mystery Box and Wonder Box tabs.
 //
@@ -136,9 +136,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, wonde
 							onChange={(e) => patchPrize(p.id, { image: e.target.value })}
 						>
 							<option value="">(art: none)</option>
-							{PRIZE_IMAGES.map((f) => (
-								<option key={f} value={f}>{f}</option>
-							))}
+							{PRIZE_IMAGE_OPTIONS}
 						</Select>
 						<Input
 							size="sm"
@@ -157,9 +155,7 @@ const PrizeCard: React.FC<CardProps> = React.memo(({ prize: p, odds, live, wonde
 							onChange={(e) => patchPrize(p.id, { sound: e.target.value })}
 						>
 							<option value="">(sound: none)</option>
-							{SOUNDS.map((f) => (
-								<option key={f} value={f}>{f}</option>
-							))}
+							{SOUND_OPTIONS}
 						</Select>
 						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
@@ -221,7 +217,7 @@ const PrizeList: React.FC<{
 	what: string; // "box" / "wonder box", for the help text
 	// the wonder box's profile, which picks which prizes are in play there. its own picker is on its tab.
 	wonderProfile: string;
-}> = ({ prizes, activeProfile, patch, onTest, events, textBoxes, listId, what, wonderProfile }) => {
+}> = React.memo(({ prizes, activeProfile, patch, onTest, events, textBoxes, listId, what, wonderProfile }) => {
 	const stableEvents = useStable(events);
 	const stableTextBoxes = useStable(textBoxes);
 
@@ -329,6 +325,9 @@ const PrizeList: React.FC<{
 			</VStack>
 		</>
 	);
-};
+});
+// memoised too, so the rest of the tab re-rendering (a keystroke in the settings below, a ledger changing)
+// doesn't re-walk the whole list and re-work the odds when the prizes themselves haven't changed
+PrizeList.displayName = "PrizeList";
 
 export default PrizeList;

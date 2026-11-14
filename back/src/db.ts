@@ -144,6 +144,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // unused ice staff charges, same shape again (see migration add-ice-staffs)
+    iceStaffs: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {}
+    },
     // running emote-only / sub-only prizes' deadlines, so a restart still switches them off (see migration
     // add-chat-modes)
     chatModes: {
@@ -333,6 +339,7 @@ export async function dbCreate(inObj: Object){
         thunderguns: lvObj.thunderguns,
         firstAid: lvObj.firstAid,
         fuckYouGuns: lvObj.fuckYouGuns,
+        iceStaffs: lvObj.iceStaffs,
         chatModes: lvObj.chatModes,
         fuckedYou: lvObj.fuckedYou,
         doubleTime: lvObj.doubleTime,
@@ -394,6 +401,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 thunderguns: curSession.thunderguns,
                 firstAid: curSession.firstAid,
                 fuckYouGuns: curSession.fuckYouGuns,
+                iceStaffs: curSession.iceStaffs,
                 chatModes: curSession.chatModes,
                 fuckedYou: curSession.fuckedYou,
                 doubleTime: curSession.doubleTime,

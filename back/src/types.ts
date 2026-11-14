@@ -83,6 +83,8 @@ export interface TimerUserSession {
     firstAid: any
     // and fuck you gun charges, spent with "!fuckyougun <name>" (24 hour shots)
     fuckYouGuns: any
+    // and ice staff charges, spent with "!icestaff" to freeze the timer like the timebomb prize
+    iceStaffs: any
     // while an emote-only / sub-only prize runs: when each mode ends, ms ({ emote, subscriber }). persisted,
     // so a restart still switches them back off.
     chatModes: { [mode: string]: number }

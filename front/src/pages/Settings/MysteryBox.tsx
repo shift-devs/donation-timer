@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
 	Badge,
 	Box,
@@ -21,6 +21,7 @@ import {
 	giveThundergun,
 	giveFirstAid,
 	giveFuckYouGun,
+	giveIceStaff,
 	giveDoubleTime,
 	giveShield,
 	renameMysteryBoxOwner,
@@ -39,9 +40,11 @@ import MaskedUrl from "../../MaskedUrl";
 import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
 import { canonMysteryBox, countdown, MIN_SPIN_TILES, MAX_SPIN_TILES } from "../../mysterybox";
-import { SOUNDS } from "./EffectFields";
+import { SOUND_OPTIONS } from "./EffectFields";
 import PrizeList from "./PrizeList";
 import { useSyncedDraft } from "./useSyncedDraft";
+import Tick from "./Tick";
+import WalletList, { useWalletRows } from "./WalletList";
 
 // The mystery box is earned from bingo, gifted subs, channel points and raffles (firesales earn the wonder box
 // now — see WonderBox.tsx). The holder spends it with "!mb open" in chat, which takes over the /mysterybox
@@ -58,8 +61,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const [mergeFrom, setMergeFrom] = useState("");
 	const [mergeTo, setMergeTo] = useState("");
 	const [openPrize, setOpenPrize] = useState<string>("");
-	// the live open and the pause both carry deadlines, so the countdowns here tick on their own
-	const [, setTick] = useState(0);
 
 	const phase: string = (run && run.phase) || "idle";
 	const pause = settings.timerPause || null;
@@ -70,14 +71,6 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 	const juke = (run && run.jukebox) || null;
 	// the schizo prize, while the source is reading chat aloud
 	const schizo = (run && run.schizo) || null;
-	const ticking = phase !== "idle" || !!pause || !!boost || revivePhase !== "idle" || !!juke || !!schizo;
-
-	useEffect(() => {
-		if (!ticking)
-			return;
-		const id = setInterval(() => setTick((n) => n + 1), 500);
-		return () => clearInterval(id);
-	}, [ticking]);
 
 	// the quick revive's settings ride inside the same blob, so they go up the same way
 	const patchRevive = (p: any, key?: string) => patch((d: any) => ({ quickRevive: { ...d.quickRevive, ...p } }), key);
@@ -91,49 +84,14 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				: { title: "Couldn't copy — reveal the URL and copy it manually", status: "error", duration: 3000 }));
 	};
 
-	// the ledger, biggest holdings first — that's who is about to spend one
-	const boxes: { [key: string]: any } = settings.mysteryBoxes || {};
-	const owners = Object.keys(boxes)
-		.map((k) => ({ key: k, name: boxes[k].name || k, count: boxes[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	// the ledger, biggest holdings first — that's who is about to spend one. the other wallets (ray guns, kits,
+	// …) are WalletLists further down, which sort their own.
+	const owners = useWalletRows(settings.mysteryBoxes);
 	const outstanding = owners.reduce((sum, o) => sum + o.count, 0);
-	// unfired ray gun shots — the same kind of wallet, won from a prize instead of a firesale
-	const guns: { [key: string]: any } = settings.rayguns || {};
-	const gunners = Object.keys(guns)
-		.map((k) => ({ key: k, name: guns[k].name || k, count: guns[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-	// unfired thunder gun shots — the ray gun's twin, with its own wallet
-	const tguns: { [key: string]: any } = settings.thunderguns || {};
-	const thunderers = Object.keys(tguns)
-		.map((k) => ({ key: k, name: tguns[k].name || k, count: tguns[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-	// unfired fuck you gun shots
-	const fyg: { [key: string]: any } = settings.fuckYouGuns || {};
-	const fuckers = Object.keys(fyg)
-		.map((k) => ({ key: k, name: fyg[k].name || k, count: fyg[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-	// unused first aid kits
-	const kits: { [key: string]: any } = settings.firstAid || {};
-	const medics = Object.keys(kits)
-		.map((k) => ({ key: k, name: kits[k].name || k, count: kits[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-	// banked double time prizes, waiting on the holder's next contribution
-	const dbl: { [key: string]: any } = settings.doubleTime || {};
-	const doublers = Object.keys(dbl)
-		.map((k) => ({ key: k, name: dbl[k].name || k, count: dbl[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-	// banked timeout shields, spent on the holder's next timeout from the bot
-	const shieldRows: { [key: string]: any } = settings.shields || {};
-	const shielded = Object.keys(shieldRows)
-		.map((k) => ({ key: k, name: shieldRows[k].name || k, count: shieldRows[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-	const shPrize = draft.prizes.find((p: any) => p.effect.kind === "shield" && p.name);
+	const shPrize = useMemo(() => draft.prizes.find((p: any) => p.effect.kind === "shield" && p.name), [draft.prizes]);
 	const shName = shPrize ? shPrize.name : "Timeout shields";
 	// cumulative gift sub tallies, closest to their next box first
-	const tallies: { [key: string]: any } = settings.giftSubProgress || {};
-	const gifters = Object.keys(tallies)
-		.map((k) => ({ key: k, name: tallies[k].name || k, count: tallies[k].count || 0 }))
-		.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	const gifters = useWalletRows(settings.giftSubProgress);
 
 	// what the /events and /text effects can point at
 	const events: any[] = Array.isArray(settings.timerEvents) ? settings.timerEvents : [];
@@ -190,7 +148,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{phase !== "idle" && (
 						<Text fontSize="sm" color="muted">
 							<b>{run.opener}</b> ({runKind})
-							{phase === "spinning" && run.endsAt ? ` — landing in ${Math.max(0, Math.ceil((run.endsAt - Date.now()) / 1000))}s` : ""}
+							{phase === "spinning" && run.endsAt ? <Tick>{() => ` — landing in ${Math.max(0, Math.ceil((run.endsAt - Date.now()) / 1000))}s`}</Tick> : ""}
 							{phase === "reveal" && run.prize ? ` won ${run.prize.name || run.prize.id}` : ""}
 						</Text>
 					)}
@@ -217,7 +175,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="orange">{pause.rollMs ? "TIMEBOMB" : "TIMER PAUSED"}</Badge>
 						<Text fontSize="sm" color="muted">
-							{countdown(pause.until - Date.now())} left — {pause.reason}
+							<Tick>{() => countdown(pause.until - Date.now())}</Tick> left — {pause.reason}
 							{pause.rollMs ? ` (each contribution resets it to ${Math.round(pause.rollMs / 1000)}s)` : ""}
 						</Text>
 						<Button size="xs" onClick={() => resumeTimer(ws)}>Resume now</Button>
@@ -228,7 +186,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="blue">JUKEBOX</Badge>
 						<Text fontSize="sm" color="muted">
-							{juke.track} — {countdown(Date.now() - juke.startedAt)} in ({juke.name}); boxes still open over it
+							{juke.track} — <Tick>{() => countdown(Date.now() - juke.startedAt)}</Tick> in ({juke.name}); boxes still open over it
 						</Text>
 						<Button size="xs" onClick={() => stopJukebox(ws)}>Stop</Button>
 					</Flex>
@@ -238,7 +196,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="pink">SCHIZO</Badge>
 						<Text fontSize="sm" color="muted">
-							{countdown(schizo.until - Date.now())} left — the source is reading chat aloud ({schizo.name}); boxes still open over it
+							<Tick>{() => countdown(schizo.until - Date.now())}</Tick> left — the source is reading chat aloud ({schizo.name}); boxes still open over it
 						</Text>
 						<Button size="xs" onClick={() => stopSchizo(ws)}>Stop</Button>
 					</Flex>
@@ -248,7 +206,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Flex align="center" gap={3} mb={2} wrap="wrap">
 						<Badge colorScheme="red">x{boost.factor} ON EVERYTHING</Badge>
 						<Text fontSize="sm" color="muted">
-							{countdown(boost.until - Date.now())} left — {boost.reason}
+							<Tick>{() => countdown(boost.until - Date.now())}</Tick> left — {boost.reason}
 						</Text>
 						<Button size="xs" onClick={() => endTimeBoost(ws)}>End now</Button>
 					</Flex>
@@ -279,12 +237,12 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{revivePhase === "running" && (
 						<Text fontSize="sm" color="muted">
 							{revive.kind !== "subpoints" ? <><b>{revive.title}</b> — </> : null}
-							{revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote", "voteup", "shell", "algebra"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "algebra" ? <> — <b>{revive.equation}</b> ({revive.wrongAnswers || 0} wrong so far)</> : null}{revive.kind === "shell" ? <> — <b>{revive.shellPlayer ? `@${revive.shellPlayer}` : "anybody (test)"}</b> picks 1 to {revive.shells}</> : null}{(revive.kind === "vote" || revive.kind === "voteup") && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — {countdown(revive.endsAt - Date.now())} left
+							{revive.kind === "beatemup" ? <><b>@{revive.holder}</b> has taken <b>{revive.points}</b> hit{revive.points === 1 ? "" : "s"} ({countdown(revive.points * (revive.timeoutSeconds || 0) * 1000)} timeout)</> : revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote", "voteup", "shell", "algebra"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "algebra" ? <> — <b>{revive.equation}</b> ({revive.wrongAnswers || 0} wrong so far)</> : null}{revive.kind === "shell" ? <> — <b>{revive.shellPlayer ? `@${revive.shellPlayer}` : "anybody (test)"}</b> picks 1 to {revive.shells}</> : null}{(revive.kind === "vote" || revive.kind === "voteup") && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — <Tick>{() => countdown(revive.endsAt - Date.now())}</Tick> left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
 						<Text fontSize="sm" color="muted">
-							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</>
+							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "beatemup" ? <><b>@{revive.holder}</b> took <b>{revive.points}</b> hit{revive.points === 1 ? "" : "s"}</> : revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</>
 								: revive.kind === "potato" ? <><b>@{revive.holder}</b> was holding it after <b>{revive.points}</b> passes</>
 								: revive.kind === "cup" ? <><b>@{revive.holder}</b> wins</>
 								: revive.kind === "algebra" ? (revive.winner ? <><b>@{revive.winner}</b> solved it — x = {revive.xAnswer}</> : <>nobody solved it — x = {revive.xAnswer}</>)
@@ -350,9 +308,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							onChange={(e) => patchRevive({ music: e.target.value })}
 						>
 							<option value="">(no music)</option>
-							{SOUNDS.map((f) => (
-								<option key={f} value={f}>{f}</option>
-							))}
+							{SOUND_OPTIONS}
 						</Select>
 						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
@@ -375,9 +331,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							onChange={(e) => patchRevive({ winSound: e.target.value })}
 						>
 							<option value="">(sound: none)</option>
-							{SOUNDS.map((f) => (
-								<option key={f} value={f}>{f}</option>
-							))}
+							{SOUND_OPTIONS}
 						</Select>
 						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
@@ -406,9 +360,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							onChange={(e) => patchRevive({ failSound: e.target.value })}
 						>
 							<option value="">(sound: none)</option>
-							{SOUNDS.map((f) => (
-								<option key={f} value={f}>{f}</option>
-							))}
+							{SOUND_OPTIONS}
 						</Select>
 						<Text fontSize="sm" color="muted">Vol</Text>
 						<input
@@ -495,135 +447,20 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 				</HStack>
 			</Box>
 
-			{gunners.length > 0 && (
-				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
-					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Text fontWeight="bold">Ray gun shots</Text>
-						<Text fontSize="sm" color="muted">
-							unfired — each one times somebody out with{" "}
-							<Code fontSize="xs">!{draft.raygunCommand} &lt;name&gt;</Code>
-						</Text>
-					</Flex>
-					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
-						{gunners.map((g) => (
-							<Flex key={g.key} align="center" gap={2} fontSize="sm">
-								<Text flex="1" minW="140px">{g.name}</Text>
-								<Badge colorScheme="red">{g.count}</Badge>
-								<Button size="xs" variant="ghost" onClick={() => giveRaygun(ws, g.key, 1)}>+1</Button>
-								<Button size="xs" variant="ghost" onClick={() => giveRaygun(ws, g.key, -1)}>−1</Button>
-							</Flex>
-						))}
-					</VStack>
-				</Box>
-			)}
-
-			{thunderers.length > 0 && (
-				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
-					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Text fontWeight="bold">Thunder gun shots</Text>
-						<Text fontSize="sm" color="muted">
-							unfired — each one times somebody out for 20 minutes with{" "}
-							<Code fontSize="xs">!{draft.thundergunCommand} &lt;name&gt;</Code>
-						</Text>
-					</Flex>
-					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
-						{thunderers.map((g) => (
-							<Flex key={g.key} align="center" gap={2} fontSize="sm">
-								<Text flex="1" minW="140px">{g.name}</Text>
-								<Badge colorScheme="purple">{g.count}</Badge>
-								<Button size="xs" variant="ghost" onClick={() => giveThundergun(ws, g.key, 1)}>+1</Button>
-								<Button size="xs" variant="ghost" onClick={() => giveThundergun(ws, g.key, -1)}>−1</Button>
-							</Flex>
-						))}
-					</VStack>
-				</Box>
-			)}
-
-			{fuckers.length > 0 && (
-				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
-					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Text fontWeight="bold">Fuck you gun shots</Text>
-						<Text fontSize="sm" color="muted">
-							unfired — each one times somebody out for 24 hours with{" "}
-							<Code fontSize="xs">!{draft.fuckYouGunCommand} &lt;name&gt;</Code>
-						</Text>
-					</Flex>
-					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
-						{fuckers.map((g) => (
-							<Flex key={g.key} align="center" gap={2} fontSize="sm">
-								<Text flex="1" minW="140px">{g.name}</Text>
-								<Badge colorScheme="orange">{g.count}</Badge>
-								<Button size="xs" variant="ghost" onClick={() => giveFuckYouGun(ws, g.key, 1)}>+1</Button>
-								<Button size="xs" variant="ghost" onClick={() => giveFuckYouGun(ws, g.key, -1)}>−1</Button>
-							</Flex>
-						))}
-					</VStack>
-				</Box>
-			)}
-
-			{medics.length > 0 && (
-				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
-					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Text fontWeight="bold">First aid kits</Text>
-						<Text fontSize="sm" color="muted">
-							unused — each one ends somebody's timeout with{" "}
-							<Code fontSize="xs">!{draft.firstAidCommand} &lt;name&gt;</Code>
-						</Text>
-					</Flex>
-					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
-						{medics.map((g) => (
-							<Flex key={g.key} align="center" gap={2} fontSize="sm">
-								<Text flex="1" minW="140px">{g.name}</Text>
-								<Badge colorScheme="green">{g.count}</Badge>
-								<Button size="xs" variant="ghost" onClick={() => giveFirstAid(ws, g.key, 1)}>+1</Button>
-								<Button size="xs" variant="ghost" onClick={() => giveFirstAid(ws, g.key, -1)}>−1</Button>
-							</Flex>
-						))}
-					</VStack>
-				</Box>
-			)}
-
-			{doublers.length > 0 && (
-				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
-					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Text fontWeight="bold">Double time</Text>
-						<Text fontSize="sm" color="muted">
-							banked — each one doubles that person's next contribution
-						</Text>
-					</Flex>
-					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
-						{doublers.map((g) => (
-							<Flex key={g.key} align="center" gap={2} fontSize="sm">
-								<Text flex="1" minW="140px">{g.name}</Text>
-								<Badge colorScheme="green">{g.count}</Badge>
-								<Button size="xs" variant="ghost" onClick={() => giveDoubleTime(ws, g.key, 1)}>+1</Button>
-								<Button size="xs" variant="ghost" onClick={() => giveDoubleTime(ws, g.key, -1)}>−1</Button>
-							</Flex>
-						))}
-					</VStack>
-				</Box>
-			)}
-
-			{shielded.length > 0 && (
-				<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
-					<Flex align="center" gap={3} mb={2} wrap="wrap">
-						<Text fontWeight="bold">{shName}</Text>
-						<Text fontSize="sm" color="muted">
-							banked — each one blocks that person's next timeout from the bot
-						</Text>
-					</Flex>
-					<VStack align="stretch" spacing={1} maxH="160px" overflowY="auto">
-						{shielded.map((g) => (
-							<Flex key={g.key} align="center" gap={2} fontSize="sm">
-								<Text flex="1" minW="140px">{g.name}</Text>
-								<Badge colorScheme="blue">{g.count}</Badge>
-								<Button size="xs" variant="ghost" onClick={() => giveShield(ws, g.key, 1)}>+1</Button>
-								<Button size="xs" variant="ghost" onClick={() => giveShield(ws, g.key, -1)}>−1</Button>
-							</Flex>
-						))}
-					</VStack>
-				</Box>
-			)}
+			<WalletList ws={ws} ledger={settings.rayguns} give={giveRaygun} color="red" title="Ray gun shots"
+				blurb="unfired — each one times somebody out" command={draft.raygunCommand} />
+			<WalletList ws={ws} ledger={settings.thunderguns} give={giveThundergun} color="purple" title="Thunder gun shots"
+				blurb="unfired — each one times somebody out for 20 minutes" command={draft.thundergunCommand} />
+			<WalletList ws={ws} ledger={settings.fuckYouGuns} give={giveFuckYouGun} color="orange" title="Fuck you gun shots"
+				blurb="unfired — each one times somebody out for 24 hours" command={draft.fuckYouGunCommand} />
+			<WalletList ws={ws} ledger={settings.firstAid} give={giveFirstAid} color="green" title="First aid kits"
+				blurb="unused — each one ends somebody's timeout" command={draft.firstAidCommand} />
+			<WalletList ws={ws} ledger={settings.iceStaffs} give={giveIceStaff} color="cyan" title="Ice staffs"
+				blurb="unused — each one freezes the timer like the timebomb" command={draft.iceStaffCommand} untargeted />
+			<WalletList ws={ws} ledger={settings.doubleTime} give={giveDoubleTime} color="green" title="Double time"
+				blurb="banked — each one doubles that person's next contribution" />
+			<WalletList ws={ws} ledger={settings.shields} give={giveShield} color="blue" title={shName}
+				blurb="banked — each one blocks that person's next timeout from the bot" />
 
 			{/* ---- the prizes ---- */}
 			<PrizeList
@@ -697,6 +534,16 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							maxW="110px"
 							value={draft.fuckYouGunCommand}
 							onChange={(e) => patch({ fuckYouGunCommand: e.target.value.replace(/^!/, "") }, "fycmd")}
+						/>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted">Ice staff</Text>
+						<Text fontSize="sm" color="subtle">!</Text>
+						<Input
+							size="sm"
+							maxW="110px"
+							value={draft.iceStaffCommand}
+							onChange={(e) => patch({ iceStaffCommand: e.target.value.replace(/^!/, "") }, "iccmd")}
 						/>
 					</HStack>
 					<HStack spacing={1}>
@@ -811,9 +658,7 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					<Text fontSize="sm" color="muted">Spin music</Text>
 					<Select size="sm" maxW="260px" value={draft.music} onChange={(e) => patch({ music: e.target.value })}>
 						<option value="">(none)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<Text fontSize="sm" color="muted">Vol</Text>
 					<input

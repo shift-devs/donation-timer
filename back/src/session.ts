@@ -100,6 +100,7 @@ export function loginUser(inObj: Object){
     lvObj.thunderguns = normalizeBoxes(lvObj.thunderguns);   // and thunder gun charges
     lvObj.firstAid = normalizeBoxes(lvObj.firstAid);         // and first aid kits
     lvObj.fuckYouGuns = normalizeBoxes(lvObj.fuckYouGuns);   // and fuck you gun charges
+    lvObj.iceStaffs = normalizeBoxes(lvObj.iceStaffs);       // and ice staff charges
     lvObj.doubleTime = normalizeBoxes(lvObj.doubleTime);     // and unspent double time prizes
     lvObj.shields = normalizeBoxes(lvObj.shields);           // and unspent timeout shields
     // seeded from the mystery box's firesale rules the first time, since firesales earn wonder boxes now

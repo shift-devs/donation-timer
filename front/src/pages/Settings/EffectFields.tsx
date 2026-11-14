@@ -12,6 +12,19 @@ const MEDIA_FILES: string[] = typeof __MEDIA_FILES__ !== "undefined" ? __MEDIA_F
 // the Events tab — which lists the whole folder — showed them fine.
 const AUDIO_RE = /\.(mp3|wav|ogg|oga|m4a|aac|flac|mp4|m4v|webm)$/i;
 export const SOUNDS = MEDIA_FILES.filter((f) => AUDIO_RE.test(f));
+// the <option>s for every sound / art picker, built ONCE. a page with a few dozen prizes has a couple of hundred
+// pickers, each listing every file; handing React the same elements lets it skip them outright on a re-render
+// instead of diffing every option of every picker.
+export const SOUND_OPTIONS = SOUNDS.map((f) => <option key={f} value={f}>{f}</option>);
+export const PRIZE_IMAGE_OPTIONS = PRIZE_IMAGES.map((f) => <option key={f} value={f}>{f}</option>);
+
+// which wallet a game that pays boxes pays into
+const BoxKindSelect: React.FC<{ prize: any; patchEffect: (id: string, p: any, key?: string) => void }> = ({ prize, patchEffect }) => (
+	<Select size="sm" maxW="160px" value={prize.effect.boxKind === "wonder" ? "wonder" : "mystery"} onChange={(e) => patchEffect(prize.id, { boxKind: e.target.value })}>
+		<option value="mystery">mystery boxes</option>
+		<option value="wonder">wonder boxes</option>
+	</Select>
+);
 
 // the inputs one effect kind needs, rendered from its `needs` list so the editor can't offer a field the
 // server would ignore. shared by the mystery box prizes and the drop rewards, which have the same effects.
@@ -41,14 +54,14 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "pauseTimer" ? "Pause for"
-								: prize.effect.kind === "timebomb" ? "Each contribution buys"
+								: prize.effect.kind === "timebomb" || prize.effect.kind === "icestaff" ? "Each contribution buys"
 								: prize.effect.kind === "textBox" ? "Hold for"
 								: prize.effect.kind === "command" ? "Run after"
 								: prize.effect.kind === "timeBoost" ? "for"
 								: prize.effect.kind === "infection" ? "Spreads for"
 								: prize.effect.kind === "schizo" ? "Reads chat for"
 								: prize.effect.kind === "rollcall" ? "Runs for"
-								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "voteup" || prize.effect.kind === "weenie" ? "Runs for"
+								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "voteup" || prize.effect.kind === "weenie" || prize.effect.kind === "beatemup" ? "Runs for"
 								: prize.effect.kind === "shell" ? "They get"
 								: prize.effect.kind === "algebra" ? "Chat gets"
 								: prize.effect.kind === "emp" ? "Boxes offline for"
@@ -73,7 +86,8 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 				{spec.needs.includes("timeoutSeconds") && (
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="muted">
-							{prize.effect.kind === "potato" ? "then whoever holds it is timed out"
+							{prize.effect.kind === "beatemup" ? "every hit adds to their timeout"
+								: prize.effect.kind === "potato" ? "then whoever holds it is timed out"
 								: prize.effect.kind === "vote" ? "then they're timed out"
 								: "then the infected are timed out"}
 						</Text>
@@ -106,6 +120,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "rollcall" ? "each answer adds"
+								: prize.effect.kind === "beatemup" ? "and every hit puts"
 								: prize.effect.kind === "potato" ? "each pass adds"
 								: prize.effect.kind === "weenie" ? "if nobody says it, adds"
 								: prize.effect.kind === "algebra" ? "and solving it adds"
@@ -171,9 +186,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							onChange={(e) => patchEffect(prize.id, { shellImage: e.target.value })}
 						>
 							<option value="">(plain shells)</option>
-							{PRIZE_IMAGES.map((f) => (
-								<option key={f} value={f}>{f}</option>
-							))}
+							{PRIZE_IMAGE_OPTIONS}
 						</Select>
 						<Input
 							size="sm"
@@ -232,7 +245,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.charges}
 							onCommit={(n) => patchEffect(prize.id, { charges: n }, `ch${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="subtle">{prize.effect.kind === "shield" ? "timeouts from the bot" : prize.effect.kind === "thundergun" ? "shots, 20 minutes each" : prize.effect.kind === "firstaid" ? "first aid kits" : prize.effect.kind === "fuckyougun" ? "shots, 24 hours each" : "shots, each"}</Text>
+						<Text fontSize="sm" color="subtle">{prize.effect.kind === "shield" ? "timeouts from the bot" : prize.effect.kind === "thundergun" ? "shots, 20 minutes each" : prize.effect.kind === "firstaid" ? "first aid kits" : prize.effect.kind === "fuckyougun" ? "shots, 24 hours each" : prize.effect.kind === "icestaff" ? "ice staff uses (set up below)" : "shots, each"}</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("boxes") && (
@@ -245,7 +258,8 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.boxes}
 							onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bx${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="subtle">{prize.effect.kind === "cup" ? "boxes to whoever is it at the end" : prize.effect.kind === "voteup" ? "mystery boxes to the most-voted" : prize.effect.kind === "shell" ? "mystery boxes if they find it" : prize.effect.kind === "algebra" ? "mystery boxes to whoever solves it" : prize.effect.kind === "wonderBoxes" ? `wonder box${prize.effect.boxes === 1 ? "" : "es"}` : "more boxes"}</Text>
+						{spec.needs.includes("boxKind") && <BoxKindSelect prize={prize} patchEffect={patchEffect} />}
+						<Text fontSize="sm" color="subtle">{prize.effect.kind === "cup" ? "to whoever is it at the end" : prize.effect.kind === "voteup" ? "to the most-voted" : prize.effect.kind === "shell" ? "if they find it" : prize.effect.kind === "algebra" ? "to whoever solves it" : prize.effect.kind === "wonderBoxes" ? `wonder box${prize.effect.boxes === 1 ? "" : "es"}` : "more boxes"}</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("percent") && (
@@ -309,7 +323,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							onChange={(e) => patchEffect(prize.id, { bombReward: e.target.value })}
 						>
 							<option value="time">time on the timer</option>
-							<option value="boxes">boxes for the opener</option>
+							<option value="boxes">{prize.effect.kind === "icestaff" ? "boxes for whoever used it" : "boxes for the opener"}</option>
 						</Select>
 						{prize.effect.bombReward === "boxes" ? (
 							<HStack spacing={1}>
@@ -320,7 +334,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 									value={prize.effect.boxes}
 									onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bbx${prize.id}`)}
 								/>
-								<Text fontSize="sm" color="subtle">boxes</Text>
+								<BoxKindSelect prize={prize} patchEffect={patchEffect} />
 							</HStack>
 						) : (
 							<HStack spacing={1}>
@@ -349,9 +363,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						onChange={(e) => patchEffect(prize.id, { loopSound: e.target.value })}
 					>
 						<option value="">(no music)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<Text fontSize="sm" color="muted">Vol</Text>
 					<input
@@ -451,9 +463,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						onChange={(e) => patchEffect(prize.id, { track: e.target.value })}
 					>
 						<option value="">(pick a track)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<Text fontSize="sm" color="muted">Vol</Text>
 					<input
@@ -517,9 +527,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						onChange={(e) => patchEffect(prize.id, { failSound: e.target.value })}
 					>
 						<option value="">(sound: none)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<input
 						type="range"
@@ -541,9 +549,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						onChange={(e) => patchEffect(prize.id, { winSound: e.target.value })}
 					>
 						<option value="">(sound: none)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<input
 						type="range"
@@ -565,9 +571,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						onChange={(e) => patchEffect(prize.id, { winSound: e.target.value })}
 					>
 						<option value="">(sound: none)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<input
 						type="range"
@@ -585,9 +589,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						onChange={(e) => patchEffect(prize.id, { failSound: e.target.value })}
 					>
 						<option value="">(sound: none)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					<input
 						type="range"

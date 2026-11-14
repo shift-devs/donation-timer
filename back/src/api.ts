@@ -12,7 +12,7 @@ import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopR
 import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
 import { normalizeChatPermissions, mergeChatPermissions } from "./chatPermissions";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
-import { normalizeMysteryBox, normalizeWonderBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantThundergun, grantFirstAid, grantFuckYouGun, grantDoubleTime, grantShield, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
+import { normalizeMysteryBox, normalizeWonderBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantThundergun, grantFirstAid, grantFuckYouGun, grantIceStaff, grantDoubleTime, grantShield, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
 import { normalizeFwProductBonuses, normalizeFwProductSounds, normalizeFwProductAlerts, normalizeFwProductBanners, normalizeFwProductShadows, normalizeFwProductNames, displayNameFor, alertsEnabledFor, fetchFourthwallProducts, pushFwActivity, describeError as describeFwError } from "./platforms/fourthwall";
@@ -143,6 +143,7 @@ function wsSync(ws: TimerWebSocket) {
             thunderguns: curSession.thunderguns || {},
             firstAid: curSession.firstAid || {},
             fuckYouGuns: curSession.fuckYouGuns || {},
+            iceStaffs: curSession.iceStaffs || {},
             doubleTime: curSession.doubleTime || {},
             shields: curSession.shields || {},
             giftSubProgress: curSession.giftSubProgress || {},
@@ -821,6 +822,13 @@ export function startApi(){
                     const n = Math.trunc(Number(jData.count) || 1);
                     if (name && n)
                         grantFuckYouGun(curSession, name, name, n);
+                    break;
+                }
+                case "giveIceStaff": {
+                    const name = typeof jData.name === "string" ? jData.name.trim() : "";
+                    const n = Math.trunc(Number(jData.count) || 1);
+                    if (name && n)
+                        grantIceStaff(curSession, name, name, n);
                     break;
                 }
                 case "giveDoubleTime": {

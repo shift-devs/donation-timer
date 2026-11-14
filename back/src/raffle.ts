@@ -13,7 +13,7 @@
 
 import { TimerUserSession } from "./types";
 import { emitRaffle, emitTerminal, reportError } from "./bus";
-import { mbSettings, grantMysteryBox } from "./mysterybox";
+import { boxSettings, boxWord, grantMysteryBox, BoxKind } from "./mysterybox";
 import { firesaleSettings } from "./firesale";
 import { chatAnnounce } from "./chat";
 
@@ -39,9 +39,10 @@ export const DEFAULT_RAFFLE = {
     entrySec: 120,
     // how many names come out of the hat
     winners: 1,
-    // pay each winner in mystery boxes as well
+    // pay each winner in boxes as well — mystery boxes, or wonder boxes
     giveBoxes: false,
     boxesPerWinner: 1,
+    boxKind: "mystery",
     // say the winners in chat once they're up
     announceInChat: true,
     music: "firesale.mp3",
@@ -93,6 +94,7 @@ export function normalizeRaffle(raw: any): any {
         winners: numIn(r.winners, 1, MAX_WINNERS, d.winners),
         giveBoxes: r.giveBoxes === undefined ? d.giveBoxes : !!r.giveBoxes,
         boxesPerWinner: numIn(r.boxesPerWinner, 1, MAX_BOXES, d.boxesPerWinner),
+        boxKind: r.boxKind === "wonder" ? "wonder" : "mystery",
         announceInChat: r.announceInChat === undefined ? d.announceInChat : !!r.announceInChat,
         music: str(r.music, 200, d.music),
         volume: vol(r.volume, d.volume),
@@ -171,7 +173,7 @@ export function raffleView(session: TimerUserSession): any {
             winners: run.winners.map((w: any) => w.name),
             wonAt: run.wonAt,
             total: run.entrants.length,
-            bonus: run.boxes > 0 ? `+${run.boxes} MYSTERY BOX${run.boxes === 1 ? "" : "ES"}${run.want > 1 ? " EACH" : ""}` : "",
+            bonus: run.boxes > 0 ? `+${run.boxes} ${boxWord(run.boxKind || "mystery").toUpperCase()}${run.boxes === 1 ? "" : "ES"}${run.want > 1 ? " EACH" : ""}` : "",
         }] : [],
         want: run ? run.want : cfg.winners,
         title: (run ? run.title : cfg.title) || "RAFFLE",
@@ -216,6 +218,7 @@ export type RaffleOverrides = {
     winners?: number | null,
     giveBoxes?: boolean | null,
     boxesPerWinner?: number | null,
+    boxKind?: BoxKind | null,
 };
 
 // the same bounds the settings get, applied to one start's overrides. nulls and blanks drop out, so a caller
@@ -241,6 +244,7 @@ export function normalizeRaffleOverrides(raw: any): RaffleOverrides {
     if (typeof r.giveBoxes === "boolean") out.giveBoxes = r.giveBoxes;
     const boxes = num(r.boxesPerWinner, 1, MAX_BOXES);
     if (boxes !== undefined) out.boxesPerWinner = boxes;
+    if (r.boxKind === "mystery" || r.boxKind === "wonder") out.boxKind = r.boxKind;
     return out;
 }
 
@@ -255,7 +259,8 @@ export function startRaffle(session: TimerUserSession, overrides: RaffleOverride
     clearRunTimers(session.userId);
     f.seq = (f.seq || 0) + 1;
     f.nonce = (f.nonce || 0) + 1;
-    const mb = mbSettings(session);
+    const boxKind: BoxKind = cfg.boxKind === "wonder" ? "wonder" : "mystery";
+    const mb = boxSettings(session, boxKind);
     f.run = {
         id: `raffle${f.seq}`,
         phase: "running",
@@ -264,8 +269,9 @@ export function startRaffle(session: TimerUserSession, overrides: RaffleOverride
         title: cfg.title,
         prize: cfg.prize,
         want: cfg.winners,
-        // 0 when boxes are off here or mystery boxes are off altogether — the overlay shouldn't promise one
+        // 0 when boxes are off here or that kind of box is off altogether — the overlay shouldn't promise one
         boxes: cfg.giveBoxes && mb.enabled ? cfg.boxesPerWinner : 0,
+        boxKind,
         winners: [] as { login: string, name: string }[],
         wonAt: 0,
         entrants: [] as { login: string, name: string }[],
@@ -281,7 +287,7 @@ export function startRaffle(session: TimerUserSession, overrides: RaffleOverride
             }
         }, secs * 1000);
     if (cfg.giveBoxes && !mb.enabled)
-        emitTerminal(session.userId, `RAFFLE — mystery boxes are turned off, so the winners won't get any.`);
+        emitTerminal(session.userId, `RAFFLE — ${boxWord(boxKind)}es are turned off, so the winners won't get any.`);
     emitTerminal(session.userId, `RAFFLE started — !${cfg.command} to enter, ${run.want} winner${run.want === 1 ? "" : "s"}${secs > 0 ? `, ${secs}s` : ", open until drawn"}${cfg.prize ? ` for ${cfg.prize}` : ""}`, true);
     pushRaffle(session);
     return run;
@@ -330,10 +336,10 @@ function pickWinners(session: TimerUserSession, runId: string){
     emitTerminal(session.userId, `RAFFLE winner${n === 1 ? "" : "s"}: ${list}${run.prize ? ` — ${run.prize}` : ""} (${run.entrants.length} entered)`, true);
     if (run.boxes > 0)
         for (const w of run.winners)
-            grantMysteryBox(session, w.login, w.name, run.boxes, `won the raffle`);
+            grantMysteryBox(session, w.login, w.name, run.boxes, `won the raffle`, run.boxKind || "mystery");
     if (cfg.announceInChat){
         const prize = run.prize ? ` ${run.prize}` : "";
-        const boxes = run.boxes > 0 ? ` (+${run.boxes} mystery box${run.boxes === 1 ? "" : "es"}${n > 1 ? " each" : ""})` : "";
+        const boxes = run.boxes > 0 ? ` (+${run.boxes} ${boxWord(run.boxKind || "mystery")}${run.boxes === 1 ? "" : "es"}${n > 1 ? " each" : ""})` : "";
         chatAnnounce(session, `RAFFLE WINNER${n === 1 ? "" : "S"}: ${run.winners.map((w: any) => `@${w.name}`).join(", ")}${prize ? ` won${prize}` : ""}${boxes}! ${run.entrants.length} entered.`);
     }
     pushRaffle(session);
@@ -382,7 +388,7 @@ export function runRaffleCommand(session: TimerUserSession, cmd: { action: strin
         const replaced = !!run;
         const r = startRaffle(session, cmd.overrides);
         const secs = r.endsAt ? Math.round((r.endsAt - r.startedAt) / 1000) : 0;
-        return { ok: true, message: `Raffle started${replaced ? " (replaced the one on screen)" : ""} — !${cfg.command} to enter, ${r.want} winner${r.want === 1 ? "" : "s"}${r.boxes ? ` getting ${r.boxes} box${r.boxes === 1 ? "" : "es"} each` : ""}, ${secs ? `${secs}s` : "open until you draw"}.` };
+        return { ok: true, message: `Raffle started${replaced ? " (replaced the one on screen)" : ""} — !${cfg.command} to enter, ${r.want} winner${r.want === 1 ? "" : "s"}${r.boxes ? ` getting ${r.boxes} ${boxWord(r.boxKind || "mystery")}${r.boxes === 1 ? "" : "es"} each` : ""}, ${secs ? `${secs}s` : "open until you draw"}.` };
     }
     if (cmd.action === "draw"){
         if (!run || run.phase !== "running")

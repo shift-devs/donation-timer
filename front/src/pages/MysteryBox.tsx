@@ -629,7 +629,9 @@ const MysteryBox: React.FC = () => {
 	const rollEach = Math.max(0, Number((revive && revive.rewardSeconds) || 0));
 	const rollNameFs = Math.max(48, Math.min(96, Math.floor((STAGE_W - 120) / (Math.max(4, rollCalled.length + 1) * 0.55))));
 	// hot potato / cup and ball: one name holds it, and it's the name chat is watching
-	const reviveHolderGame = !!(revive && (revive.kind === "potato" || revive.kind === "cup"));
+	// …and beat 'em up, where the one name is who's being hit, and the names under it are the hitters
+	const reviveBeat = !!(revive && revive.kind === "beatemup");
+	const reviveHolderGame = !!(revive && (revive.kind === "potato" || revive.kind === "cup" || reviveBeat));
 	const reviveHolder = String((revive && revive.holder) || "");
 	const holderFs = Math.max(48, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveHolder.length + 1) * 0.55))));
 	// vote 'em out: the standings, and how many of them go
@@ -1176,11 +1178,11 @@ const MysteryBox: React.FC = () => {
 							) : reviveHolderGame ? (
 								<div key={`hold${revive.holderAt || 0}`} style={{ marginTop: 6, animation: "mb-pop 420ms ease-out both" }}>
 									<div style={{ color: cfg.nameColor, fontSize: 30, letterSpacing: "0.14em", textShadow: outline }}>
-										{revive.kind === "potato" ? "HOLDING THE POTATO" : "IT"}
+										{reviveBeat ? "GETTING BEAT UP" : revive.kind === "potato" ? "HOLDING THE POTATO" : "IT"}
 									</div>
 									<div
 										style={{
-											color: revive.kind === "potato" ? "#ff8a3d" : cfg.titleColor,
+											color: reviveBeat ? "#ff4b4b" : revive.kind === "potato" ? "#ff8a3d" : cfg.titleColor,
 											fontSize: holderFs,
 											lineHeight: 1.05,
 											WebkitTextStrokeWidth: "4px",
@@ -1195,9 +1197,16 @@ const MysteryBox: React.FC = () => {
 									<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.1em", marginTop: 10, textShadow: outline }}>
 										<span key={`p${revivePts}`} style={{ display: "inline-block", color: cfg.titleColor, animation: "mb-pop 300ms ease-out both" }}>{revivePts}</span>
 										{" "}{reviveUnit}
-										{revive.kind === "potato" && Number(revive.rewardSeconds) > 0 ? ` · +${countdown(revivePts * Number(revive.rewardSeconds) * 1000)}` : ""}
+										{(revive.kind === "potato" || reviveBeat) && Number(revive.rewardSeconds) > 0 ? ` · +${countdown(revivePts * Number(revive.rewardSeconds) * 1000)}` : ""}
+										{reviveBeat && Number(revive.timeoutSeconds) > 0 ? ` · ${countdown(revivePts * Number(revive.timeoutSeconds) * 1000)} TIMEOUT` : ""}
 									</div>
-									{reviveNames.length > 1 && (
+									{reviveBeat ? (reviveNames.length > 0 && (
+										<div style={{ color: cfg.nameColor, fontSize: 26, lineHeight: 1.2, marginTop: 8, padding: "0 60px", textShadow: outline, opacity: 0.85 }}>
+											{reviveNames.slice(-6).map((n, i) => (
+												<span key={`${n}${i}`} style={{ marginRight: 14 }}>👊 @{n}</span>
+											))}
+										</div>
+									)) : reviveNames.length > 1 && (
 										<div style={{ color: cfg.nameColor, fontSize: 26, lineHeight: 1.2, marginTop: 8, padding: "0 60px", textShadow: outline, opacity: 0.85 }}>
 											{reviveNames.slice(-6, -1).map((n, i) => (
 												<span key={`${n}${i}`} style={{ marginRight: 14 }}>@{n} →</span>
@@ -1420,7 +1429,7 @@ const MysteryBox: React.FC = () => {
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 44, marginTop: 22, textShadow: outline }}>
 								{reviveHolderGame
-									? `@${reviveHolder} ${revive.kind === "potato" ? "GOT BURNED" : "WINS"}`
+									? (reviveBeat ? `@${reviveHolder} TOOK ${revivePts} HIT${revivePts === 1 ? "" : "S"}` : `@${reviveHolder} ${revive.kind === "potato" ? "GOT BURNED" : "WINS"}`)
 									: reviveVote
 									? (voteBoard.length ? (reviveVoteUp ? "WINNER:" : "VOTED OUT:") : "NOBODY GOT A VOTE")
 									: reviveWeenie

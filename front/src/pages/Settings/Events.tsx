@@ -295,6 +295,7 @@ function canonEventRaffle(raw: any) {
 		winners: inRange(r.winners, 1, 20),
 		giveBoxes: typeof r.giveBoxes === "boolean" ? r.giveBoxes : null,
 		boxesPerWinner: inRange(r.boxesPerWinner, 1, 99),
+		boxKind: r.boxKind === "mystery" || r.boxKind === "wonder" ? r.boxKind : null,
 	};
 }
 
@@ -306,18 +307,20 @@ const raffleToEdit = (r: any) => ({
 	winners: r.winners == null ? "" : String(r.winners),
 	boxesPerWinner: r.boxesPerWinner == null ? "" : String(r.boxesPerWinner),
 	giveBoxes: r.giveBoxes == null ? "tab" : r.giveBoxes ? "yes" : "no",
+	boxKind: r.boxKind == null ? "tab" : r.boxKind,
 });
 
 const raffleToCanon = (r: any) => canonEventRaffle({
 	...r,
 	delaySec: parseDelaySec(r.delaySec),
 	giveBoxes: r.giveBoxes === "yes" ? true : r.giveBoxes === "no" ? false : null,
+	boxKind: r.boxKind === "mystery" || r.boxKind === "wonder" ? r.boxKind : null,
 });
 
 // this event's raffle as the equivalent terminal command, blanks left out so they fall back the same way
 function eventRaffleCommand(r: any): string {
 	const c = raffleToCanon(r);
-	return raffleCommand({ seconds: c.entrySec, winners: c.winners, giveBoxes: c.giveBoxes, boxesPerWinner: c.boxesPerWinner, title: c.title, prize: c.prize });
+	return raffleCommand({ seconds: c.entrySec, winners: c.winners, giveBoxes: c.giveBoxes, boxesPerWinner: c.boxesPerWinner, boxKind: c.boxKind, title: c.title, prize: c.prize });
 }
 
 function canonFromServer(raw: any) {
@@ -908,7 +911,7 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 							</NumberInput>
 						</HStack>
 						<HStack>
-							<Text color="muted">mystery boxes</Text>
+							<Text color="muted">boxes</Text>
 							<Select size="sm" width="170px" value={e.raffle.giveBoxes} onChange={(ev) => updateRaffle(i, { giveBoxes: ev.currentTarget.value })}>
 								<option value="tab">as on the Raffle tab</option>
 								<option value="yes">yes</option>
@@ -919,6 +922,11 @@ const Events: React.FC<{ ws: any; settings: any; products: any[] | null }> = ({ 
 									<NumberInputField placeholder="tab's" />
 								</NumberInput>
 								<Text color="muted">each</Text>
+								<Select size="sm" width="170px" value={e.raffle.boxKind} onChange={(ev) => updateRaffle(i, { boxKind: ev.currentTarget.value })}>
+									<option value="tab">kind as on the Raffle tab</option>
+									<option value="mystery">mystery boxes</option>
+									<option value="wonder">wonder boxes</option>
+								</Select>
 							</>)}
 						</HStack>
 					</Flex>

@@ -15,6 +15,7 @@ import {
 	VStack,
 	useToast,
 } from "@chakra-ui/react";
+import Tick from "./Tick";
 import { setDropSettings, testDrop, forceDrop, stopDrop, clearDropQueue } from "../../Api";
 import { copyText } from "../../copy";
 import MaskedUrl from "../../MaskedUrl";
@@ -22,7 +23,7 @@ import NumberField from "../../NumberField";
 import { BASE_URL } from "../../Consts";
 import { prizeImageSrc, countdown } from "../../mysterybox";
 import { canonDrops, rewardOdds, rewardLive, gamePlayable, gameArmed, gameOdds, secretReady, chanceOfAny, GAME_KINDS, REWARD_KINDS, DEFAULT_GAME, DEFAULT_PRIZE, DEFAULT_POOL, MAX_REWARDS, MAX_GAMES, MAX_POOLS, MAX_SECRETS } from "../../drops";
-import EffectFields, { PRIZE_IMAGES, SOUNDS } from "./EffectFields";
+import EffectFields, { PRIZE_IMAGES, PRIZE_IMAGE_OPTIONS, SOUND_OPTIONS } from "./EffectFields";
 
 const SEND_DEBOUNCE = 300;
 
@@ -31,9 +32,7 @@ const SoundPick: React.FC<{ value: string; volume: number; onPick: (v: string) =
 	<>
 		<Select size="sm" maxW="240px" value={value} onChange={(e) => onPick(e.target.value)}>
 			<option value="">{none || "(sound: none)"}</option>
-			{SOUNDS.map((f) => (
-				<option key={f} value={f}>{f}</option>
-			))}
+			{SOUND_OPTIONS}
 		</Select>
 		<Text fontSize="sm" color="muted">Vol</Text>
 		<input type="range" min={0} max={1} step={0.05} value={volume} onChange={(e) => onVolume(Number(e.target.value))} />
@@ -91,7 +90,6 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 	const timers = useRef<{ [key: string]: any }>({});
 	const [testReward, setTestReward] = useState("");
 	const [testGame, setTestGame] = useState("");
-	const [, setTick] = useState(0);
 
 	useEffect(() => {
 		if (serverStr === sentRef.current) {
@@ -223,12 +221,6 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 	const phase: string = (revive && revive.phase) || "idle";
 	const dropUp = !!(hour && hour.up) && phase !== "idle";
 
-	useEffect(() => {
-		if (!dropUp)
-			return;
-		const id = setInterval(() => setTick((n) => n + 1), 500);
-		return () => clearInterval(id);
-	}, [dropUp]);
 
 	const badge = !draft.enabled
 		? <Badge>OFF</Badge>
@@ -290,7 +282,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 						</Badge>
 						<Text fontSize="sm" color="muted">
 							<b>{revive.title}</b>
-							{phase === "running" ? ` — ${revive.kind === "guess" ? `${revive.low}–${revive.high}, ${revive.guesses} guessed` : `${revive.points}${revive.kind === "scramble" || revive.kind === "secret" ? "" : ` / ${revive.goal}`}`} — ${countdown(revive.endsAt - Date.now())} left` : ""}
+							{phase === "running" ? <>{` — ${revive.kind === "guess" ? `${revive.low}–${revive.high}, ${revive.guesses} guessed` : `${revive.points}${revive.kind === "scramble" || revive.kind === "secret" ? "" : ` / ${revive.goal}`}`} — `}<Tick>{() => countdown(revive.endsAt - Date.now())}</Tick> left</> : ""}
 						</Text>
 						<Button size="xs" variant="ghost" onClick={() => stopDrop(ws)}>{phase === "running" ? "Call off" : "Clear"}</Button>
 					</Flex>
@@ -623,9 +615,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 															onChange={(e) => e.target.value && !s.images.includes(e.target.value) && patchSecret(g.id, i, { images: [...s.images, e.target.value] })}
 														>
 															<option value="">(add a picture…)</option>
-															{PRIZE_IMAGES.map((f) => (
-																<option key={f} value={f}>{f}</option>
-															))}
+															{PRIZE_IMAGE_OPTIONS}
 														</Select>
 														<Input
 															size="sm"
@@ -740,9 +730,7 @@ const Drops: React.FC<{ ws: any; token: string | null; settings: any; revive: an
 											<HStack spacing={2} wrap="wrap">
 												<Select size="sm" maxW="200px" value={PRIZE_IMAGES.includes(p.image) ? p.image : ""} onChange={(e) => patchReward(p.id, { image: e.target.value })}>
 													<option value="">(art: none)</option>
-													{PRIZE_IMAGES.map((f) => (
-														<option key={f} value={f}>{f}</option>
-													))}
+													{PRIZE_IMAGE_OPTIONS}
 												</Select>
 												<Input size="sm" maxW="240px" placeholder="…or an image URL" value={PRIZE_IMAGES.includes(p.image) ? "" : p.image}
 													onChange={(e) => patchReward(p.id, { image: e.target.value }, `i${p.id}`)} />

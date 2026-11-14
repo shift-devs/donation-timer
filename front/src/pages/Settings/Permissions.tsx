@@ -119,7 +119,7 @@ const Permissions: React.FC<{ ws: any; settings: any }> = ({ ws, settings }) => 
 			))}
 			<Text fontSize="xs" color="subtle">
 				Opening your own box (<Code fontSize="xs">!mb open</Code>), <Code fontSize="xs">!mb count</Code>,{" "}
-				<Code fontSize="xs">!enter</Code>, <Code fontSize="xs">!raygun</Code>, <Code fontSize="xs">!thundergun</Code>, <Code fontSize="xs">!fuckyougun</Code> and <Code fontSize="xs">!firstaid</Code> are open to everyone and aren&apos;t listed here.
+				<Code fontSize="xs">!enter</Code>, <Code fontSize="xs">!raygun</Code>, <Code fontSize="xs">!thundergun</Code>, <Code fontSize="xs">!fuckyougun</Code>, <Code fontSize="xs">!icestaff</Code> and <Code fontSize="xs">!firstaid</Code> are open to everyone and aren&apos;t listed here.
 			</Text>
 		</Box>
 	);

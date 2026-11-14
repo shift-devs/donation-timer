@@ -3,7 +3,7 @@ import { Badge, Box, Button, Checkbox, Code, Flex, HStack, Input, Select, Switch
 import { setWonderBoxSettings, giveMysteryBox, testMysteryBox, stopMysteryBox } from "../../Api";
 import NumberField from "../../NumberField";
 import { canonWonderBox, canonMysteryBox, prizeProfiles, inActiveProfile } from "../../mysterybox";
-import { SOUNDS } from "./EffectFields";
+import { SOUND_OPTIONS } from "./EffectFields";
 import { useSyncedDraft } from "./useSyncedDraft";
 
 // The wonder box: a mystery box with its own prizes and its own wallet, earned by FIRESALES (the mystery box
@@ -208,9 +208,7 @@ const WonderBox: React.FC<{ ws: any; settings: any; run: any; products: any[] | 
 					<Text fontSize="sm" color="muted">Spin music</Text>
 					<Select size="sm" maxW="260px" value={draft.music} onChange={(e) => patch({ music: e.target.value })}>
 						<option value="">(same as the mystery box)</option>
-						{SOUNDS.map((f) => (
-							<option key={f} value={f}>{f}</option>
-						))}
+						{SOUND_OPTIONS}
 					</Select>
 					{draft.music && (<>
 						<Text fontSize="sm" color="muted">Vol</Text>

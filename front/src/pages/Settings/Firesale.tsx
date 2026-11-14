@@ -18,6 +18,7 @@ import {
 	WrapItem,
 	useToast,
 } from "@chakra-ui/react";
+import Tick from "./Tick";
 import {
 	setFiresaleSettings,
 	startFiresale,
@@ -55,8 +56,6 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 	const [manualWinner, setManualWinner] = useState("");
 	const [winnerRun, setWinnerRun] = useState("");
 	const [testSec, setTestSec] = useState(60);
-	// the live run carries a deadline, so the countdown here has to tick on its own
-	const [, setTick] = useState(0);
 
 	useEffect(() => {
 		if (serverStr === sentRef.current) {
@@ -79,13 +78,6 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 	// several giveaways can be open at once, so the payload carries a list
 	const runs: any[] = run && Array.isArray(run.runs) ? run.runs : [];
 	const anyRunning = runs.some((r) => r.phase === "running");
-
-	useEffect(() => {
-		if (!anyRunning)
-			return;
-		const id = setInterval(() => setTick((n) => n + 1), 500);
-		return () => clearInterval(id);
-	}, [anyRunning]);
 
 	const later = (key: string, fn: () => void, delay: number) => {
 		clearTimeout(timers.current[key]);
@@ -163,7 +155,7 @@ const Firesale: React.FC<{ ws: any; token: string | null; settings: any; run: an
 						</Text>
 						<Text color="muted">{r.total} in</Text>
 						{r.phase === "running" && r.endsAt && (
-							<Text color="muted">{countdown(r.endsAt - Date.now())} left</Text>
+							<Text color="muted"><Tick>{() => countdown(r.endsAt - Date.now())}</Tick> left</Text>
 						)}
 						{/* a multi-item giveaway is announced one winner per message, so a run can hold several */}
 						{r.phase === "winner" && (
