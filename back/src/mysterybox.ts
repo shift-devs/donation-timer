@@ -70,7 +70,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes", "icestaff", "beatemup", "bff"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes", "icestaff", "beatemup", "bff", "monkeybomb"];
 const BOMB_REWARDS = ["time", "boxes"];
 // which wallet a game that pays boxes pays into
 const BOX_KINDS = ["mystery", "wonder"];
@@ -135,6 +135,8 @@ export const DEFAULT_MYSTERYBOX = {
     // the ice staff's. same wallet-and-command mechanic, but it isn't aimed at anybody: "!icestaff" on its own
     // freezes the timer exactly as the timebomb prize does, set up by the ice staff prize on the list.
     iceStaffCommand: "icestaff",
+    // the monkey bomb's: "!monkey" throws one, set up by the monkey bomb prize on the list
+    monkeyCommand: "monkey",
     // "!raygun random" (and the thunder gun's and fuck you gun's): who can be hit — anybody who has typed in
     // this many minutes
     randomShotMin: 10,
@@ -208,7 +210,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", bombLastBoxes: 0, infectGoal: 5, infectBoxes: 0, shotBoxes: 0, boxKind: "mystery", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", bombLastBoxes: 0, infectGoal: 5, infectBoxes: 0, shotBoxes: 0, countSound: "", countVolume: 1, boxKind: "mystery", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -295,6 +297,10 @@ function normalizeEffect(raw: any): any {
         infectGoal: numIn(r.infectGoal, 0, 1000, 5),
         infectBoxes: numIn(r.infectBoxes, 0, MAX_EXTRA_BOXES, 0),
         shotBoxes: numIn(r.shotBoxes, 0, MAX_EXTRA_BOXES, 0),
+        // the games that count something up (a pass, an answer, an infection, a hit, a pair, a monkey…): a
+        // one-shot the source plays each time the count goes up. blank = silent.
+        countSound: str(r.countSound, MAX_PATH),
+        countVolume: Math.min(1, Math.max(0, Number.isFinite(Number(r.countVolume)) ? Number(r.countVolume) : 1)),
         // every game that pays boxes (cup and ball, solve for x, shell game, vote 'em up, a timebomb's "boxes"
         // reward, and an ice staff's): which kind. mystery unless set, which is what they all paid before.
         boxKind: BOX_KINDS.includes(r.boxKind) ? r.boxKind : "mystery",
@@ -382,6 +388,7 @@ export function normalizeMysteryBox(raw: any): any {
         firstAidCommand: (typeof r.firstAidCommand === "string" ? r.firstAidCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.firstAidCommand,
         fuckYouGunCommand: (typeof r.fuckYouGunCommand === "string" ? r.fuckYouGunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.fuckYouGunCommand,
         iceStaffCommand: (typeof r.iceStaffCommand === "string" ? r.iceStaffCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.iceStaffCommand,
+        monkeyCommand: (typeof r.monkeyCommand === "string" ? r.monkeyCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.monkeyCommand,
         randomShotMin: numIn(r.randomShotMin, 1, RANDOM_SHOT_MAX_MIN, d.randomShotMin),
         activeProfile: str(r.activeProfile, 60).trim(),
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
@@ -825,6 +832,17 @@ export function grantIceStaff(session: TimerUserSession, login: any, displayName
     return next;
 }
 
+// monkey bombs: the same wallet again. one thrown starts a monkey bomb with the monkey bomb prize's settings.
+export function mbMonkeyBombs(session: TimerUserSession): Ledger {
+    return session.monkeyBombs || (session.monkeyBombs = {});
+}
+
+export function grantMonkeyBomb(session: TimerUserSession, login: any, displayName: any, n = 1): number {
+    const next = ledgerGrant(mbMonkeyBombs(session), login, displayName, n);
+    emitSync(session.userId);
+    return next;
+}
+
 export type GunKind = "raygun" | "thundergun" | "fuckyougun" | "firstaid";
 export const GUN_KINDS: GunKind[] = ["raygun", "thundergun", "fuckyougun", "firstaid"];
 const THUNDERGUN_SEC = 20 * 60;
@@ -987,6 +1005,7 @@ export function renameOwner(session: TimerUserSession, from: any, to: any): { ok
     ledgerRename(mbFirstAid(session), from, to);
     ledgerRename(mbFuckYouGuns(session), from, to);
     ledgerRename(mbIceStaffs(session), from, to);
+    ledgerRename(mbMonkeyBombs(session), from, to);
     ledgerRename(mbDoubleTime(session), from, to);
     ledgerRename(shieldLedger(session), from, to);
     ledgerRename(mbGiftProgress(session), from, to);
@@ -1245,7 +1264,7 @@ export function openBlockedBy(session: TimerUserSession, kind: BoxKind = "myster
     const f = session.firesale;
     if (f && Array.isArray(f.runs) && f.runs.length)
         return "a firesale is running";
-    if (session.raffle && session.raffle.run)
+    if (session.raffle && Array.isArray(session.raffle.runs) && session.raffle.runs.length)
         return "a raffle is running";
     const pause = session.timerPause;
     if (pause)
@@ -1912,11 +1931,25 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         chatSay(session, `@${r.name || who} got ${e.charges} ice staff use${e.charges === 1 ? "" : "s"} — !${cmd} to freeze the timer whenever you like. ${held} in hand.`);
         return;
     }
+    if (e.kind === "monkeybomb" && e.charges > 0){
+        // banked like the ice staff; throwing one later starts the game with THIS prize's settings (useMonkeyBomb)
+        const r = recipient(session, ctx);
+        const who = r.login;
+        if (!who || r.test)
+            return;
+        const held = grantMonkeyBomb(session, who, r.name, e.charges);
+        const cmd = mbSettings(session).monkeyCommand;
+        emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} was given ${e.charges} monkey bomb${e.charges === 1 ? "" : "s"} (${held} in hand).`, true);
+        chatSay(session, `@${r.name || who} got ${e.charges} monkey bomb${e.charges === 1 ? "" : "s"} — !${cmd} to throw one whenever you like. ${held} in hand.`);
+        return;
+    }
     if (e.kind === "bff" && e.seconds > 0){
         // chat pairs up by @-ing each other; every pair is worth rewardSeconds, paid as it's made. a rehearsal
         // plays for real, time included — there's nothing in it to credit anybody with.
         const cfg = mbSettings(session);
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "bff",
             title: prize.name || "BFFS",
             subtitle: "",
@@ -1958,6 +1991,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const target = real ? String(r.login).toLowerCase() : randomChatter(session);
         const targetName = real ? (r.name || target) : (target ? chatterName(session, target) : "");
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "beatemup",
             title: prize.name || "BEAT 'EM UP",
             subtitle: "",
@@ -2011,6 +2046,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const potato = e.kind === "potato";
         const boxes = e.boxes;
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: e.kind,
             title: prize.name || (potato ? "HOT POTATO" : "CUP AND BALL"),
             subtitle: "",
@@ -2052,6 +2089,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
     if (e.kind === "vote" && e.seconds > 0 && e.timeoutSeconds > 0){
         const cfg = mbSettings(session);
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "vote",
             title: prize.name || "VOTE 'EM OUT",
             subtitle: "",
@@ -2091,6 +2130,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const eq = makeEquation(e.difficulty);
         const boxes = e.boxes;
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "algebra",
             title: prize.name || "SOLVE FOR X",
             subtitle: "",
@@ -2138,6 +2179,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const shells = Math.max(2, e.shells || 3);
         const boxes = e.boxes;
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "shell",
             title: prize.name || "SHELL GAME",
             subtitle: "",
@@ -2186,6 +2229,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const real = !r.test;
         const boxes = e.boxes;
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "voteup",
             title: prize.name || "VOTE 'EM UP",
             subtitle: "",
@@ -2226,6 +2271,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
     if (e.kind === "weenie" && e.seconds > 0 && e.phrases.length){
         const cfg = mbSettings(session);
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "weenie",
             title: prize.name || "WEENIE HUNT",
             subtitle: "",
@@ -2277,6 +2324,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const cfg = mbSettings(session);
         const first = e.chants[0];
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "chant",
             title: prize.name || "SAY IT!",
             subtitle: "", // built per round from the chant drawn — see quickRevive.ts
@@ -2318,6 +2367,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const zero = real ? String(r.login).toLowerCase() : randomChatter(session);
         const zeroName = real ? (r.name || zero) : (zero ? chatterName(session, zero) : "");
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "infection",
             title: prize.name || "INFECTION",
             subtitle: "@ SOMEONE TO INFECT THEM",
@@ -2358,6 +2409,8 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         // clock runs out (see quickRevive.ts). a rehearsal plays it for real, like a chant's does.
         const cfg = mbSettings(session);
         const res = startChallenge(session, {
+            countSound: e.countSound,
+            countVolume: e.countVolume,
             kind: "rollcall",
             title: prize.name || "ROLL CALL",
             subtitle: "",
@@ -2635,6 +2688,10 @@ export function describeEffect(effect: any): string {
                 + (e.infectBoxes > 0 ? `; infecting more than ${e.infectGoal} earns ${e.infectBoxes} ${boxesWord(effectBoxKind(e), e.infectBoxes)}` : "")
                 + (e.shotBoxes > 0 ? `; shooting somebody infected earns ${e.shotBoxes} ${boxesWord(effectBoxKind(e), e.shotBoxes)}` : "")
             : "infects nobody (set the spread time and the timeout)";
+    if (e.kind === "monkeybomb")
+        return e.charges > 0 && e.seconds > 0
+            ? `gives the winner ${e.charges} monkey bomb${e.charges === 1 ? "" : "s"}; each one runs ${mins(e.seconds)}, everyone who types MONKEY adds +${mins(e.rewardSeconds)} and is timed out ${mins(e.timeoutSeconds)} when it blows`
+            : "gives nothing (set the bombs and how long one runs)";
     if (e.kind === "bff")
         return e.seconds > 0
             ? `for ${mins(e.seconds)}, two chatters who @ each other become BFFs (one each)${e.rewardSeconds > 0 ? `; every pair puts +${mins(e.rewardSeconds)} on the timer` : ""}`
@@ -2892,6 +2949,10 @@ export function handleRaygunChat(session: TimerUserSession, login: string, displ
     // the ray gun wins if the two commands have been set the same
     const gun = GUN_KINDS.find((k) => GUNS[k].command(session) === head);
     if (!gun){
+        if (head === mbSettings(session).monkeyCommand){
+            handleMonkeyChat(session, login, String(displayName || login || ""), parts[1] || "");
+            return true;
+        }
         if (head !== mbSettings(session).iceStaffCommand)
             return false;
         handleIceStaffChat(session, login, String(displayName || login || ""), parts[1] || "");
@@ -2966,6 +3027,77 @@ export function useIceStaff(session: TimerUserSession, login: any, displayName: 
         ok: true,
         message: `@${who} used the ${name} — the timer is FROZEN! Every contribution keeps it frozen another ${sayTime(prize.effect.seconds)}. ${left} use${left === 1 ? "" : "s"} left.`,
     };
+}
+
+// ---------------------------------------------------------------------------
+// the monkey bomb
+// ---------------------------------------------------------------------------
+
+// "!monkey" throws one; "!monkey count" says how many are left. open to every chatter, like the guns.
+function handleMonkeyChat(session: TimerUserSession, login: string, who: string, arg: string){
+    const cmd = mbSettings(session).monkeyCommand;
+    if (arg.toLowerCase() === "count"){
+        const n = ledgerCount(mbMonkeyBombs(session), login);
+        if (tellNow(session.userId, String(login || "")))
+            chatSay(session, n > 0
+                ? `@${who} you have ${n} monkey bomb${n === 1 ? "" : "s"} — !${cmd} to throw one.`
+                : `@${who} you have no monkey bombs.`);
+        return;
+    }
+    const res = useMonkeyBomb(session, login, who);
+    if (res.message && (res.ok || tellNow(session.userId, String(login || ""))))
+        chatSay(session, res.message);
+}
+
+// throw one: a monkey bomb game with the CURRENT monkey bomb prize's settings, as the ice staff works. it shares
+// the challenge slot on the Mystery Box source, so it waits for whatever is on there — and the bomb is kept.
+export function useMonkeyBomb(session: TimerUserSession, login: any, displayName: any): { ok: boolean, message: string } {
+    const key = boxKey(login);
+    const who = str(displayName, MAX_NAME) || key;
+    if (!key)
+        return { ok: false, message: "" };
+    if (ledgerCount(mbMonkeyBombs(session), key) < 1)
+        return { ok: false, message: `@${who} you have no monkey bombs.` };
+    const prize = mbSettings(session).prizes.find((p: any) => p.effect && p.effect.kind === "monkeybomb" && p.effect.seconds > 0);
+    if (!prize)
+        return { ok: false, message: `@${who} the monkey bomb isn't set up right now — you keep yours.` };
+    const e = prize.effect;
+    const cfg = mbSettings(session);
+    const res = startChallenge(session, {
+        kind: "monkey",
+        title: prize.name || "MONKEY BOMB",
+        subtitle: "",
+        unit: "MONKEYS",
+        seconds: e.seconds,
+        goal: 0,
+        music: e.loopSound,
+        musicVolume: e.loopVolume,
+        countSound: e.countSound,
+        countVolume: e.countVolume,
+        winSound: "",
+        winVolume: 1,
+        winText: "",
+        failSound: e.failSound,
+        failVolume: e.failVolume,
+        failText: "KABOOM!",
+        holdSec: Math.max(cfg.revealHoldSec, 10),
+        announce: true,
+        phrase: "",
+        rewardSeconds: e.rewardSeconds,
+        streak: false,
+        rounds: 1,
+        chants: [],
+        patientZero: key,
+        patientZeroName: who,
+        timeoutSeconds: Math.min(MAX_NUKE_SEC, e.timeoutSeconds),
+        label: `monkey bomb: ${prize.name || prize.id}`,
+    });
+    if (!res.ok)
+        return { ok: false, message: `@${who} you can't throw it right now — ${res.message.replace(/\.$/, "").toLowerCase()}. You keep it.` };
+    grantMonkeyBomb(session, key, who, -1);
+    const left = ledgerCount(mbMonkeyBombs(session), key);
+    emitTerminal(session.userId, `MONKEYBOMB — ${who} threw one; ${left} left.`, true);
+    return { ok: true, message: "" };
 }
 
 // how often one person may be told why they can't open a box

@@ -152,13 +152,13 @@ export function startRaffle(ws: WebSocket) {
 }
 
 // close entries and draw the winners
-export function drawRaffle(ws: WebSocket) {
-	send(ws, { event: "drawRaffle" });
+export function drawRaffle(ws: WebSocket, runId?: string) {
+	send(ws, { event: "drawRaffle", runId });
 	return 1;
 }
 
-export function stopRaffle(ws: WebSocket) {
-	send(ws, { event: "stopRaffle" });
+export function stopRaffle(ws: WebSocket, runId?: string) {
+	send(ws, { event: "stopRaffle", runId });
 	return 1;
 }
 
@@ -199,6 +199,10 @@ export function giveMysteryBox(ws: WebSocket, name: string, count: number, kind:
 }
 
 // hand out (or take back) fuck you gun shots by hand
+export function giveMonkeyBomb(ws: WebSocket, name: string, count: number) {
+	send(ws, { event: "giveMonkeyBomb", name: name, count: count });
+}
+
 export function giveIceStaff(ws: WebSocket, name: string, count: number) {
 	send(ws, { event: "giveIceStaff", name: name, count: count });
 }

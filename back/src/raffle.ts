@@ -6,8 +6,8 @@
 // the payload handed to the /raffle source is deliberately the firesale's shape (one run in `runs`), so the
 // same overlay draws both and they can't drift apart in look.
 //
-// ONE RAFFLE AT A TIME. unlike fourthwall giveaways there's no outside source opening several at once, and a
-// second start while one is up just replaces it.
+// SEVERAL RAFFLES CAN RUN AT ONCE, like the firesale's giveaways: each has its own clock, entrants and winners,
+// and one "!raffle" enters every raffle taking entries. up to MAX_RUNS; past that the oldest is cleared.
 //
 // same split as the firesale: raffleSettings is persisted config, the run is live state and never written.
 
@@ -120,63 +120,88 @@ export function raffleSettings(session: TimerUserSession): any {
 // the run
 // ---------------------------------------------------------------------------
 
-// timers off the session, same as the firesale's
-const timers: { [userId: number]: { push?: any, end?: any, draw?: any, hold?: any } } = {};
+// timers off the session, same as the firesale's — one set per run, since several can be up at once
+const MAX_RUNS = 5;
+const timers: { [userId: number]: { push?: any, runs: { [runId: string]: { end?: any, draw?: any, hold?: any } } } } = {};
 
 function slots(userId: number){
-    return timers[userId] || (timers[userId] = {});
+    return timers[userId] || (timers[userId] = { runs: {} });
 }
 
-function clearRunTimers(userId: number){
+function runSlots(userId: number, runId: string){
     const t = slots(userId);
-    clearTimeout(t.end);
-    clearTimeout(t.draw);
-    clearTimeout(t.hold);
-    t.end = t.draw = t.hold = undefined;
+    return t.runs[runId] || (t.runs[runId] = {});
+}
+
+function clearRunTimers(userId: number, runId: string){
+    const t = slots(userId).runs[runId];
+    if (t){
+        clearTimeout(t.end);
+        clearTimeout(t.draw);
+        clearTimeout(t.hold);
+    }
+    delete slots(userId).runs[runId];
 }
 
 export function getRaffle(session: TimerUserSession): any {
-    if (!session.raffle || typeof session.raffle !== "object")
-        session.raffle = { nonce: 0, seq: 0, run: null };
+    if (!session.raffle || typeof session.raffle !== "object" || !Array.isArray(session.raffle.runs))
+        session.raffle = { nonce: 0, seq: (session.raffle && session.raffle.seq) || 0, runs: [] };
     return session.raffle;
 }
 
-function currentRun(session: TimerUserSession): any {
-    return getRaffle(session).run;
+function raffleRuns(session: TimerUserSession): any[] {
+    return getRaffle(session).runs;
+}
+
+function findRun(session: TimerUserSession, runId: string): any {
+    return raffleRuns(session).find((r: any) => r.id === runId) || null;
 }
 
 export function isRaffling(session: TimerUserSession): boolean {
-    return !!(session.raffle && session.raffle.run);
+    return !!(session.raffle && Array.isArray(session.raffle.runs) && session.raffle.runs.length);
 }
 
 // what the /raffle source (and the tab) is handed. the firesale's shape on purpose — see the top of the file.
-// the reward text and the settings snapshot come off the RUN, not the live settings, so editing the tab
+// the reward text and the settings snapshot come off each RUN, not the live settings, so editing the tab
 // mid-raffle can't change what the people already on screen were promised.
+// the bouncing field is everyone entered in any raffle on screen, each name once.
 export function raffleView(session: TimerUserSession): any {
     const f = getRaffle(session);
     const cfg = raffleSettings(session);
-    const run = f.run;
-    const names: string[] = run ? run.entrants.map((e: any) => e.name) : [];
+    const runs: any[] = f.runs;
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const r of runs)
+        for (const e of r.entrants)
+            if (!seen.has(e.login)){
+                seen.add(e.login);
+                names.push(e.name);
+            }
+    // the headline: the oldest raffle still open, else the oldest on screen
+    const lead = runs.find((r) => r.phase !== "winner") || runs[0];
     return {
-        active: !!run,
+        active: runs.length > 0,
         nonce: f.nonce,
         names: names.slice(-cfg.maxBouncers),
         total: names.length,
-        runs: run ? [{
+        runs: runs.map((run: any) => ({
             id: run.id,
             phase: run.phase,
             startedAt: run.startedAt,
             endsAt: run.endsAt,
-            prize: run.prize,
+            // several raffles on screen are told apart by their prize, or their title when they have none
+            prize: run.prize || (runs.length > 1 ? run.title : ""),
+            title: run.title,
+            want: run.want,
             gifter: "",
             url: "",
             winners: run.winners.map((w: any) => w.name),
             wonAt: run.wonAt,
             total: run.entrants.length,
             bonus: run.boxes > 0 ? `+${run.boxes} ${boxWord(run.boxKind || "mystery").toUpperCase()}${run.boxes === 1 ? "" : "ES"}${run.want > 1 ? " EACH" : ""}` : "",
-        }] : [],
-        want: run ? run.want : cfg.winners,
-        title: (run ? run.title : cfg.title) || "RAFFLE",
+        })),
+        want: lead ? lead.want : cfg.winners,
+        title: (lead ? lead.title : cfg.title) || "RAFFLE",
         command: cfg.command,
         showCountdown: cfg.showCountdown,
         music: cfg.music,
@@ -248,7 +273,8 @@ export function normalizeRaffleOverrides(raw: any): RaffleOverrides {
     return out;
 }
 
-// start a raffle with whatever is on the tab, with any overrides laid over the top for this one run
+// start a raffle with whatever is on the tab, with any overrides laid over the top for this one run. it runs
+// ALONGSIDE any raffle already up — each has its own clock, entrants and winners. past MAX_RUNS the oldest goes.
 export function startRaffle(session: TimerUserSession, overrides: RaffleOverrides = {}): any {
     const o = normalizeRaffleOverrides(overrides);
     const cfg = { ...raffleSettings(session), ...o };
@@ -256,12 +282,17 @@ export function startRaffle(session: TimerUserSession, overrides: RaffleOverride
         cfg.entrySec = o.seconds;
     const f = getRaffle(session);
     const secs = cfg.entrySec;
-    clearRunTimers(session.userId);
+    if (f.runs.length >= MAX_RUNS){
+        const dropped = f.runs.shift();
+        clearRunTimers(session.userId, dropped.id);
+        emitTerminal(session.userId, `RAFFLE — ${MAX_RUNS} were already up, so the oldest (${dropped.prize || dropped.title}) was cleared.`);
+    }
     f.seq = (f.seq || 0) + 1;
-    f.nonce = (f.nonce || 0) + 1;
+    if (!f.runs.length)
+        f.nonce = (f.nonce || 0) + 1;
     const boxKind: BoxKind = cfg.boxKind === "wonder" ? "wonder" : "mystery";
     const mb = boxSettings(session, boxKind);
-    f.run = {
+    const run = {
         id: `raffle${f.seq}`,
         phase: "running",
         startedAt: Date.now(),
@@ -277,9 +308,9 @@ export function startRaffle(session: TimerUserSession, overrides: RaffleOverride
         entrants: [] as { login: string, name: string }[],
         seen: new Set<string>(),
     };
-    const run = f.run;
+    f.runs.push(run);
     if (secs > 0)
-        slots(session.userId).end = setTimeout(() => {
+        runSlots(session.userId, run.id).end = setTimeout(() => {
             try {
                 drawRaffle(session, run.id);
             } catch (err) {
@@ -288,38 +319,41 @@ export function startRaffle(session: TimerUserSession, overrides: RaffleOverride
         }, secs * 1000);
     if (cfg.giveBoxes && !mb.enabled)
         emitTerminal(session.userId, `RAFFLE — ${boxWord(boxKind)}es are turned off, so the winners won't get any.`);
-    emitTerminal(session.userId, `RAFFLE started — !${cfg.command} to enter, ${run.want} winner${run.want === 1 ? "" : "s"}${secs > 0 ? `, ${secs}s` : ", open until drawn"}${cfg.prize ? ` for ${cfg.prize}` : ""}`, true);
+    emitTerminal(session.userId, `RAFFLE started — !${cfg.command} to enter, ${run.want} winner${run.want === 1 ? "" : "s"}${secs > 0 ? `, ${secs}s` : ", open until drawn"}${cfg.prize ? ` for ${cfg.prize}` : ""}${f.runs.length > 1 ? ` (${f.runs.length} up at once)` : ""}`, true);
     pushRaffle(session);
     return run;
 }
 
-// close entries, hang on DRAWING… for drawSec, then pull the names
+// close entries, hang on DRAWING… for drawSec, then pull the names. no id = every raffle taking entries.
 export function drawRaffle(session: TimerUserSession, runId?: string): boolean {
-    const run = currentRun(session);
-    if (!run || run.phase !== "running" || (runId && run.id !== runId))
+    const targets = raffleRuns(session).filter((r: any) => r.phase === "running" && (!runId || r.id === runId));
+    if (!targets.length)
         return false;
     const cfg = raffleSettings(session);
-    clearRunTimers(session.userId);
-    run.phase = "drawing";
+    for (const run of targets){
+        clearRunTimers(session.userId, run.id);
+        run.phase = "drawing";
+        runSlots(session.userId, run.id).draw = setTimeout(() => {
+            try {
+                pickWinners(session, run.id);
+            } catch (err) {
+                reportError(session.userId, "drawing the raffle", err);
+            }
+        }, cfg.drawSec * 1000);
+    }
     pushRaffle(session);
-    slots(session.userId).draw = setTimeout(() => {
-        try {
-            pickWinners(session, run.id);
-        } catch (err) {
-            reportError(session.userId, "drawing the raffle", err);
-        }
-    }, cfg.drawSec * 1000);
     return true;
 }
 
 function pickWinners(session: TimerUserSession, runId: string){
-    const run = currentRun(session);
-    if (!run || run.id !== runId || run.phase !== "drawing")
+    const run = findRun(session, runId);
+    if (!run || run.phase !== "drawing")
         return;
     const cfg = raffleSettings(session);
+    const what = run.prize || run.title || "raffle";
     if (!run.entrants.length){
-        emitTerminal(session.userId, `RAFFLE ended — nobody entered.`);
-        stopRaffle(session);
+        emitTerminal(session.userId, `RAFFLE ended (${what}) — nobody entered.`);
+        stopRaffle(session, runId);
         return;
     }
     // a partial fisher-yates: only as many swaps as there are winners to pull
@@ -340,40 +374,51 @@ function pickWinners(session: TimerUserSession, runId: string){
     if (cfg.announceInChat){
         const prize = run.prize ? ` ${run.prize}` : "";
         const boxes = run.boxes > 0 ? ` (+${run.boxes} ${boxWord(run.boxKind || "mystery")}${run.boxes === 1 ? "" : "es"}${n > 1 ? " each" : ""})` : "";
-        chatAnnounce(session, `RAFFLE WINNER${n === 1 ? "" : "S"}: ${run.winners.map((w: any) => `@${w.name}`).join(", ")}${prize ? ` won${prize}` : ""}${boxes}! ${run.entrants.length} entered.`);
+        chatAnnounce(session, `${String(run.title || "RAFFLE").toUpperCase()} WINNER${n === 1 ? "" : "S"}: ${run.winners.map((w: any) => `@${w.name}`).join(", ")}${prize ? ` won${prize}` : ""}${boxes}! ${run.entrants.length} entered.`);
     }
     pushRaffle(session);
-    slots(session.userId).hold = setTimeout(() => {
+    runSlots(session.userId, runId).hold = setTimeout(() => {
         try {
-            const cur = currentRun(session);
-            if (cur && cur.id === runId)
-                stopRaffle(session);
+            stopRaffle(session, runId);
         } catch (err) {
             reportError(session.userId, "clearing a finished raffle", err);
         }
     }, cfg.winnerHoldSec * 1000);
 }
 
+// one chatter typing the command enters EVERY raffle taking entries — the command can't name one
 export function addRaffleEntry(session: TimerUserSession, login: string, displayName: string): boolean {
-    const run = currentRun(session);
     const key = String(login || "").toLowerCase().trim();
-    if (!run || run.phase !== "running" || !key || run.seen.has(key) || run.entrants.length >= MAX_ENTRANTS)
+    if (!key)
         return false;
-    run.seen.add(key);
-    run.entrants.push({ login: key, name: String(displayName || login).slice(0, MAX_NAME) });
-    pushSoon(session);
-    return true;
+    let added = false;
+    for (const run of raffleRuns(session)){
+        if (run.phase !== "running" || run.seen.has(key) || run.entrants.length >= MAX_ENTRANTS)
+            continue;
+        run.seen.add(key);
+        run.entrants.push({ login: key, name: String(displayName || login).slice(0, MAX_NAME) });
+        added = true;
+    }
+    if (added)
+        pushSoon(session);
+    return added;
 }
 
-export function stopRaffle(session: TimerUserSession){
-    clearRunTimers(session.userId);
-    getRaffle(session).run = null;
+// clear one raffle, or every one with no id
+export function stopRaffle(session: TimerUserSession, runId?: string){
+    const f = getRaffle(session);
+    for (const r of f.runs)
+        if (!runId || r.id === runId)
+            clearRunTimers(session.userId, r.id);
+    f.runs = runId ? f.runs.filter((r: any) => r.id !== runId) : [];
     pushRaffle(session);
 }
 
 export function endRaffleTimers(userId: number){
-    clearRunTimers(userId);
-    clearTimeout(slots(userId).push);
+    const t = slots(userId);
+    for (const id of Object.keys(t.runs))
+        clearRunTimers(userId, id);
+    clearTimeout(t.push);
     delete timers[userId];
 }
 
@@ -381,25 +426,28 @@ export function endRaffleTimers(userId: number){
 // the "raffle <action>" command, from the terminal or a mod in chat
 // ---------------------------------------------------------------------------
 
+// draw and stop act on EVERY raffle up — the terminal has no way to point at one; the tab does it per raffle
 export function runRaffleCommand(session: TimerUserSession, cmd: { action: string, overrides?: RaffleOverrides }): { ok: boolean, message: string } {
     const cfg = raffleSettings(session);
-    const run = currentRun(session);
+    const runs = raffleRuns(session);
     if (cmd.action === "start"){
-        const replaced = !!run;
         const r = startRaffle(session, cmd.overrides);
         const secs = r.endsAt ? Math.round((r.endsAt - r.startedAt) / 1000) : 0;
-        return { ok: true, message: `Raffle started${replaced ? " (replaced the one on screen)" : ""} — !${cfg.command} to enter, ${r.want} winner${r.want === 1 ? "" : "s"}${r.boxes ? ` getting ${r.boxes} ${boxWord(r.boxKind || "mystery")}${r.boxes === 1 ? "" : "es"} each` : ""}, ${secs ? `${secs}s` : "open until you draw"}.` };
+        const others = raffleRuns(session).length - 1;
+        return { ok: true, message: `Raffle started${others ? ` (alongside ${others} more)` : ""} — !${cfg.command} to enter, ${r.want} winner${r.want === 1 ? "" : "s"}${r.boxes ? ` getting ${r.boxes} ${boxWord(r.boxKind || "mystery")}${r.boxes === 1 ? "" : "es"} each` : ""}, ${secs ? `${secs}s` : "open until you draw"}.` };
     }
     if (cmd.action === "draw"){
-        if (!run || run.phase !== "running")
+        const open = runs.filter((r: any) => r.phase === "running");
+        if (!open.length)
             return { ok: false, message: "No raffle is taking entries right now." };
         drawRaffle(session);
-        return { ok: true, message: `Raffle closed — ${run.entrants.length} in, drawing ${Math.min(run.want, run.entrants.length)}.` };
+        return { ok: true, message: `Closed ${open.length === 1 ? "the raffle" : `${open.length} raffles`} — drawing.` };
     }
-    if (!run)
+    if (!runs.length)
         return { ok: false, message: "No raffle is running." };
+    const n = runs.length;
     stopRaffle(session);
-    return { ok: true, message: "Raffle cleared." };
+    return { ok: true, message: `${n === 1 ? "Raffle" : `${n} raffles`} cleared.` };
 }
 
 // ---------------------------------------------------------------------------

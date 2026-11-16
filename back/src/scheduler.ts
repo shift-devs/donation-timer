@@ -4,7 +4,7 @@ import { emitPlayEvent, emitTerminal, reportError } from "./bus";
 import { parseCommand } from "./commands";
 import { handle } from "./events";
 import { DONATION_SOURCES } from "./timerEvents";
-import { startRaffle, isRaffling } from "./raffle";
+import { startRaffle } from "./raffle";
 
 // drives events. an event holds a list of triggers and fires when ANY of them does:
 //   daily / once  — off the clock, evaluated by the tick below
@@ -116,8 +116,7 @@ function scheduleEventCommand(session: TimerUserSession, ev: any) {
 }
 
 // optional raffle, delaySec after the event fires, with the event's overrides over the Raffle tab's setup.
-// an automatic start never tramples a raffle that's already up — the people in it would lose their entries —
-// so it says so on the terminal and skips instead. (a start by hand still replaces, since that's a choice.)
+// it runs alongside any raffle already up (see raffle.ts), so nobody already entered loses their entry.
 function scheduleEventRaffle(session: TimerUserSession, ev: any) {
     const r = ev.raffle;
     if (!r || !r.enabled)
@@ -126,10 +125,6 @@ function scheduleEventRaffle(session: TimerUserSession, ev: any) {
         try {
             if (session.loggedOut)
                 return;
-            if (isRaffling(session)){
-                emitTerminal(session.userId, `Event "${ev.name || ev.id}" wanted to start a raffle, but one is already running — skipped.`);
-                return;
-            }
             startRaffle(session, {
                 seconds: r.entrySec,
                 title: r.title,

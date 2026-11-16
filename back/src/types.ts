@@ -85,6 +85,8 @@ export interface TimerUserSession {
     fuckYouGuns: any
     // and ice staff charges, spent with "!icestaff" to freeze the timer like the timebomb prize
     iceStaffs: any
+    // and monkey bombs, thrown with "!monkey" (see useMonkeyBomb)
+    monkeyBombs: any
     // while an emote-only / sub-only prize runs: when each mode ends, ms ({ emote, subscriber }). persisted,
     // so a restart still switches them back off.
     chatModes: { [mode: string]: number }

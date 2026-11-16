@@ -150,7 +150,7 @@ export function subPointsFor(event: TimerEvent): number {
 // than read back from the settings while it runs, so retuning the tab mid-run can't move the goalposts.
 export interface ChallengeSpec {
     // what's being counted: sub points (the quick revive) or chat lines saying a phrase (the chant prize)
-    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall" | "potato" | "cup" | "vote" | "voteup" | "weenie" | "shell" | "algebra" | "beatemup" | "bff"
+    kind: "subpoints" | "chant" | "infection" | "count" | "scramble" | "secret" | "guess" | "rollcall" | "potato" | "cup" | "vote" | "voteup" | "weenie" | "shell" | "algebra" | "beatemup" | "bff" | "monkey"
     title: string
     // an instruction line under the title, for a run whose title alone doesn't say what to do
     subtitle: string
@@ -230,6 +230,10 @@ export interface ChallengeSpec {
     infectGoal?: number
     infectBoxes?: number
     shotBoxes?: number
+    // a one-shot the source plays every time the count goes up (a pass, an answer, an infection, a hit…).
+    // blank = silent, as every game was before it could be set.
+    countSound?: string
+    countVolume?: number
     // a rehearsal from the dashboard: plays for real, but credits nobody with currency
     test?: boolean
 }
@@ -365,6 +369,8 @@ function subtitleFor(spec: ChallengeSpec): string {
         return `@ SOMEONE TO VOTE THEM UP — THE WINNER GETS ${prizeBoxesText(spec).toUpperCase()}`;
     if (spec.kind === "beatemup")
         return `@${String(spec.patientZeroName || spec.patientZero || "THEM").toUpperCase()} TO HIT THEM — +${sayTime(spec.timeoutSeconds).toUpperCase()} TIMEOUT PER HIT${spec.rewardSeconds > 0 ? `, +${sayTime(spec.rewardSeconds).toUpperCase()} ON THE TIMER` : ""} — ONE HIT EACH`;
+    if (spec.kind === "monkey")
+        return `TYPE MONKEY${spec.rewardSeconds > 0 ? ` FOR +${sayTime(spec.rewardSeconds).toUpperCase()}` : ""} — EVERYONE WHO DOES IS TIMED OUT ${sayTime(spec.timeoutSeconds).toUpperCase()} WHEN IT BLOWS`;
     if (spec.kind === "bff")
         return `@ SOMEONE — IF THEY @ YOU BACK YOU'RE BFFS${spec.rewardSeconds > 0 ? ` — +${sayTime(spec.rewardSeconds).toUpperCase()} PER PAIR` : ""}`;
     if (spec.kind === "weenie")
@@ -425,11 +431,11 @@ export function quickReviveView(session: TimerUserSession): any {
         callAt: spec.kind === "rollcall" ? qr.callAt || 0 : 0,
         callEndsAt: spec.kind === "rollcall" ? qr.callEndsAt || 0 : 0,
         phrase: spec.kind === "rollcall" || spec.kind === "weenie" ? spec.phrase : "",
-        rewardSeconds: spec.kind === "rollcall" || spec.kind === "potato" || spec.kind === "beatemup" || spec.kind === "bff" ? spec.rewardSeconds : 0,
+        rewardSeconds: spec.kind === "rollcall" || spec.kind === "potato" || spec.kind === "beatemup" || spec.kind === "bff" || spec.kind === "monkey" ? spec.rewardSeconds : 0,
         // bffs: every pair made, newest last ("A & B")
         pairs: spec.kind === "bff" && Array.isArray(qr.counters) ? qr.counters.slice(-12) : [],
         // beat 'em up: what each hit adds to the timeout
-        timeoutSeconds: spec.kind === "beatemup" ? spec.timeoutSeconds : 0,
+        timeoutSeconds: spec.kind === "beatemup" || spec.kind === "monkey" ? spec.timeoutSeconds : 0,
         // hot potato / cup and ball: who has it now, and when they got it (the source pops the name on that)
         holder: spec.kind === "potato" || spec.kind === "cup" || spec.kind === "beatemup" ? qr.holderName || qr.holder || "" : "",
         holderAt: spec.kind === "potato" || spec.kind === "cup" || spec.kind === "beatemup" ? qr.holderAt || 0 : 0,
@@ -459,6 +465,8 @@ export function quickReviveView(session: TimerUserSession): any {
         unit: spec.kind === "count" && qr.phase !== "running" ? "COUNTED" : spec.unit,
         music: spec.music,
         musicVolume: spec.musicVolume,
+        countSound: spec.countSound || "",
+        countVolume: Number.isFinite(Number(spec.countVolume)) ? Number(spec.countVolume) : 1,
         winSound: spec.winSound,
         winVolume: spec.winVolume,
         winText: spec.winText,
@@ -593,6 +601,17 @@ export function startChallenge(session: TimerUserSession, spec: ChallengeSpec, f
             chatAnnounce(session, `${spec.title}! @ @${who} to land a hit — every hit adds ${sayTime(spec.timeoutSeconds)} to their timeout${spec.rewardSeconds > 0 ? ` and puts ${sayTime(spec.rewardSeconds)} on the timer` : ""}. One hit each, ${spec.seconds} seconds!`, "orange");
         pushQuickRevive(session);
         return { ok: true, message: `${spec.title} started — beating up ${who}, ${spec.seconds}s.` };
+    }
+    if (spec.kind === "monkey"){
+        // `votes` is who has said it (once each); `names` them, newest last. whoever set it off is `patientZero`.
+        qr.goal = 0;
+        armClock(session, spec.seconds);
+        const by = spec.patientZeroName || spec.patientZero;
+        emitTerminal(session.userId, `${spec.title} — ${by ? `${by} set it off; ` : ""}${spec.seconds}s; +${sayTime(spec.rewardSeconds)} per person who types MONKEY, each timed out ${sayTime(spec.timeoutSeconds)} when it blows.`, true);
+        if (spec.announce)
+            chatAnnounce(session, `${by ? `@${by} threw a ` : ""}${spec.title}! Type MONKEY to put ${sayTime(spec.rewardSeconds)} on the timer — but everyone who does gets timed out for ${sayTime(spec.timeoutSeconds)} when it blows in ${spec.seconds} seconds!`, "orange");
+        pushQuickRevive(session);
+        return { ok: true, message: `${spec.title} started — ${spec.seconds}s.` };
     }
     if (spec.kind === "bff"){
         // `votes` is who has @'d whom (their latest ask), `turns` who is already in a pair, `counters` the pairs
@@ -1218,6 +1237,51 @@ export function spreadInfection(session: TimerUserSession, login: string, text: 
     }
 }
 
+// a chat line during a monkey bomb: saying MONKEY anywhere in it (any case) counts that chatter, once. each one
+// puts rewardSeconds on the timer now and buys a timeout when it blows. commands don't count — "!monkey" typed
+// while one is already going is somebody trying to throw another, not joining in.
+const MONKEY = /\bmonkeys?\b/i;
+export function creditMonkey(session: TimerUserSession, text: string, login = "", displayName = ""){
+    const qr = getQuickRevive(session);
+    if (qr.phase !== "running" || !qr.spec || qr.spec.kind !== "monkey" || Date.now() >= qr.endsAt)
+        return;
+    const body = String(text || "").trim();
+    const from = String(login || "").toLowerCase();
+    if (!from || isBot(session, from) || body.startsWith("!") || !MONKEY.test(body) || qr.votes[from])
+        return;
+    const spec: ChallengeSpec = qr.spec;
+    qr.votes[from] = 1;
+    qr.points += 1;
+    qr.names.push(String(displayName || login));
+    if (qr.names.length > 50)
+        qr.names.splice(0, qr.names.length - 50);
+    pushQuickRevive(session);
+    if (spec.rewardSeconds > 0){
+        try {
+            addToEndTime(session, spec.rewardSeconds, spec.label);
+        } catch (err) {
+            reportError(session.userId, "paying a monkey", err);
+        }
+    }
+}
+
+function decideMonkey(session: TimerUserSession, qr: any, spec: ChallengeSpec, now: number){
+    qr.phase = "lost";
+    qr.resultAt = now;
+    pushQuickRevive(session);
+    const all = Object.keys(qr.votes || {});
+    const hit = all.filter((l) => !untouchable(session, l));
+    const added = qr.points * spec.rewardSeconds;
+    emitTerminal(session.userId, `${spec.title} — blew up. ${all.length} said MONKEY${added > 0 ? ` (+${sayTime(added)} on the timer)` : ""}; timing out ${hit.length} for ${sayTime(spec.timeoutSeconds)}${hit.length < all.length ? ` (${all.length - hit.length} mods/broadcaster spared)` : ""}.`, true);
+    if (spec.announce)
+        chatAnnounce(session, all.length
+            ? `${spec.failText} ${all.length} monkey${all.length === 1 ? "" : "s"} put ${sayTime(added)} on the timer${hit.length ? ` — and ${hit.length === 1 ? "is" : "are"} timed out for ${sayTime(spec.timeoutSeconds)}` : ""}!`
+            : `${spec.failText} Nobody took the bait.`, "orange");
+    if (hit.length && !spec.test)
+        timeOutAtEnd(session, spec, hit, "monkey bomb");
+    holdThenEnd(session, spec, "monkey bomb");
+}
+
 // a gun shot just landed on `target`. if they're carrying a running infection, the shooter is paid for it.
 export function shotLanded(session: TimerUserSession, shooter: string, shooterName: string, target: string){
     const qr = getQuickRevive(session);
@@ -1657,6 +1721,10 @@ function decide(session: TimerUserSession, won: boolean){
     }
     if (spec.kind === "weenie"){
         decideWeenie(session, qr, spec, now);
+        return;
+    }
+    if (spec.kind === "monkey"){
+        decideMonkey(session, qr, spec, now);
         return;
     }
     if (spec.kind === "shell"){

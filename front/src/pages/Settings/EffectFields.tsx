@@ -62,6 +62,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								: prize.effect.kind === "schizo" ? "Reads chat for"
 								: prize.effect.kind === "rollcall" ? "Runs for"
 								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "voteup" || prize.effect.kind === "weenie" || prize.effect.kind === "beatemup" || prize.effect.kind === "bff" ? "Runs for"
+								: prize.effect.kind === "monkeybomb" ? "Each bomb runs"
 								: prize.effect.kind === "shell" ? "They get"
 								: prize.effect.kind === "algebra" ? "Chat gets"
 								: prize.effect.kind === "emp" ? "Boxes offline for"
@@ -87,6 +88,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 					<HStack spacing={1}>
 						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "beatemup" ? "every hit adds to their timeout"
+								: prize.effect.kind === "monkeybomb" ? "then everyone who said it is timed out"
 								: prize.effect.kind === "potato" ? "then whoever holds it is timed out"
 								: prize.effect.kind === "vote" ? "then they're timed out"
 								: "then the infected are timed out"}
@@ -121,6 +123,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "rollcall" ? "each answer adds"
 								: prize.effect.kind === "beatemup" ? "and every hit puts"
+								: prize.effect.kind === "monkeybomb" ? "every MONKEY adds"
 								: prize.effect.kind === "bff" ? "each pair adds"
 								: prize.effect.kind === "potato" ? "each pass adds"
 								: prize.effect.kind === "weenie" ? "if nobody says it, adds"
@@ -246,7 +249,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 							value={prize.effect.charges}
 							onCommit={(n) => patchEffect(prize.id, { charges: n }, `ch${prize.id}`)}
 						/>
-						<Text fontSize="sm" color="subtle">{prize.effect.kind === "shield" ? "timeouts from the bot" : prize.effect.kind === "thundergun" ? "shots, 20 minutes each" : prize.effect.kind === "firstaid" ? "first aid kits" : prize.effect.kind === "fuckyougun" ? "shots, 24 hours each" : prize.effect.kind === "icestaff" ? "ice staff uses (set up below)" : "shots, each"}</Text>
+						<Text fontSize="sm" color="subtle">{prize.effect.kind === "shield" ? "timeouts from the bot" : prize.effect.kind === "thundergun" ? "shots, 20 minutes each" : prize.effect.kind === "firstaid" ? "first aid kits" : prize.effect.kind === "fuckyougun" ? "shots, 24 hours each" : prize.effect.kind === "icestaff" ? "ice staff uses (set up below)" : prize.effect.kind === "monkeybomb" ? "monkey bombs (set up below)" : "shots, each"}</Text>
 					</HStack>
 				)}
 				{spec.needs.includes("boxes") && (
@@ -423,6 +426,32 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 					/>
 					<Text fontSize="xs" color="subtle">
 						plays on the Mystery Box source for as long as it lasts
+					</Text>
+				</HStack>
+			)}
+			{spec.needs.includes("countSound") && (
+				<HStack spacing={2} wrap="wrap">
+					<Text fontSize="sm" color="muted">Count sound</Text>
+					<Select
+						size="sm"
+						maxW="240px"
+						value={prize.effect.countSound}
+						onChange={(e) => patchEffect(prize.id, { countSound: e.target.value })}
+					>
+						<option value="">(silent)</option>
+						{SOUND_OPTIONS}
+					</Select>
+					<Text fontSize="sm" color="muted">Vol</Text>
+					<input
+						type="range"
+						min={0}
+						max={1}
+						step={0.05}
+						value={prize.effect.countVolume}
+						onChange={(e) => patchEffect(prize.id, { countVolume: Number(e.target.value) }, `cv${prize.id}`)}
+					/>
+					<Text fontSize="xs" color="subtle">
+						{({ potato: "plays every pass", rollcall: "plays every answer", infection: "plays every time somebody is infected", chant: "plays every time the count goes up", cup: "plays every steal", vote: "plays every vote", voteup: "plays every vote", beatemup: "plays every hit", bff: "plays every new pair", monkeybomb: "plays every new MONKEY" } as any)[prize.effect.kind] || "plays every time the count goes up"}
 					</Text>
 				</HStack>
 			)}

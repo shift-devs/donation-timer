@@ -7,7 +7,7 @@ import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, isBingoSender, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
 import { recordChatter, pruneChatters, ROSTER_KEEP_MS } from "../chat";
-import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection, creditPing, creditWeenie, creditShell, creditAlgebra } from "../quickRevive";
+import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection, creditPing, creditWeenie, creditShell, creditAlgebra, creditMonkey } from "../quickRevive";
 import { runDropCommand } from "../drops";
 import { modRefusal, eventPermission, mbPermission } from "../chatPermissions";
 
@@ -147,6 +147,8 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         creditPing(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));
         // a weenie hunt is lost the moment anybody says the phrase
         creditWeenie(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
+        // a monkey bomb counts everybody who says MONKEY
+        creditMonkey(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));
         // while a schizo prize runs, the source reads this out. the original message, capitals and all,
         // since it's about to be said
         speakChat(session, tags.username, String(tags["display-name"] || tags.username), String(message || ""));

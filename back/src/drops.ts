@@ -462,7 +462,7 @@ function overlayBusy(session: TimerUserSession): string {
     const f = session.firesale;
     if (f && Array.isArray(f.runs) && f.runs.length)
         return "a firesale is running";
-    if (session.raffle && session.raffle.run)
+    if (session.raffle && Array.isArray(session.raffle.runs) && session.raffle.runs.length)
         return "a raffle is running";
     return "";
 }

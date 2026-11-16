@@ -507,6 +507,8 @@ const MysteryBox: React.FC = () => {
 	const reviveNames: string[] = revive && Array.isArray(revive.names) ? revive.names : [];
 	// bffs: no goal either — the count of pairs, and the pairs themselves as they form ("A & B", newest last)
 	const reviveBff = !!(revive && revive.kind === "bff");
+	// monkey bomb: goal-less as well, with everyone who said it listed like the infected
+	const reviveMonkey = !!(revive && revive.kind === "monkey");
 	const revivePairs: string[] = revive && Array.isArray(revive.pairs) ? revive.pairs : [];
 	const pairRow = (all: boolean) => (
 		<div style={{ color: cfg.nameColor, fontSize: 30, lineHeight: 1.3, marginTop: 16, padding: "0 50px", textShadow: outline }}>
@@ -658,7 +660,7 @@ const MysteryBox: React.FC = () => {
 	const weenieFs = Math.max(44, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, weeniePhrase.length + 2) * 0.55))));
 	const weenieBy = String((revive && revive.saidBy) || "");
 	// these four can run for minutes, so their clock reads as one once it's over a minute
-	const reviveLongClock = reviveRollCall || ((reviveHolderGame || reviveVote || reviveWeenie || reviveBff) && reviveLeft > 60000);
+	const reviveLongClock = reviveRollCall || ((reviveHolderGame || reviveVote || reviveWeenie || reviveBff || reviveMonkey) && reviveLeft > 60000);
 	const reviveTitleFs = Math.max(reviveDrop ? 48 : 56, Math.min(reviveDrop ? 90 : 110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
 	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
@@ -672,6 +674,31 @@ const MysteryBox: React.FC = () => {
 	const reviveResultSound = revivePhase === "won" ? revive.winSound : revivePhase === "lost" ? revive.failSound : "";
 	const reviveResultVolume = revivePhase === "won" ? Number(revive.winVolume) : revive ? Number(revive.failVolume) : 1;
 	const lost = revivePhase === "lost";
+
+	// a game's count sound: once per step up of the count, on a fresh Audio each time so a quick run of passes
+	// overlaps instead of every one cutting the last off. the first sight of a run (a reload mid-game) only
+	// notes where the count is — it doesn't play the whole backlog.
+	const countSeen = useRef<{ nonce: string; pts: number }>({ nonce: "", pts: 0 });
+	const countAt = useRef(0);
+	const countSound = String((revive && revive.countSound) || "");
+	const countVolume = Math.min(1, Math.max(0, Number(revive && revive.countVolume !== undefined ? revive.countVolume : 1)));
+	useEffect(() => {
+		const seen = countSeen.current;
+		const up = seen.nonce === reviveNonce && revivePts > seen.pts;
+		countSeen.current = { nonce: reviveNonce, pts: revivePts };
+		if (!up || !reviveRunning || !countSound)
+			return;
+		// a burst (a gift bomb's worth of monkeys) is capped at a dozen a second rather than a wall of noise
+		const now = Date.now();
+		if (now - countAt.current < 80)
+			return;
+		countAt.current = now;
+		try {
+			const a = new Audio(`/media/${encodeURIComponent(countSound)}`);
+			a.volume = countVolume;
+			a.play().catch(() => {});
+		} catch {}
+	}, [reviveNonce, revivePts, reviveRunning, countSound, countVolume]);
 
 	if (!token || (!active && !showBoost && !showBomb && !reviveActive && !showJuke))
 		return <style>{TRANSPARENT_BODY_CSS}</style>;
@@ -1355,7 +1382,7 @@ const MysteryBox: React.FC = () => {
 							) : (<>
 							<div style={{ color: cfg.nameColor, fontSize: reviveDrop ? 54 : 64, lineHeight: 1, marginTop: reviveDrop ? 10 : 18, textShadow: outline }}>
 								<span
-									key={reviveInfection || reviveBff ? `inf${revivePts}` : undefined}
+									key={reviveInfection || reviveBff || reviveMonkey ? `inf${revivePts}` : undefined}
 									style={{
 										display: "inline-block",
 										color: reviveFlinch ? "#ff4b4b" : cfg.titleColor,
@@ -1363,19 +1390,19 @@ const MysteryBox: React.FC = () => {
 										WebkitTextStrokeColor: "#000",
 										paintOrder: "stroke fill",
 										// a chant flinches when a streak breaks; an infection pops each time it spreads
-										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : reviveInfection || reviveBff ? "mb-pop 300ms ease-out both" : undefined,
+										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : reviveInfection || reviveBff || reviveMonkey ? "mb-pop 300ms ease-out both" : undefined,
 									}}
 								>
 									{revivePts}
 								</span>
-								{!reviveInfection && !reviveBff && <>{" / "}{reviveGoal}</>}
+								{!reviveInfection && !reviveBff && !reviveMonkey && <>{" / "}{reviveGoal}</>}
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", marginTop: 2, textShadow: outline }}>
 								{reviveCount ? <>NEXT UP: <span style={{ color: cfg.titleColor }}>{Number(revive.next)}</span></> : reviveUnit}
 							</div>
 							{/* who's caught it, newest last — the names are what make it spread, since seeing yours
 							    go up is the moment you go looking for somebody to @ */}
-							{reviveInfection && reviveNames.length > 0 && (
+							{(reviveInfection || reviveMonkey) && reviveNames.length > 0 && (
 								<div
 									style={{
 										color: cfg.nameColor,
@@ -1396,7 +1423,7 @@ const MysteryBox: React.FC = () => {
 							)}
 							{reviveBff && revivePairs.length > 0 && pairRow(false)}
 							{/* how far along they are, at a glance — what chat reads from across the room */}
-							{!reviveInfection && !reviveBff && <div
+							{!reviveInfection && !reviveBff && !reviveMonkey && <div
 								style={{
 									width: 700,
 									height: 34,
@@ -1455,7 +1482,7 @@ const MysteryBox: React.FC = () => {
 									? `IT WAS ${String(revive.answer || "")}`
 									: reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
-									: reviveInfection || reviveRollCall || reviveBff ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
+									: reviveInfection || reviveRollCall || reviveBff || reviveMonkey ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
 							{reviveBff && revivePairs.length > 0 && pairRow(true)}
 							{reviveShell && shellRow}

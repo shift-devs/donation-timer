@@ -63,8 +63,8 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 			clearTimeout(timers.current[key]);
 	}, []);
 
-	const r: any = run && Array.isArray(run.runs) && run.runs.length ? run.runs[0] : null;
-	const phase = r ? r.phase : "idle";
+	// several raffles can be up at once, each with its own clock and winners
+	const runs: any[] = run && Array.isArray(run.runs) ? run.runs : [];
 
 	const later = (key: string, fn: () => void, delay: number) => {
 		clearTimeout(timers.current[key]);
@@ -124,7 +124,7 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 	const mbOn = !(kindSettings && kindSettings.enabled === false);
 	const clashesWithFiresale = settings.firesaleSettings && settings.firesaleSettings.command === draft.command;
 
-	const badge = phase === "running"
+	const badge = (phase: string) => phase === "running"
 		? <Badge colorScheme="red">TAKING ENTRIES</Badge>
 		: phase === "drawing"
 			? <Badge colorScheme="yellow">DRAWING</Badge>
@@ -177,42 +177,54 @@ const Raffle: React.FC<{ ws: any; token: string | null; settings: any; run: any 
 			<Box borderWidth="1px" borderRadius="md" p={3} mb={4}>
 				<Flex align="center" gap={3} mb={2} wrap="wrap">
 					<Text fontWeight="bold">Live</Text>
-					{badge}
-					{r && <Text fontSize="sm" color="muted">{r.total} entered</Text>}
-					{phase === "running" && r.endsAt > 0 && (
-						<Text fontSize="sm" color="muted"><Tick>{() => countdown(r.endsAt - Date.now())}</Tick> left</Text>
-					)}
-					{phase === "running" && !r.endsAt && (
-						<Text fontSize="sm" color="muted">open until you draw</Text>
-					)}
+					{!runs.length && badge("idle")}
+					{runs.length > 1 && <Text fontSize="sm" color="muted">{runs.length} raffles up — one !{draft.command} enters every one taking entries</Text>}
 				</Flex>
 
-				{phase === "winner" && (
-					<Text fontSize="sm" mb={2}>
-						<b>{(r.winners || []).join(", ")}</b> won{r.prize ? ` ${r.prize}` : ""}
-						{r.winners.length < (run.want || 0) ? ` — only ${r.winners.length} entered, so not all ${run.want} could be drawn` : ""}
-						{r.bonus ? ` (${r.bonus.toLowerCase()})` : ""}
-					</Text>
-				)}
+				{runs.map((r) => (
+					<Box key={r.id} borderWidth="1px" borderRadius="md" p={2} mb={2}>
+						<Flex align="center" gap={3} mb={1} wrap="wrap">
+							<Text fontSize="sm" fontWeight="bold">{r.title || "RAFFLE"}{r.prize && r.prize !== r.title ? ` — ${r.prize}` : ""}</Text>
+							{badge(r.phase)}
+							<Text fontSize="sm" color="muted">{r.total} entered</Text>
+							{r.phase === "running" && r.endsAt > 0 && (
+								<Text fontSize="sm" color="muted"><Tick>{() => countdown(r.endsAt - Date.now())}</Tick> left</Text>
+							)}
+							{r.phase === "running" && !r.endsAt && (
+								<Text fontSize="sm" color="muted">open until you draw</Text>
+							)}
+							<Box flex="1" />
+							<Button size="xs" isDisabled={r.phase !== "running"} onClick={() => drawRaffle(ws, r.id)}>Draw now</Button>
+							<Button size="xs" onClick={() => stopRaffle(ws, r.id)}>Clear</Button>
+						</Flex>
+						{r.phase === "winner" && (
+							<Text fontSize="sm">
+								<b>{(r.winners || []).join(", ")}</b> won{r.prize ? ` ${r.prize}` : ""}
+								{r.winners.length < (r.want || 0) ? ` — only ${r.winners.length} entered, so not all ${r.want} could be drawn` : ""}
+								{r.bonus ? ` (${r.bonus.toLowerCase()})` : ""}
+							</Text>
+						)}
+					</Box>
+				))}
 
-				{r && entrants.length > 0 && (
+				{runs.length > 0 && entrants.length > 0 && (
 					<Wrap spacing={1} mb={2}>
 						{entrants.map((n) => (
 							<WrapItem key={n}><Badge variant="subtle">{n}</Badge></WrapItem>
 						))}
 					</Wrap>
 				)}
-				{r && run.total > entrants.length && (
+				{runs.length > 0 && run.total > entrants.length && (
 					<Text fontSize="xs" color="subtle" mb={2}>
 						Showing the {entrants.length} most recent of {run.total} — those are the names on screen.
 					</Text>
 				)}
 
 				<HStack spacing={2} wrap="wrap">
-					<Button size="sm" colorScheme="red" onClick={start}>{r ? "Restart" : "Start raffle"}</Button>
-					<Button size="sm" isDisabled={phase !== "running"} onClick={() => drawRaffle(ws)}>Draw now</Button>
-					<Button size="sm" isDisabled={!r} onClick={() => stopRaffle(ws)}>Clear</Button>
-					{r && <Text fontSize="xs" color="subtle">Restart throws away this raffle&apos;s entries.</Text>}
+					<Button size="sm" colorScheme="red" onClick={start}>{runs.length ? "Start another raffle" : "Start raffle"}</Button>
+					{runs.length > 1 && <Button size="sm" isDisabled={!runs.some((r) => r.phase === "running")} onClick={() => drawRaffle(ws)}>Draw all</Button>}
+					{runs.length > 1 && <Button size="sm" onClick={() => stopRaffle(ws)}>Clear all</Button>}
+					{runs.length > 0 && <Text fontSize="xs" color="subtle">A new raffle runs alongside the ones already up, with the setup below.</Text>}
 				</HStack>
 			</Box>
 
