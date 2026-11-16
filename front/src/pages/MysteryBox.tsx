@@ -505,6 +505,18 @@ const MysteryBox: React.FC = () => {
 	// an infection has no goal: the count is the whole story, and the names it's spreading through
 	const reviveInfection = !!(revive && revive.kind === "infection");
 	const reviveNames: string[] = revive && Array.isArray(revive.names) ? revive.names : [];
+	// bffs: no goal either — the count of pairs, and the pairs themselves as they form ("A & B", newest last)
+	const reviveBff = !!(revive && revive.kind === "bff");
+	const revivePairs: string[] = revive && Array.isArray(revive.pairs) ? revive.pairs : [];
+	const pairRow = (all: boolean) => (
+		<div style={{ color: cfg.nameColor, fontSize: 30, lineHeight: 1.3, marginTop: 16, padding: "0 50px", textShadow: outline }}>
+			{(all ? revivePairs : revivePairs.slice(-6)).map((n, i, arr) => (
+				<span key={`${n}${i}`} style={{ display: "inline-block", marginRight: 18, color: !all && i === arr.length - 1 ? "#ff7ad9" : cfg.nameColor, animation: !all && i === arr.length - 1 ? "mb-pop 300ms ease-out both" : undefined }}>
+					💕 {n}
+				</span>
+			))}
+		</div>
+	);
 	const reviveRounds = Number((revive && revive.rounds) || 1);
 	// a drop: the heading and the reward's art go above the title, so everything under them draws smaller to
 	// leave the room. scramble has no count to show — its letters are the whole game — and a secret phrase
@@ -646,7 +658,7 @@ const MysteryBox: React.FC = () => {
 	const weenieFs = Math.max(44, Math.min(110, Math.floor((STAGE_W - 120) / (Math.max(4, weeniePhrase.length + 2) * 0.55))));
 	const weenieBy = String((revive && revive.saidBy) || "");
 	// these four can run for minutes, so their clock reads as one once it's over a minute
-	const reviveLongClock = reviveRollCall || ((reviveHolderGame || reviveVote || reviveWeenie) && reviveLeft > 60000);
+	const reviveLongClock = reviveRollCall || ((reviveHolderGame || reviveVote || reviveWeenie || reviveBff) && reviveLeft > 60000);
 	const reviveTitleFs = Math.max(reviveDrop ? 48 : 56, Math.min(reviveDrop ? 90 : 110, Math.floor((STAGE_W - 120) / (Math.max(4, reviveTitle.length) * 0.55))));
 	const reviveUnit = String((revive && revive.unit) || "SUB POINTS");
 	// the instruction line wraps rather than shrinking past legibility, so it only needs a floor
@@ -1343,7 +1355,7 @@ const MysteryBox: React.FC = () => {
 							) : (<>
 							<div style={{ color: cfg.nameColor, fontSize: reviveDrop ? 54 : 64, lineHeight: 1, marginTop: reviveDrop ? 10 : 18, textShadow: outline }}>
 								<span
-									key={reviveInfection ? `inf${revivePts}` : undefined}
+									key={reviveInfection || reviveBff ? `inf${revivePts}` : undefined}
 									style={{
 										display: "inline-block",
 										color: reviveFlinch ? "#ff4b4b" : cfg.titleColor,
@@ -1351,12 +1363,12 @@ const MysteryBox: React.FC = () => {
 										WebkitTextStrokeColor: "#000",
 										paintOrder: "stroke fill",
 										// a chant flinches when a streak breaks; an infection pops each time it spreads
-										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : reviveInfection ? "mb-pop 300ms ease-out both" : undefined,
+										animation: reviveFlinch ? "mb-panic 300ms ease-in-out 2" : reviveInfection || reviveBff ? "mb-pop 300ms ease-out both" : undefined,
 									}}
 								>
 									{revivePts}
 								</span>
-								{!reviveInfection && <>{" / "}{reviveGoal}</>}
+								{!reviveInfection && !reviveBff && <>{" / "}{reviveGoal}</>}
 							</div>
 							<div style={{ color: cfg.nameColor, fontSize: 34, letterSpacing: "0.14em", marginTop: 2, textShadow: outline }}>
 								{reviveCount ? <>NEXT UP: <span style={{ color: cfg.titleColor }}>{Number(revive.next)}</span></> : reviveUnit}
@@ -1382,8 +1394,9 @@ const MysteryBox: React.FC = () => {
 									))}
 								</div>
 							)}
+							{reviveBff && revivePairs.length > 0 && pairRow(false)}
 							{/* how far along they are, at a glance — what chat reads from across the room */}
-							{!reviveInfection && <div
+							{!reviveInfection && !reviveBff && <div
 								style={{
 									width: 700,
 									height: 34,
@@ -1442,8 +1455,9 @@ const MysteryBox: React.FC = () => {
 									? `IT WAS ${String(revive.answer || "")}`
 									: reviveScramble || reviveSecret
 									? `IT WAS "${String(revive.answer || "").toUpperCase()}"`
-									: reviveInfection || reviveRollCall ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
+									: reviveInfection || reviveRollCall || reviveBff ? `${revivePts} ${reviveUnit}` : `${revivePts} / ${reviveGoal} ${reviveUnit}`}
 							</div>
+							{reviveBff && revivePairs.length > 0 && pairRow(true)}
 							{reviveShell && shellRow}
 							{reviveVote && voteBoard.length > 0 && (
 								<div style={{ color: reviveVoteUp ? "#4bff7a" : "#ff4b4b", fontSize: voteTop > 4 ? 32 : 42, lineHeight: 1.2, marginTop: 8, padding: "0 50px", textShadow: outline }}>

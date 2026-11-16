@@ -21,7 +21,7 @@
 import { TimerUserSession, TimerEvent } from "./types";
 import { emitMysteryBox, emitSchizoLine, emitTerminal, emitSync, reportError } from "./bus";
 import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
-import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, shieldLedger, ACTIVE_WINDOW_MS } from "./chat";
+import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, shieldLedger, ACTIVE_WINDOW_MS, ROSTER_KEEP_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
 import { MB_ACTIONS, mbPermission } from "./chatPermissions";
@@ -29,7 +29,7 @@ import { testTimerEvent } from "./scheduler";
 import { runCommandLine } from "./runCommand";
 import { twitchBotReady, botChatMode, botSetChatMode, ChatModeField, describeError as describeBotError } from "./platforms/twitchBot";
 import { makeEquation } from "./algebra";
-import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime, randomChatter } from "./quickRevive";
+import { DEFAULT_QUICK_REVIVE, normalizeQuickRevive, isReviving, startQuickRevive, endQuickRevive, startChallenge, sayTime, randomChatter, setBoxPayer, shotLanded } from "./quickRevive";
 
 const MAX_NAME = 25;          // twitch's own username ceiling
 // what a twitch login may actually contain. used to gate the places a chat-supplied name is acted on or
@@ -70,7 +70,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes", "icestaff", "beatemup"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes", "icestaff", "beatemup", "bff"];
 const BOMB_REWARDS = ["time", "boxes"];
 // which wallet a game that pays boxes pays into
 const BOX_KINDS = ["mystery", "wonder"];
@@ -135,6 +135,9 @@ export const DEFAULT_MYSTERYBOX = {
     // the ice staff's. same wallet-and-command mechanic, but it isn't aimed at anybody: "!icestaff" on its own
     // freezes the timer exactly as the timebomb prize does, set up by the ice staff prize on the list.
     iceStaffCommand: "icestaff",
+    // "!raygun random" (and the thunder gun's and fuck you gun's): who can be hit — anybody who has typed in
+    // this many minutes
+    randomShotMin: 10,
     // which set of prizes is in play. a prize belongs to a profile (or to none, which means always), so the
     // streamer can keep a pile of game-specific prizes set up and switch to them when they switch games
     // without disabling anything by hand. "" = only the prizes that belong to no profile.
@@ -205,7 +208,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", boxKind: "mystery", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", bombLastBoxes: 0, infectGoal: 5, infectBoxes: 0, shotBoxes: 0, boxKind: "mystery", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -285,6 +288,13 @@ function normalizeEffect(raw: any): any {
         // the timer, or `boxes` for whoever opened it
         bombGoalSec: numIn(r.bombGoalSec, 0, 24 * 3600, 0),
         bombReward: BOMB_REWARDS.includes(r.bombReward) ? r.bombReward : "time",
+        // timebomb / ice staff: boxes for whoever contributed LAST before it went off (0 = none)
+        bombLastBoxes: numIn(r.bombLastBoxes, 0, MAX_EXTRA_BOXES, 0),
+        // infection: anybody who infects MORE than infectGoal people earns infectBoxes (0 = off), once a game;
+        // and shooting somebody infected with a gun earns the shooter shotBoxes (0 = off)
+        infectGoal: numIn(r.infectGoal, 0, 1000, 5),
+        infectBoxes: numIn(r.infectBoxes, 0, MAX_EXTRA_BOXES, 0),
+        shotBoxes: numIn(r.shotBoxes, 0, MAX_EXTRA_BOXES, 0),
         // every game that pays boxes (cup and ball, solve for x, shell game, vote 'em up, a timebomb's "boxes"
         // reward, and an ice staff's): which kind. mystery unless set, which is what they all paid before.
         boxKind: BOX_KINDS.includes(r.boxKind) ? r.boxKind : "mystery",
@@ -372,6 +382,7 @@ export function normalizeMysteryBox(raw: any): any {
         firstAidCommand: (typeof r.firstAidCommand === "string" ? r.firstAidCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.firstAidCommand,
         fuckYouGunCommand: (typeof r.fuckYouGunCommand === "string" ? r.fuckYouGunCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.fuckYouGunCommand,
         iceStaffCommand: (typeof r.iceStaffCommand === "string" ? r.iceStaffCommand.trim().replace(/^!/, "").toLowerCase().slice(0, 30) : "") || d.iceStaffCommand,
+        randomShotMin: numIn(r.randomShotMin, 1, RANDOM_SHOT_MAX_MIN, d.randomShotMin),
         activeProfile: str(r.activeProfile, 60).trim(),
         grantOnFiresale: r.grantOnFiresale === undefined ? d.grantOnFiresale : !!r.grantOnFiresale,
         firesaleItems: Array.isArray(r.firesaleItems)
@@ -817,6 +828,8 @@ export function grantIceStaff(session: TimerUserSession, login: any, displayName
 export type GunKind = "raygun" | "thundergun" | "fuckyougun" | "firstaid";
 export const GUN_KINDS: GunKind[] = ["raygun", "thundergun", "fuckyougun", "firstaid"];
 const THUNDERGUN_SEC = 20 * 60;
+// the longest "!raygun random" window that can be set. the chat roster keeps people this long (chat.ts).
+const RANDOM_SHOT_MAX_MIN = ROSTER_KEEP_MS / 60000;
 const FUCK_YOU_GUN_SEC = 24 * 3600;
 const FIRST_AID_SEC = 1;
 
@@ -1714,6 +1727,9 @@ function payGameBoxes(session: TimerUserSession, kind: BoxKind, login: string, n
     chatSay(session, `@${name} you have ${held} ${boxesWord(kind, held)} — !${boxSettings(session, kind).command} open to open one.`);
 }
 
+// the games in quickRevive.ts (the infection's rewards) pay boxes through this
+setBoxPayer(payGameBoxes);
+
 function recipient(session: TimerUserSession, ctx?: EffectFor): { login: string, name: string, test: boolean } {
     if (ctx)
         return { login: String(ctx.login || "").toLowerCase(), name: ctx.name || ctx.login, test: !!ctx.test };
@@ -1765,6 +1781,25 @@ function timebombGoal(session: TimerUserSession, prize: any, ctx?: EffectFor): {
     };
 }
 
+// a timebomb's reward for whoever contributed last before it went off. a test spin pays nobody.
+function timebombLast(session: TimerUserSession, prize: any, ctx?: EffectFor): ((login: string, name: string) => void) | undefined {
+    const e = prize.effect || {};
+    const n = e.bombLastBoxes;
+    if (!(n > 0))
+        return undefined;
+    const name = prize.name || "Timebomb";
+    const kind = effectBoxKind(e);
+    const test = recipient(session, ctx).test;
+    return (login: string, who: string) => {
+        if (test){
+            emitTerminal(session.userId, `${name} — went off; ${who} contributed last, but a test spin pays nobody the ${n} ${boxesWord(kind, n)}.`);
+            return;
+        }
+        chatAnnounce(session, `${name} went off! @${who} was the last to feed it and gets ${n} ${boxesWord(kind, n)}!`, "green");
+        payGameBoxes(session, kind, login, who, n, `${name} — last contribution`);
+    };
+}
+
 export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectFor){
     const e = prize.effect || {};
     const label = `${ctx ? ctx.label : "mystery box"}: ${prize.name || prize.id}`;
@@ -1801,6 +1836,7 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             color: e.freezeColor,
             pulse: e.freezePulse,
             goal,
+            last: timebombLast(session, prize, ctx),
         });
         if (goal && goalTaken)
             chatAnnounce(session, `${prize.name || "Timebomb"}! Keep the timer frozen for ${sayTime(goal.ms / 1000)} — every contribution resets the fuse — and chat earns ${goal.what}!`, "blue");
@@ -1874,6 +1910,42 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
         const cmd = mbSettings(session).iceStaffCommand;
         emitTerminal(session.userId, `MYSTERYBOX — ${r.name || who} was given ${e.charges} ice staff use${e.charges === 1 ? "" : "s"} (${held} in hand).`, true);
         chatSay(session, `@${r.name || who} got ${e.charges} ice staff use${e.charges === 1 ? "" : "s"} — !${cmd} to freeze the timer whenever you like. ${held} in hand.`);
+        return;
+    }
+    if (e.kind === "bff" && e.seconds > 0){
+        // chat pairs up by @-ing each other; every pair is worth rewardSeconds, paid as it's made. a rehearsal
+        // plays for real, time included — there's nothing in it to credit anybody with.
+        const cfg = mbSettings(session);
+        const res = startChallenge(session, {
+            kind: "bff",
+            title: prize.name || "BFFS",
+            subtitle: "",
+            unit: "PAIRS",
+            seconds: e.seconds,
+            goal: 0,
+            music: e.loopSound,
+            musicVolume: e.loopVolume,
+            winSound: e.winSound,
+            winVolume: e.winVolume,
+            winText: "BFFS FOREVER!",
+            failSound: e.failSound,
+            failVolume: e.failVolume,
+            failText: "FOREVER ALONE",
+            holdSec: Math.max(cfg.revealHoldSec, 10),
+            announce: true,
+            phrase: "",
+            rewardSeconds: e.rewardSeconds,
+            streak: false,
+            rounds: 1,
+            chants: [],
+            patientZero: "",
+            patientZeroName: "",
+            timeoutSeconds: 0,
+            label,
+            test: !!recipient(session, ctx).test,
+        }, true);
+        if (!res.ok)
+            emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
         return;
     }
     if (e.kind === "beatemup" && e.seconds > 0 && (e.timeoutSeconds > 0 || e.rewardSeconds > 0)){
@@ -2271,6 +2343,11 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             patientZeroName: zeroName,
             timeoutSeconds: Math.min(MAX_NUKE_SEC, e.timeoutSeconds),
             label,
+            infectGoal: e.infectGoal,
+            infectBoxes: e.infectBoxes,
+            shotBoxes: e.shotBoxes,
+            prizeBoxKind: effectBoxKind(e),
+            test: !real,
         }, true);
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
@@ -2471,6 +2548,7 @@ export function describeEffect(effect: any): string {
         const bomb = e.seconds > 0
             ? `freezes the timer, and every contribution keeps it frozen another ${mins(e.seconds)}`
                 + (e.bombGoalSec > 0 ? ` — keep it alive ${mins(e.bombGoalSec)} for ${e.bombReward === "boxes" ? `${e.boxes} ${boxesWord(effectBoxKind(e), e.boxes)}` : `+${mins(e.rewardSeconds)}`}` : "")
+                + (e.bombLastBoxes > 0 ? `; the last to contribute before it goes off gets ${e.bombLastBoxes} ${boxesWord(effectBoxKind(e), e.bombLastBoxes)}` : "")
             : "freezes nothing (set the seconds)";
         if (e.kind === "timebomb")
             return bomb;
@@ -2554,7 +2632,13 @@ export function describeEffect(effect: any): string {
     if (e.kind === "infection")
         return e.seconds > 0 && e.timeoutSeconds > 0
             ? `the opener is patient zero; @-ing spreads it for ${mins(e.seconds)}, then everyone infected is timed out ${mins(e.timeoutSeconds)}`
+                + (e.infectBoxes > 0 ? `; infecting more than ${e.infectGoal} earns ${e.infectBoxes} ${boxesWord(effectBoxKind(e), e.infectBoxes)}` : "")
+                + (e.shotBoxes > 0 ? `; shooting somebody infected earns ${e.shotBoxes} ${boxesWord(effectBoxKind(e), e.shotBoxes)}` : "")
             : "infects nobody (set the spread time and the timeout)";
+    if (e.kind === "bff")
+        return e.seconds > 0
+            ? `for ${mins(e.seconds)}, two chatters who @ each other become BFFs (one each)${e.rewardSeconds > 0 ? `; every pair puts +${mins(e.rewardSeconds)} on the timer` : ""}`
+            : "pairs nobody (set how long it runs)";
     if (e.kind === "rollcall"){
         const phrases: string[] = Array.isArray(e.phrases) ? e.phrases : [];
         if (!(e.seconds > 0) || !phrases.length)
@@ -2707,13 +2791,27 @@ export function gunSeconds(session: TimerUserSession, gun: GunKind): number {
 
 // fire one. the charge is spent up front and handed back if the shot doesn't land, because the alternative —
 // checking first — can't tell the difference between a name nobody has and a name twitch will refuse.
+// "random" as the target: somebody who has typed in the last randomShotMin minutes — not the shooter, not a mod
+// or the broadcaster (twitch would refuse them), not the bot. "" when there's nobody.
+function randomTarget(session: TimerUserSession, shooter: string): string {
+    const channel = String((session.connections && session.connections.twitch && session.connections.twitch.channel) || "").toLowerCase();
+    const bot = String((session.connections && session.connections.twitchBot && session.connections.twitchBot.botLogin) || "").toLowerCase();
+    const pool = activeChatters(session, mbSettings(session).randomShotMin * 60000)
+        .filter((k) => k !== shooter && k !== channel && k !== bot);
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
+}
+
 export async function shootGun(session: TimerUserSession, gun: GunKind, shooter: any, shooterName: any, target: any): Promise<{ ok: boolean, message: string }> {
     const g = GUNS[gun];
     const key = boxKey(shooter);
     const who = str(shooterName, MAX_NAME) || key;
-    const at = resolveTarget(session, target);
+    // the ray gun, thunder gun and fuck you gun can be fired at random; first aid is always aimed
+    const random = !g.heal && String(target || "").trim().toLowerCase() === "random";
+    const at = random ? randomTarget(session, key) : resolveTarget(session, target);
     if (!key)
         return { ok: false, message: "" };
+    if (random && !at)
+        return { ok: false, message: `@${who} there's nobody around to hit at random. You keep it.` };
     if (!at)
         return { ok: false, message: `@${who} ${g.heal ? "heal" : "shoot"} who? Try !${g.command(session)} someone.` };
     if (gunCount(session, gun, key) < 1)
@@ -2728,7 +2826,9 @@ export async function shootGun(session: TimerUserSession, gun: GunKind, shooter:
     const secs = gunSeconds(session, gun);
 
     grantGun(session, gun, key, who, -1);
-    const res = await chatTimeoutOne(session, at, secs, `${g.name} — ${who}`, g.heal);
+    // the thunder gun goes straight through a shield (the PHD Flopper); first aid's "timeout" is a heal and
+    // mustn't spend one either
+    const res = await chatTimeoutOne(session, at, secs, `${g.name} — ${who}`, g.heal || gun === "thundergun");
     if (res.blocked){
         // it hit — it just hit a shield. the shot is spent, the same as if it had landed; the block itself
         // has already been said in chat.
@@ -2744,14 +2844,17 @@ export async function shootGun(session: TimerUserSession, gun: GunKind, shooter:
     const left = gunCount(session, gun, key);
     if (gun === "fuckyougun")
         fuckedYou(session)[at.toLowerCase()] = Date.now();
+    // a hit on somebody carrying a running infection pays the shooter, when the infection says so
+    if (!g.heal)
+        shotLanded(session, key, who, at);
     if (g.heal){
         emitTerminal(session.userId, `${g.tag} — ${who} healed ${at}; ${charges(g, left)} left.`, true);
         return { ok: true, message: `@${who} used first aid on @${at} — back on their feet! ${charges(g, left)} left.` };
     }
-    emitTerminal(session.userId, `${g.tag} — ${who} shot ${at} (${secs}s); ${left} ${shots(left)} left.`, true);
+    emitTerminal(session.userId, `${g.tag} — ${who} shot ${at}${random ? " at random" : ""} (${secs}s); ${left} ${shots(left)} left.`, true);
     return {
         ok: true,
-        message: `@${who} shot @${at} with the ${g.name} — ${shotLength(secs)} ${g.flavor}. ${left} ${shots(left)} left.`,
+        message: `@${who} ${random ? "fired blind and hit" : "shot"} @${random ? chatterName(session, at) : at} with the ${g.name} — ${shotLength(secs)} ${g.flavor}. ${left} ${shots(left)} left.`,
     };
 }
 
@@ -2801,7 +2904,7 @@ export function handleRaygunChat(session: TimerUserSession, login: string, displ
         const n = gunCount(session, gun, login);
         if (tellNow(session.userId, String(login || "")))
             chatSay(session, n > 0
-                ? `@${who} you have ${charges(g, n)} — !${g.command(session)} <name> to use one.`
+                ? `@${who} you have ${charges(g, n)} — !${g.command(session)} <name> to use one${g.heal ? "" : `, or !${g.command(session)} random`}.`
                 : `@${who} you have no ${g.name} ${g.unit}s.`);
         return true;
     }

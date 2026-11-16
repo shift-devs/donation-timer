@@ -61,7 +61,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								: prize.effect.kind === "infection" ? "Spreads for"
 								: prize.effect.kind === "schizo" ? "Reads chat for"
 								: prize.effect.kind === "rollcall" ? "Runs for"
-								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "voteup" || prize.effect.kind === "weenie" || prize.effect.kind === "beatemup" ? "Runs for"
+								: prize.effect.kind === "potato" || prize.effect.kind === "cup" || prize.effect.kind === "vote" || prize.effect.kind === "voteup" || prize.effect.kind === "weenie" || prize.effect.kind === "beatemup" || prize.effect.kind === "bff" ? "Runs for"
 								: prize.effect.kind === "shell" ? "They get"
 								: prize.effect.kind === "algebra" ? "Chat gets"
 								: prize.effect.kind === "emp" ? "Boxes offline for"
@@ -121,6 +121,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						<Text fontSize="sm" color="muted">
 							{prize.effect.kind === "rollcall" ? "each answer adds"
 								: prize.effect.kind === "beatemup" ? "and every hit puts"
+								: prize.effect.kind === "bff" ? "each pair adds"
 								: prize.effect.kind === "potato" ? "each pass adds"
 								: prize.effect.kind === "weenie" ? "if nobody says it, adds"
 								: prize.effect.kind === "algebra" ? "and solving it adds"
@@ -353,6 +354,52 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 					</>)}
 				</HStack>
 			)}
+			{spec.needs.includes("bombLast") && (
+				<HStack spacing={2} wrap="wrap">
+					<Text fontSize="sm" color="muted">Last to contribute before it goes off gets</Text>
+					<NumberField
+						width="80px"
+						min={0}
+						max={99}
+						value={prize.effect.bombLastBoxes}
+						onCommit={(n) => patchEffect(prize.id, { bombLastBoxes: n }, `blx${prize.id}`)}
+					/>
+					{prize.effect.bombLastBoxes > 0 ? <BoxKindSelect prize={prize} patchEffect={patchEffect} /> : <Text fontSize="sm" color="subtle">boxes (0 = nothing)</Text>}
+				</HStack>
+			)}
+			{spec.needs.includes("infectRewards") && (<>
+				<HStack spacing={2} wrap="wrap">
+					<Text fontSize="sm" color="muted">Infecting more than</Text>
+					<NumberField
+						width="80px"
+						min={0}
+						max={1000}
+						value={prize.effect.infectGoal}
+						onCommit={(n) => patchEffect(prize.id, { infectGoal: n }, `ig${prize.id}`)}
+					/>
+					<Text fontSize="sm" color="muted">people earns</Text>
+					<NumberField
+						width="80px"
+						min={0}
+						max={99}
+						value={prize.effect.infectBoxes}
+						onCommit={(n) => patchEffect(prize.id, { infectBoxes: n }, `ib${prize.id}`)}
+					/>
+					<BoxKindSelect prize={prize} patchEffect={patchEffect} />
+					<Text fontSize="sm" color="subtle">(0 = nothing)</Text>
+				</HStack>
+				<HStack spacing={2} wrap="wrap">
+					<Text fontSize="sm" color="muted">Shooting somebody infected earns the shooter</Text>
+					<NumberField
+						width="80px"
+						min={0}
+						max={99}
+						value={prize.effect.shotBoxes}
+						onCommit={(n) => patchEffect(prize.id, { shotBoxes: n }, `sb${prize.id}`)}
+					/>
+					<Text fontSize="sm" color="subtle">{prize.effect.boxKind === "wonder" ? "wonder" : "mystery"} boxes (0 = nothing)</Text>
+				</HStack>
+			</>)}
 			{spec.needs.includes("loopSound") && (
 				<HStack spacing={2} wrap="wrap">
 					<Text fontSize="sm" color="muted">Loop</Text>

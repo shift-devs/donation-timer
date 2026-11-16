@@ -237,12 +237,12 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 					{revivePhase === "running" && (
 						<Text fontSize="sm" color="muted">
 							{revive.kind !== "subpoints" ? <><b>{revive.title}</b> — </> : null}
-							{revive.kind === "beatemup" ? <><b>@{revive.holder}</b> has taken <b>{revive.points}</b> hit{revive.points === 1 ? "" : "s"} ({countdown(revive.points * (revive.timeoutSeconds || 0) * 1000)} timeout)</> : revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote", "voteup", "shell", "algebra"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "algebra" ? <> — <b>{revive.equation}</b> ({revive.wrongAnswers || 0} wrong so far)</> : null}{revive.kind === "shell" ? <> — <b>{revive.shellPlayer ? `@${revive.shellPlayer}` : "anybody (test)"}</b> picks 1 to {revive.shells}</> : null}{(revive.kind === "vote" || revive.kind === "voteup") && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — <Tick>{() => countdown(revive.endsAt - Date.now())}</Tick> left
+							{revive.kind === "beatemup" ? <><b>@{revive.holder}</b> has taken <b>{revive.points}</b> hit{revive.points === 1 ? "" : "s"} ({countdown(revive.points * (revive.timeoutSeconds || 0) * 1000)} timeout)</> : revive.kind === "weenie" ? <>nobody may say <b>&ldquo;{revive.phrase}&rdquo;</b></> : <><b>{revive.points}{["infection", "rollcall", "potato", "cup", "vote", "voteup", "shell", "algebra", "bff"].includes(revive.kind) ? "" : ` / ${revive.goal}`}</b> {String(revive.unit || "sub points").toLowerCase()}</>}{revive.kind === "rollcall" && revive.called ? <> — calling <b>@{revive.called}</b></> : null}{(revive.kind === "potato" || revive.kind === "cup") && revive.holder ? <> — <b>@{revive.holder}</b> {revive.kind === "potato" ? "has it" : "is it"}</> : null}{revive.kind === "algebra" ? <> — <b>{revive.equation}</b> ({revive.wrongAnswers || 0} wrong so far)</> : null}{revive.kind === "shell" ? <> — <b>{revive.shellPlayer ? `@${revive.shellPlayer}` : "anybody (test)"}</b> picks 1 to {revive.shells}</> : null}{(revive.kind === "vote" || revive.kind === "voteup") && Array.isArray(revive.board) && revive.board.length ? <> — leading: <b>{revive.board.slice(0, revive.topCount || 1).map((v: any) => `@${v.name} (${v.votes})`).join(", ")}</b></> : null} — <Tick>{() => countdown(revive.endsAt - Date.now())}</Tick> left
 						</Text>
 					)}
 					{(revivePhase === "won" || revivePhase === "lost") && (
 						<Text fontSize="sm" color="muted">
-							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "beatemup" ? <><b>@{revive.holder}</b> took <b>{revive.points}</b> hit{revive.points === 1 ? "" : "s"}</> : revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</>
+							{revivePhase === "won" ? revive.winText : revive.failText} — {revive.kind === "beatemup" ? <><b>@{revive.holder}</b> took <b>{revive.points}</b> hit{revive.points === 1 ? "" : "s"}</> : revive.kind === "bff" ? <><b>{revive.points}</b> pair{revive.points === 1 ? "" : "s"}</> : revive.kind === "infection" ? <><b>{revive.points}</b> infected</> : revive.kind === "rollcall" ? <><b>{revive.points}</b> answered</>
 								: revive.kind === "potato" ? <><b>@{revive.holder}</b> was holding it after <b>{revive.points}</b> passes</>
 								: revive.kind === "cup" ? <><b>@{revive.holder}</b> wins</>
 								: revive.kind === "algebra" ? (revive.winner ? <><b>@{revive.winner}</b> solved it — x = {revive.xAnswer}</> : <>nobody solved it — x = {revive.xAnswer}</>)
@@ -555,6 +555,11 @@ const MysteryBox: React.FC<{ ws: any; token: string | null; settings: any; run: 
 							value={draft.firstAidCommand}
 							onChange={(e) => patch({ firstAidCommand: e.target.value.replace(/^!/, "") }, "facmd")}
 						/>
+					</HStack>
+					<HStack spacing={1}>
+						<Text fontSize="sm" color="muted"><Code fontSize="xs">!{draft.raygunCommand} random</Code> hits anyone who typed in the last</Text>
+						<NumberField width="80px" min={1} max={60} value={draft.randomShotMin} onCommit={(n) => patch({ randomShotMin: n }, "rsmin")} />
+						<Text fontSize="sm" color="subtle">min (also the thunder gun and fuck you gun)</Text>
 					</HStack>
 				</HStack>
 				<Text fontSize="xs" color="subtle">

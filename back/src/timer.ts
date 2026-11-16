@@ -93,6 +93,9 @@ const pauseTicks: { [userId: number]: { handle: any, session: TimerUserSession, 
 // a timebomb's reward for being kept alive, per user: paid once, the first tick the freeze has lasted goalMs.
 // held off the session for the usual reason — a closure is not state anyone should serialize or sync.
 const bombGoals: { [userId: number]: { pay: () => void, miss?: (heldMs: number) => void } } = {};
+// a timebomb's reward for whoever contributed LAST before it went off, per user. paid only when the freeze
+// lapses on its own — the bomb blowing up — never when it's resumed by hand or the session goes away.
+const bombLast: { [userId: number]: (login: string, name: string) => void } = {};
 
 // freeze the countdown for `ms`. pausing something already paused EXTENDS it to whichever end is later,
 // rather than restarting it — two prizes landing close together shouldn't cut the first one short.
@@ -105,7 +108,8 @@ const bombGoals: { [userId: number]: { pay: () => void, miss?: (heldMs: number) 
 // on already carries a goal of its own (that one is kept).
 export function pauseTimerFor(session: TimerUserSession, ms: number, reason: string,
     opts: { rollMs?: number, sound?: string, volume?: number, color?: string, pulse?: boolean,
-        goal?: { ms: number, what: string, pay: () => void, miss?: (heldMs: number) => void } } = {}): boolean {
+        goal?: { ms: number, what: string, pay: () => void, miss?: (heldMs: number) => void },
+        last?: (login: string, name: string) => void } = {}): boolean {
     const rollMs = opts.rollMs || 0;
     const now = Date.now();
     const duration = Math.max(0, Math.trunc(ms));
@@ -147,6 +151,12 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
         goalWhat: cur && cur.goalMs ? cur.goalWhat : (opts.goal ? String(opts.goal.what || "") : ""),
         goalPaid: cur && cur.goalMs ? cur.goalPaid : false,
     };
+    // who contributed last: carried over from the freeze this lands on, so a second bomb doesn't forget them
+    session.timerPause.lastBy = cur ? cur.lastBy : "";
+    session.timerPause.lastByName = cur ? cur.lastByName : "";
+    // the last-contributor reward: the bomb already running keeps its own, as with the goal
+    if (opts.last && !bombLast[session.userId])
+        bombLast[session.userId] = opts.last;
     const goalTaken = !!(opts.goal && !(cur && cur.goalMs) && session.timerPause.goalMs);
     if (goalTaken && opts.goal)
         bombGoals[session.userId] = { pay: opts.goal.pay, miss: opts.goal.miss };
@@ -167,7 +177,8 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
                     const live = cell.session;
                     const p = live.timerPause;
                     if (!p || t >= p.until || live.loggedOut){
-                        resumeTimer(live);
+                        // lapsing on its own is a timebomb going off
+                        resumeTimer(live, !!(p && p.rollMs && t >= p.until && !live.loggedOut));
                         return;
                     }
                     // anything that moved the deadline since the last tick was somebody granting (or taking)
@@ -212,7 +223,9 @@ export function pauseTimerFor(session: TimerUserSession, ms: number, reason: str
 // what makes the thing a game — chat keeps the timer frozen for as long as they keep feeding it, and the
 // moment they stop for rollMs the tick above lets it go.
 // does nothing to a plain pause, which is a fixed window nobody can extend.
-export function refreshTimebomb(session: TimerUserSession){
+// `from` is who gave it, when the platform says — the last one before it goes off can be paid for it. an
+// anonymous contribution still resets the fuse, but leaves nobody to pay.
+export function refreshTimebomb(session: TimerUserSession, from?: string, anonymous?: boolean){
     const p = session.timerPause;
     if (!p || !p.rollMs)
         return;
@@ -220,14 +233,31 @@ export function refreshTimebomb(session: TimerUserSession){
     if (p.until <= now)
         return; // already lapsed; the tick is about to clear it and reviving it here would be a second freeze
     p.until = now + p.rollMs;
+    const who = !anonymous && from ? String(from).trim().replace(/^@/, "") : "";
+    p.lastBy = who.toLowerCase();
+    p.lastByName = who;
     emitSync(session.userId); // the countdown on stream has to be seen to reset, or chaining has no feedback
 }
 
-export function resumeTimer(session: TimerUserSession){
+// `blew`: the freeze ran out on its own (see the tick), as opposed to being resumed by hand
+export function resumeTimer(session: TimerUserSession, blew = false){
     const wasPaused = !!session.timerPause;
     const p = session.timerPause;
     const goal = bombGoals[session.userId];
     delete bombGoals[session.userId];
+    const last = bombLast[session.userId];
+    delete bombLast[session.userId];
+    if (blew && last && p){
+        if (p.lastBy){
+            try {
+                last(p.lastBy, p.lastByName || p.lastBy);
+            } catch (err) {
+                reportError(session.userId, "paying a timebomb's last contributor", err);
+            }
+        } else {
+            emitTerminal(session.userId, `${p.reason} — went off; nobody named contributed last, so nobody is paid for it.`);
+        }
+    }
     // went off short of its goal: say how close they got
     if (p && p.goalMs && !p.goalPaid && !session.loggedOut){
         const held = Math.max(0, Date.now() - p.goalFrom);
@@ -290,6 +320,7 @@ export function timerPauseView(session: TimerUserSession): any {
 // tear down on logout so the tick can't keep dragging a detached session's deadline forward
 export function endPauseTimer(userId: number){
     delete bombGoals[userId];
+    delete bombLast[userId];
     const slot = pauseTicks[userId];
     if (slot)
         clearInterval(slot.handle);

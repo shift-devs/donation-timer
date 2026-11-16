@@ -53,7 +53,7 @@ export function handle(session: TimerUserSession, event: TimerEvent){
         // short-circuits below, because chaining the freeze is about the contribution HAPPENING — an anon
         // gifter, or a sub whose rate is set to zero, still bought chat another few seconds.
         if (isContribution(event))
-            refreshTimebomb(session);
+            refreshTimebomb(session, event.from || event.gifter, event.anonymous);
         // a running quick revive counts every sub's points, typed ones included, and before the anon and
         // rate short-circuits: an anonymous gift bomb is still sub points chat put up
         creditQuickRevive(session, event);

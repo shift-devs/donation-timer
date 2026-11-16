@@ -138,7 +138,7 @@ export interface TimerUserSession {
     // time being held — that one is authoritative, and endTime is re-derived from it by the tick in timer.ts.
     // `rollMs` marks a ROLLING pause (the timebomb): every contribution pushes `until` back out to this far
     // ahead, so the freeze lasts as long as chat keeps feeding it. 0/absent = a plain pause that just expires.
-    timerPause?: { until: number, reason: string, remainingMs: number, rollMs: number, startedAt: number, sound: string, volume: number, color: string, pulse: boolean, goalMs: number, goalFrom: number, goalWhat: string, goalPaid: boolean }
+    timerPause?: { until: number, reason: string, remainingMs: number, rollMs: number, startedAt: number, sound: string, volume: number, color: string, pulse: boolean, goalMs: number, goalFrom: number, goalWhat: string, goalPaid: boolean, lastBy?: string, lastByName?: string }
     merchValues: any
     fwProductBonuses: any
     fwProductSounds: any

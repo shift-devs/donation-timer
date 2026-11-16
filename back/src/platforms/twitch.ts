@@ -6,7 +6,7 @@ import { setTextBoxText } from "../textBoxes";
 import { handleFiresaleChat, runFiresaleCommand } from "../firesale";
 import { handleRaffleChat, runRaffleCommand } from "../raffle";
 import { handleMysteryBoxChat, handleRaygunChat, handleBingoChat, isBingoSender, runMysteryBoxCommand, speakChat, remindUnopened } from "../mysterybox";
-import { recordChatter, pruneChatters } from "../chat";
+import { recordChatter, pruneChatters, ROSTER_KEEP_MS } from "../chat";
 import { creditChant, creditCount, creditScramble, creditGuess, creditRollCall, spreadInfection, creditPing, creditWeenie, creditShell, creditAlgebra } from "../quickRevive";
 import { runDropCommand } from "../drops";
 import { modRefusal, eventPermission, mbPermission } from "../chatPermissions";
@@ -127,7 +127,7 @@ export function connectTwitch(session: TimerUserSession, emit: (e: TimerEvent) =
         // note who is talking, for the prizes that act on chat. recorded before anything below can return,
         // so somebody typing "!mb open" still counts as being in chat.
         recordChatter(session, tags.username, String(tags["display-name"] || tags.username), isMod);
-        pruneChatters(session);
+        pruneChatters(session, ROSTER_KEEP_MS);
         // a chant prize counts every line that says its phrase, whoever typed it. the original message, so a
         // phrase with punctuation or capitals in it matches what was actually said.
         creditChant(session, String(message || ""), tags.username, String(tags["display-name"] || tags.username));

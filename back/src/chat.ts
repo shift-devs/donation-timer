@@ -23,6 +23,9 @@ const MAX_TIMEOUT_SEC = 24 * 3600; // twitch's own ceiling for a timeout is 2 we
 // people are reading, not typing) and an hour is too long (it would sweep up people who left before the
 // stream's last break).
 export const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
+// how long somebody stays on the roster after they last typed. longer than the active window, so "!raygun
+// random" can reach back further than the prizes that act on chat right now.
+export const ROSTER_KEEP_MS = 60 * 60 * 1000;
 
 // say something in chat. with no bot authorized this lands on the dashboard terminal, where the operator can
 // read it out — which is worth more than silently dropping it.
