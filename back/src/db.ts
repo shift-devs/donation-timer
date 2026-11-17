@@ -156,6 +156,12 @@ export const USER_TABLE = {
         allowNull: false,
         defaultValue: {}
     },
+    // giveaway winners the client has to ship (see migration add-giveaway-winners)
+    giveawayWinners: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: []
+    },
     // running emote-only / sub-only prizes' deadlines, so a restart still switches them off (see migration
     // add-chat-modes)
     chatModes: {
@@ -347,6 +353,7 @@ export async function dbCreate(inObj: Object){
         fuckYouGuns: lvObj.fuckYouGuns,
         iceStaffs: lvObj.iceStaffs,
         monkeyBombs: lvObj.monkeyBombs,
+        giveawayWinners: lvObj.giveawayWinners,
         chatModes: lvObj.chatModes,
         fuckedYou: lvObj.fuckedYou,
         doubleTime: lvObj.doubleTime,
@@ -410,6 +417,7 @@ export async function dbUpdate(sessions: TimerUserSession[]){
                 fuckYouGuns: curSession.fuckYouGuns,
                 iceStaffs: curSession.iceStaffs,
                 monkeyBombs: curSession.monkeyBombs,
+                giveawayWinners: curSession.giveawayWinners,
                 chatModes: curSession.chatModes,
                 fuckedYou: curSession.fuckedYou,
                 doubleTime: curSession.doubleTime,

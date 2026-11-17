@@ -87,6 +87,8 @@ export interface TimerUserSession {
     iceStaffs: any
     // and monkey bombs, thrown with "!monkey" (see useMonkeyBomb)
     monkeyBombs: any
+    // everybody who won a giveaway prize, for the client to ship (see giveaways.ts). persisted.
+    giveawayWinners: any[]
     // while an emote-only / sub-only prize runs: when each mode ends, ms ({ emote, subscriber }). persisted,
     // so a restart still switches them back off.
     chatModes: { [mode: string]: number }

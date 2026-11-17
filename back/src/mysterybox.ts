@@ -24,6 +24,7 @@ import { addToEndTime, pauseTimerFor, startTimeBoost } from "./timer";
 import { activeChatters, chatterName, chatterByDisplayName, chatTimeoutMany, chatTimeoutOne, canTimeout, chatSay, chatAnnounce, shieldLedger, ACTIVE_WINDOW_MS, ROSTER_KEEP_MS } from "./chat";
 import { Ledger, ledgerKey, ledgerCount, ledgerGrant, ledgerRename, normalizeLedger } from "./ledger";
 import { setTextBoxText } from "./textBoxes";
+import { recordGiveawayWin, giveawayName } from "./giveaways";
 import { MB_ACTIONS, mbPermission } from "./chatPermissions";
 import { testTimerEvent } from "./scheduler";
 import { runCommandLine } from "./runCommand";
@@ -70,7 +71,7 @@ const REEL_PAD = 3;
 
 // the effects a prize is allowed to have. anything not on this list can't be configured, so a bad payload
 // from the dashboard can only ever produce a dud.
-export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes", "icestaff", "beatemup", "bff", "monkeybomb"];
+export const EFFECT_KINDS = ["none", "addTime", "removeTime", "pauseTimer", "timebomb", "timeBoost", "nuke", "emp", "emoteOnly", "subOnly", "raygun", "thundergun", "fuckyougun", "firstaid", "extraBoxes", "chant", "infection", "jukebox", "schizo", "playEvent", "textBox", "command", "doubleTime", "rollcall", "shield", "potato", "cup", "vote", "voteup", "weenie", "shell", "algebra", "wonderBoxes", "icestaff", "beatemup", "bff", "monkeybomb", "giveaway"];
 const BOMB_REWARDS = ["time", "boxes"];
 // which wallet a game that pays boxes pays into
 const BOX_KINDS = ["mystery", "wonder"];
@@ -210,7 +211,7 @@ export const DEFAULT_PRIZE = {
     volume: 1,
     // an optional second line under the name on stream, e.g. "+5 MINUTES"
     blurb: "",
-    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", bombLastBoxes: 0, infectGoal: 5, infectBoxes: 0, shotBoxes: 0, countSound: "", countVolume: 1, boxKind: "mystery", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "" },
+    effect: { kind: "none", seconds: 0, factor: 2, percent: 50, charges: 5, boxes: 2, chants: [] as any[], rounds: 3, rewardSeconds: 300, phrases: [] as string[], answerSeconds: 30, streak: false, winSound: "", winVolume: 1, failSound: "", failVolume: 1, track: "", trackVolume: 0.8, timeoutSeconds: 600, unique: true, topCount: 3, bombGoalSec: 0, bombReward: "time", bombLastBoxes: 0, infectGoal: 5, infectBoxes: 0, shotBoxes: 0, countSound: "", countVolume: 1, boxKind: "mystery", loopSound: "", loopVolume: 0.6, freezeColor: "#5bd5ff", freezePulse: false, eventId: "", box: "", text: "", command: "", giveaway: "" },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -332,6 +333,10 @@ function normalizeEffect(raw: any): any {
         box: str(r.box, 100),                  // textBox: which /text source, by name or id
         text: str(r.text, 500),                // textBox: the words to put on it
         command: str(r.command, MAX_COMMAND),  // command: terminal command(s) to run, one per line
+        // giveaway: which giveaway landing it wins. the minigames with a winner (cup, algebra, shell, voteup)
+        // carry it too: set, their winner also wins it. blank = no giveaway. either way the win is logged on
+        // the Giveaways tab for the client to ship (giveaways.ts).
+        giveaway: giveawayName(r.giveaway),
     };
 }
 
@@ -1749,6 +1754,16 @@ function payGameBoxes(session: TimerUserSession, kind: BoxKind, login: string, n
 // the games in quickRevive.ts (the infection's rewards) pay boxes through this
 setBoxPayer(payGameBoxes);
 
+// a minigame's winner: their boxes (if it pays any) and the giveaway (if it names one), logged for shipping
+function payGameWinner(session: TimerUserSession, e: any, label: string, login: string, name: string, boxes: number, why: string){
+    if (boxes > 0)
+        payGameBoxes(session, effectBoxKind(e), login, name, boxes, why);
+    if (e.giveaway){
+        recordGiveawayWin(session, e.giveaway, login, name, label);
+        chatSay(session, `@${name} you won ${e.giveaway}! The streamer will be in touch to get it to you.`);
+    }
+}
+
 function recipient(session: TimerUserSession, ctx?: EffectFor): { login: string, name: string, test: boolean } {
     if (ctx)
         return { login: String(ctx.login || "").toLowerCase(), name: ctx.name || ctx.login, test: !!ctx.test };
@@ -1824,6 +1839,19 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
     const label = `${ctx ? ctx.label : "mystery box"}: ${prize.name || prize.id}`;
     if (e.kind === "addTime" && e.seconds > 0){
         addToEndTime(session, e.seconds, label);
+        return;
+    }
+    if (e.kind === "giveaway"){
+        // a real prize the client ships by hand: whoever landed it goes on the Giveaways tab. a test spin
+        // (or a drop rehearsal) logs nobody.
+        const r = recipient(session, ctx);
+        const what = e.giveaway || prize.name || "a giveaway";
+        if (!r.login || r.test){
+            emitTerminal(session.userId, `GIVEAWAY — ${prize.name || "Giveaway"}: a test spin logs nobody as winning "${what}".`);
+            return;
+        }
+        recordGiveawayWin(session, what, r.login, r.name, label);
+        chatAnnounce(session, `@${r.name || r.login} won ${what}! The streamer will be in touch to get it to you.`, "green");
         return;
     }
     if (e.kind === "removeTime" && e.seconds > 0){
@@ -2075,12 +2103,13 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             label,
             prizeBoxes: boxes,
             prizeBoxKind: effectBoxKind(e),
+            prizeGiveaway: e.kind === "infection" ? "" : e.giveaway,
             test: !real,
         }, true, potato ? undefined : (login: string, name: string) => {
             // whoever is "it" at the end. a rehearsal must not mint currency for whoever happened to play.
             if (!real || !login)
                 return;
-            payGameBoxes(session, effectBoxKind(e), login, name, boxes, prize.name || "cup and ball");
+            payGameWinner(session, e, label, login, name, boxes, prize.name || "cup and ball");
         });
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
@@ -2122,7 +2151,7 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
         return;
     }
-    if (e.kind === "algebra" && e.seconds > 0 && (e.boxes > 0 || e.rewardSeconds > 0)){
+    if (e.kind === "algebra" && e.seconds > 0 && (e.boxes > 0 || e.rewardSeconds > 0 || e.giveaway)){
         // an equation goes up; the first chatter to type x gets the boxes and/or puts time on the timer. a
         // rehearsal plays for real — the time included, like a chant's — but gives nobody boxes.
         const cfg = mbSettings(session);
@@ -2160,17 +2189,18 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             guessNumber: eq.answer,
             prizeBoxes: boxes,
             prizeBoxKind: effectBoxKind(e),
+            prizeGiveaway: e.kind === "infection" ? "" : e.giveaway,
             test: !real,
         }, true, (login: string, name: string) => {
-            if (!real || !login || boxes <= 0)
+            if (!real || !login)
                 return;
-            payGameBoxes(session, effectBoxKind(e), login, name, boxes, prize.name || "solve for x");
+            payGameWinner(session, e, label, login, name, boxes, prize.name || "solve for x");
         });
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
         return;
     }
-    if (e.kind === "shell" && e.seconds > 0 && e.boxes > 0){
+    if (e.kind === "shell" && e.seconds > 0 && (e.boxes > 0 || e.giveaway)){
         // the opener picks a shell by typing its number; the prize is under one of them. a rehearsal plays it
         // for real with nobody in particular picking (anybody's number counts) and pays nobody.
         const cfg = mbSettings(session);
@@ -2211,17 +2241,18 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             guessNumber: 1 + Math.floor(Math.random() * shells),
             prizeBoxes: boxes,
             prizeBoxKind: effectBoxKind(e),
+            prizeGiveaway: e.kind === "infection" ? "" : e.giveaway,
             test: !real,
         }, true, (login: string, name: string) => {
             if (!real || !login)
                 return;
-            payGameBoxes(session, effectBoxKind(e), login, name, boxes, prize.name || "shell game");
+            payGameWinner(session, e, label, login, name, boxes, prize.name || "shell game");
         });
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
         return;
     }
-    if (e.kind === "voteup" && e.seconds > 0 && e.boxes > 0){
+    if (e.kind === "voteup" && e.seconds > 0 && (e.boxes > 0 || e.giveaway)){
         // vote 'em out turned round: chat @s who they want to WIN, and the most-voted gets the boxes. a
         // rehearsal plays for real but gives nobody anything.
         const cfg = mbSettings(session);
@@ -2258,11 +2289,12 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             label,
             prizeBoxes: boxes,
             prizeBoxKind: effectBoxKind(e),
+            prizeGiveaway: e.kind === "infection" ? "" : e.giveaway,
             test: !real,
         }, true, (login: string, name: string) => {
             if (!real || !login)
                 return;
-            payGameBoxes(session, effectBoxKind(e), login, name, boxes, prize.name || "vote 'em up");
+            payGameWinner(session, e, label, login, name, boxes, prize.name || "vote 'em up");
         });
         if (!res.ok)
             emitTerminal(session.userId, `MYSTERYBOX — ${res.message}`);
@@ -2398,6 +2430,7 @@ export function applyEffect(session: TimerUserSession, prize: any, ctx?: EffectF
             infectBoxes: e.infectBoxes,
             shotBoxes: e.shotBoxes,
             prizeBoxKind: effectBoxKind(e),
+            prizeGiveaway: e.kind === "infection" ? "" : e.giveaway,
             test: !real,
         }, true);
         if (!res.ok)
@@ -2619,22 +2652,30 @@ export function describeEffect(effect: any): string {
         return e.seconds > 0
             ? `the opener holds a hot potato; @ passes it (+${mins(e.rewardSeconds)} each); holder at ${mins(e.seconds)} is timed out ${mins(e.timeoutSeconds)}`
             : "passes nothing (set how long it runs)";
+    // a one-winner game's prize: its boxes, its time (solve for x only), its giveaway — "" when it has none
+    const wins = (time = false) => [
+        e.boxes > 0 ? `${e.boxes} ${boxesWord(effectBoxKind(e), e.boxes)}` : "",
+        time && e.rewardSeconds > 0 ? `+${mins(e.rewardSeconds)}` : "",
+        e.giveaway ? `the "${e.giveaway}" giveaway` : "",
+    ].filter((x) => x).join(" and ");
     if (e.kind === "cup")
         return e.seconds > 0
-            ? `the opener is "it"; @-ing whoever is it steals it; it at ${mins(e.seconds)} wins ${e.boxes} ${boxesWord(effectBoxKind(e), e.boxes)}`
+            ? `the opener is "it"; @-ing whoever is it steals it; it at ${mins(e.seconds)} wins ${wins() || "nothing"}`
             : "plays nothing (set how long it runs)";
     if (e.kind === "algebra")
-        return e.seconds > 0 && (e.boxes > 0 || e.rewardSeconds > 0)
-            ? `chat has ${mins(e.seconds)} to solve a difficulty ${e.difficulty} equation; the first right answer wins ${[e.boxes > 0 ? `${e.boxes} ${boxesWord(effectBoxKind(e), e.boxes)}` : "", e.rewardSeconds > 0 ? `+${mins(e.rewardSeconds)}` : ""].filter((x) => x).join(" and ")}`
-            : "solves nothing (set how long, and boxes and/or time)";
+        return e.seconds > 0 && wins(true)
+            ? `chat has ${mins(e.seconds)} to solve a difficulty ${e.difficulty} equation; the first right answer wins ${wins(true)}`
+            : "solves nothing (set how long, and boxes, time and/or a giveaway)";
     if (e.kind === "shell")
-        return e.seconds > 0 && e.boxes > 0
-            ? `the opener picks 1 of ${e.shells} shells within ${mins(e.seconds)}; the right one wins ${e.boxes} ${boxesWord(effectBoxKind(e), e.boxes)}`
-            : "plays nothing (set how long they get and the boxes)";
+        return e.seconds > 0 && wins()
+            ? `the opener picks 1 of ${e.shells} shells within ${mins(e.seconds)}; the right one wins ${wins()}`
+            : "plays nothing (set how long they get, and the boxes and/or a giveaway)";
     if (e.kind === "voteup")
-        return e.seconds > 0 && e.boxes > 0
-            ? `chat @s for ${mins(e.seconds)}; the most-voted wins ${e.boxes} ${boxesWord(effectBoxKind(e), e.boxes)}`
-            : "votes on nothing (set how long it runs and the boxes)";
+        return e.seconds > 0 && wins()
+            ? `chat @s for ${mins(e.seconds)}; the most-voted wins ${wins()}`
+            : "votes on nothing (set how long it runs, and the boxes and/or a giveaway)";
+    if (e.kind === "giveaway")
+        return `whoever lands it wins ${e.giveaway ? `the "${e.giveaway}" giveaway` : "a giveaway named after this prize"} — logged on the Giveaways tab to ship`;
     if (e.kind === "vote")
         return e.seconds > 0 && e.timeoutSeconds > 0
             ? `chat @s for ${mins(e.seconds)}; the top ${e.topCount} are timed out ${mins(e.timeoutSeconds)}`

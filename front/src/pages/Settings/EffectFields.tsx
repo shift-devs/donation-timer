@@ -257,7 +257,7 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 						<Text fontSize="sm" color="muted">Gives</Text>
 						<NumberField
 							width="80px"
-							min={prize.effect.kind === "algebra" ? 0 : 1}
+							min={["algebra", "cup", "shell", "voteup"].includes(prize.effect.kind) ? 0 : 1}
 							max={99}
 							value={prize.effect.boxes}
 							onCommit={(n) => patchEffect(prize.id, { boxes: n }, `bx${prize.id}`)}
@@ -709,6 +709,18 @@ const EffectFields: React.FC<{ prize: any; patchEffect: (id: string, p: any, key
 								: "the countdown holds this colour for as long as the freeze lasts"
 							: ""}
 					</Text>
+				</HStack>
+			)}
+			{spec.needs.includes("giveaway") && (
+				<HStack spacing={2}>
+					<Text fontSize="sm" color="muted" whiteSpace="nowrap">{prize.effect.kind === "giveaway" ? "Giveaway" : "Winner also wins giveaway"}</Text>
+					<Input
+						size="sm"
+						maxLength={80}
+						placeholder={prize.effect.kind === "giveaway" ? (prize.name || "e.g. Signed hoodie") : "none (e.g. Signed hoodie)"}
+						value={prize.effect.giveaway}
+						onChange={(e) => patchEffect(prize.id, { giveaway: e.target.value }, `gw${prize.id}`)}
+					/>
 				</HStack>
 			)}
 			{spec.needs.includes("text") && (

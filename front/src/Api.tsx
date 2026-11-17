@@ -413,3 +413,12 @@ export function runCommand(ws: WebSocket, command: string) {
 	send(ws, { event: "runCommand", command: command });
 	return 1;
 }
+
+// the Giveaways tab: tick a giveaway win shipped / write a note on it, or delete it
+export function setGiveawayWin(ws: WebSocket, id: string, patch: { shipped?: boolean; note?: string }) {
+	send(ws, { event: "setGiveawayWin", id: id, ...patch });
+}
+
+export function deleteGiveawayWin(ws: WebSocket, id: string) {
+	send(ws, { event: "deleteGiveawayWin", id: id });
+}

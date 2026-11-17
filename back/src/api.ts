@@ -12,6 +12,7 @@ import { normalizeRaffle, raffleView, pushRaffle, startRaffle, drawRaffle, stopR
 import { normalizeBoxBoard, boxBoardView, resetBoxBoard, runBoxBoardCommand } from "./boxBoard";
 import { normalizeChatPermissions, mergeChatPermissions } from "./chatPermissions";
 import { normalizeFiresale, firesaleView, startFiresale, stopFiresale, declareFiresaleWinner, endRun, pushFiresale, runFiresaleCommand } from "./firesale";
+import { updateGiveawayWin, deleteGiveawayWin } from "./giveaways";
 import { normalizeMysteryBox, normalizeWonderBox, normalizeBoxes, mysteryBoxView, pushMysteryBox, grantMysteryBox, grantRaygun, grantThundergun, grantFirstAid, grantFuckYouGun, grantIceStaff, grantMonkeyBomb, grantDoubleTime, grantShield, renameOwner, clearGiftProgress, testMysteryBox, endMysteryBox, stopJukebox, stopSchizo } from "./mysterybox";
 import { testTimerEvent, firePlatformTriggers } from "./scheduler";
 import { getUserSession, loginUser, logoutUser, connectTwitchFor, connectStreamlabsFor, connectFourthwallFor, connectTwitchSubsFor } from "./session";
@@ -145,6 +146,8 @@ function wsSync(ws: TimerWebSocket) {
             fuckYouGuns: curSession.fuckYouGuns || {},
             iceStaffs: curSession.iceStaffs || {},
             monkeyBombs: curSession.monkeyBombs || {},
+            // the Giveaways tab: every giveaway prize won, for the client to ship
+            giveawayWinners: curSession.giveawayWinners || [],
             doubleTime: curSession.doubleTime || {},
             shields: curSession.shields || {},
             giftSubProgress: curSession.giftSubProgress || {},
@@ -823,6 +826,15 @@ export function startApi(){
                     const n = Math.trunc(Number(jData.count) || 1);
                     if (name && n)
                         grantFuckYouGun(curSession, name, name, n);
+                    break;
+                }
+                case "setGiveawayWin": {
+                    // the Giveaways tab: tick a win shipped, or note something on it
+                    updateGiveawayWin(curSession, jData.id, { shipped: jData.shipped, note: jData.note });
+                    break;
+                }
+                case "deleteGiveawayWin": {
+                    deleteGiveawayWin(curSession, jData.id);
                     break;
                 }
                 case "giveMonkeyBomb": {

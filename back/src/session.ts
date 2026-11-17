@@ -14,6 +14,7 @@ import { endPauseTimer, endBoostTimer } from "./timer";
 import { endQuickReviveTimers } from "./quickRevive";
 import { normalizeDrops, normalizeDropState, endDropTimers } from "./drops";
 import { normalizeWidgetSettings } from "./widgetSettings";
+import { normalizeGiveawayWinners } from "./giveaways";
 import { handle } from "./events";
 import { connectTwitch } from "./platforms/twitch";
 import { connectStreamlabs } from "./platforms/streamlabs";
@@ -102,6 +103,7 @@ export function loginUser(inObj: Object){
     lvObj.fuckYouGuns = normalizeBoxes(lvObj.fuckYouGuns);   // and fuck you gun charges
     lvObj.iceStaffs = normalizeBoxes(lvObj.iceStaffs);       // and ice staff charges
     lvObj.monkeyBombs = normalizeBoxes(lvObj.monkeyBombs);   // and monkey bombs
+    lvObj.giveawayWinners = normalizeGiveawayWinners(lvObj.giveawayWinners); // and giveaway prizes still to ship
     lvObj.doubleTime = normalizeBoxes(lvObj.doubleTime);     // and unspent double time prizes
     lvObj.shields = normalizeBoxes(lvObj.shields);           // and unspent timeout shields
     // seeded from the mystery box's firesale rules the first time, since firesales earn wonder boxes now

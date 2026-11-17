@@ -18,6 +18,7 @@ import MysteryBox from "./Settings/MysteryBox";
 import WonderBox from "./Settings/WonderBox";
 import BoxBoard from "./Settings/BoxBoard";
 import Permissions from "./Settings/Permissions";
+import Giveaways from "./Settings/Giveaways";
 import { runCommand } from "../Api";
 import { Navigate } from "react-router-dom";
 import {
@@ -294,6 +295,7 @@ const Settings: React.FC = () => {
 						<Tab>Drops</Tab>
 						<Tab>Box Board</Tab>
 						<Tab>Permissions</Tab>
+						<Tab>Giveaways</Tab>
 						<Tab>Settings</Tab>
 					</TabList>
 					<TabPanels flex='1' overflowY='auto' minH={0}>
@@ -352,7 +354,10 @@ const Settings: React.FC = () => {
 							<ActivePanel active={tabIndex === 15}><Permissions ws={ws} settings={settings} /></ActivePanel>
 						</TabPanel>
 						<TabPanel>
-							<ActivePanel active={tabIndex === 16}><Controls ws={ws} token={token} settings={settings} /></ActivePanel>
+							<ActivePanel active={tabIndex === 16}><Giveaways ws={ws} settings={settings} /></ActivePanel>
+						</TabPanel>
+						<TabPanel>
+							<ActivePanel active={tabIndex === 17}><Controls ws={ws} token={token} settings={settings} /></ActivePanel>
 						</TabPanel>
 					</TabPanels>
 				</Tabs>
